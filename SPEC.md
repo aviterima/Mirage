@@ -119,8 +119,8 @@ are **not** a priority — they are handled by design in §1.2, not by evasion.
 
 ### 4.1 Location & place search (G5)
 - Search **by name, POI, landmark, or address** with autocomplete.
-- Providers (pluggable): Nominatim/Photon (OSM, free, self-hostable) as default;
-  Google Places / Mapbox as optional keyed backends.
+- Providers (pluggable): **Google Places / Geocoding (default)**, matching the
+  routing source; Nominatim/Photon (OSM, self-hostable) as fallback.
 - Reverse geocoding for tap-on-map ("what is here").
 - Recent searches + favorites (Home, Work, named pins) with one-tap teleport.
 
@@ -152,9 +152,13 @@ are **not** a priority — they are handled by design in §1.2, not by evasion.
 - Editable polyline: drag to reshape or add a waypoint — each edit is **re-routed
   through the engine**, so a dragged path still snaps to legal roads (it never
   becomes a straight-line cheat between points).
+- **Provider (chosen): Google Directions API** — its routes match what the team sees
+  in Google Maps, including one-way/turn/ramp rules. Behind a `RouteEngine`
+  interface so a self-hosted OSRM/GraphHopper fallback can be swapped in without
+  touching the motion engine.
 - **Offline note:** the mockup in `design/mockups` uses a hand-drawn grid only
   because the design sandbox has no network; the shipping app always calls the
-  routing service. See §12 for the provider decision.
+  routing service.
 
 ### 4.4 Motion model / realism engine (G3)
 The `MotionModel` converts a route polyline + parameters into a fixed-cadence time
@@ -464,8 +468,8 @@ of Home, Route setup, Live HUD, and Day planner accompanies this spec.
 | Language / UI | **Kotlin + Jetpack Compose** | Modern, testable. |
 | Min / target SDK | Min 26, target latest | `isMock` behavior differs pre/post API 31 — handle both. |
 | Map | **MapLibre GL Native** (default) | Open, no key lock-in; Google Maps SDK optional. |
-| Routing | **OSRM / GraphHopper** (self-host or hosted) | Google/Mapbox Directions optional, keyed. |
-| Geocoding | **Photon / Nominatim** | Google Places / Mapbox optional. |
+| Routing | **Google Directions API** (default, chosen) | Matches Google Maps' own routing (one-way/turn/ramp rules); needs an API key + billing. OSRM/GraphHopper remain a self-host fallback behind the same `RouteEngine` interface. |
+| Geocoding | **Google Places / Geocoding API** (default) | Name/POI search consistent with the routing source. Photon/Nominatim as self-host fallback. |
 | Location out | `LocationManager` test providers **+** `FusedLocationProviderClient` mock mode | Both, always (§5.1). |
 | Car integration | **androidx.car.app** (`CarConnection`) | Projection state detection. |
 | iPhone view | **Google Maps location sharing** (no code) | Android shares live (spoofed) location → iPhone views it (§5A). |
@@ -545,6 +549,8 @@ before it trusts results.
 - **Phase 0 — Spikes (de-risk first).**
   1. Foreground mock-provider service emitting to `gps` + FLP; prove continuous
      emission with screen off + Doze, validated against **Google Maps**.
+     → **Built: `android/` (Mirage Spike).** See `android/README.md` for the test
+     protocol. Remaining: run the acceptance protocol on hardware.
   2. **Android Auto coexistence spike** (§5.4) — on DHU + a physical unit, confirm
      whether the car's GPS reaches the phone's fused provider and prove the phone
      apps hold the spoof while the car nav stays real.
@@ -589,7 +595,7 @@ before it trusts results.
 | Exact cause of AA location revert | Phase 0 spike on DHU + hardware before committing the workaround design. |
 | FLP mock mode reset by Play Services updates/car mode | Watchdog re-asserts; test across Play Services versions. |
 | OEM battery killers terminate the service | Battery-optimization exemption + `START_STICKY` + auto-resume; document per-OEM setup. |
-| Routing/geocoding cost & rate limits | Default to self-hostable OSM stack; keyed providers optional. |
+| Google Directions/Places cost, key management & rate limits | Chosen for fidelity; cache routes, restrict the API key, monitor billing; OSRM/Photon self-host fallback kept behind the same interfaces. |
 | `isMock` semantics differ across API levels | Handle both; document that mock-rejecting apps are unsupported by design (§1.2). |
 | Head unit with independent GPS | Documented limitation — phone-side mock only (§5.4). |
 | iPhone view lags / coarsens (location-sharing cadence) | Documented fidelity limit (§5A.1); Android is the source of truth; measure latency in the Phase-0 check. |

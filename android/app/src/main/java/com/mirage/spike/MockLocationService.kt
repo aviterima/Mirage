@@ -1,0 +1,273 @@
+package com.mirage.spike
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.Service
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.location.Criteria
+import android.location.Location
+import android.location.LocationManager
+import android.os.Build
+import android.os.IBinder
+import android.os.PowerManager
+import android.os.SystemClock
+import androidx.core.app.NotificationCompat
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationServices
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlin.math.cos
+import kotlin.math.sin
+
+/**
+ * Phase-0 reliability spike.
+ *
+ * A foreground service that continuously feeds a mock location to BOTH the platform
+ * LocationManager test providers (gps + network) AND the Google Play Fused Location
+ * Provider (which Google Maps reads). Its job is to prove the spoof never drops:
+ * it re-asserts on every tick, survives screen-off / Doze via a foreground service +
+ * wake lock, and a watchdog flags any real-fix leakage.
+ *
+ * This is intentionally minimal — a fixed-heading drive from START_LAT/START_LNG —
+ * so the only thing under test is emission reliability, validated against Google Maps.
+ */
+class MockLocationService : Service() {
+
+    private val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+    private val lm by lazy { getSystemService(LOCATION_SERVICE) as LocationManager }
+    private val flp: FusedLocationProviderClient by lazy {
+        LocationServices.getFusedLocationProviderClient(this)
+    }
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var loop: Job? = null
+    private var wakeLock: PowerManager.WakeLock? = null
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP) {
+            stopEverything()
+            return START_NOT_STICKY
+        }
+        startAsForeground()
+        acquireWakeLock()
+        if (loop == null || loop?.isActive != true) {
+            if (setupProviders()) {
+                loop = scope.launch { emitLoop() }
+            } else {
+                // Not selected as the mock app — nothing to run.
+                stopEverything()
+                return START_NOT_STICKY
+            }
+        }
+        // START_STICKY: if the process is killed, Android restarts the service.
+        return START_STICKY
+    }
+
+    // --- provider setup -----------------------------------------------------
+
+    /** @return true if we are the selected mock app and providers are registered. */
+    private fun setupProviders(): Boolean {
+        return try {
+            for (p in providers) addOneProvider(p)
+            flp.setMockMode(true)
+            MockState.update {
+                it.copy(mockAppSelected = true, running = true, health = Health.GREEN, message = "Spoofing")
+            }
+            true
+        } catch (e: SecurityException) {
+            MockState.update {
+                it.copy(
+                    mockAppSelected = false, running = false, health = Health.RED,
+                    message = "Not the selected mock-location app"
+                )
+            }
+            false
+        }
+    }
+
+    private fun addOneProvider(p: String) {
+        try {
+            @Suppress("DEPRECATION")
+            lm.addTestProvider(
+                p,
+                /* requiresNetwork = */ false,
+                /* requiresSatellite = */ true,
+                /* requiresCell = */ false,
+                /* hasMonetaryCost = */ false,
+                /* supportsAltitude = */ true,
+                /* supportsSpeed = */ true,
+                /* supportsBearing = */ true,
+                Criteria.POWER_LOW,
+                Criteria.ACCURACY_FINE
+            )
+        } catch (_: IllegalArgumentException) {
+            // Provider already added on a previous run — fine.
+        }
+        lm.setTestProviderEnabled(p, true)
+    }
+
+    // --- emit loop ----------------------------------------------------------
+
+    private suspend fun emitLoop() {
+        var lat = START_LAT
+        var lng = START_LNG
+        val speed = 13.4f          // ~30 mph
+        val bearingDeg = 120.0     // heading south-east
+        val dt = INTERVAL_MS / 1000.0
+        var count = 0L
+        var reasserts = 0L
+        var leakEver = false
+        var tick = 0
+
+        while (scope.isActive) {
+            for (p in providers) {
+                try {
+                    lm.setTestProviderLocation(p, makeLocation(p, lat, lng, speed, bearingDeg.toFloat()))
+                } catch (_: Exception) {
+                    // provider was dropped — re-assert immediately (this is the point of the spike)
+                    reasserts++
+                    runCatching { addOneProvider(p) }
+                }
+            }
+            runCatching { flp.setMockLocation(makeLocation(LocationManager.GPS_PROVIDER, lat, lng, speed, bearingDeg.toFloat())) }
+
+            // advance the position
+            val distN = speed * dt * cos(Math.toRadians(bearingDeg))
+            val distE = speed * dt * sin(Math.toRadians(bearingDeg))
+            lat += distN / 111_320.0
+            lng += distE / (111_320.0 * cos(Math.toRadians(lat)))
+            count++
+
+            // watchdog every ~2s: verify providers + detect real-fix leakage
+            var leakNow = false
+            if (++tick >= WATCHDOG_EVERY) {
+                tick = 0
+                for (p in providers) {
+                    if (!runCatching { lm.isProviderEnabled(p) }.getOrDefault(true)) {
+                        reasserts++
+                        runCatching { addOneProvider(p) }
+                    }
+                }
+                leakNow = detectLeak()
+                if (leakNow) leakEver = true
+            }
+
+            val health = if (leakNow) Health.AMBER else Health.GREEN
+            val fLat = lat; val fLng = lng; val fCount = count; val fRe = reasserts; val fLeak = leakEver
+            MockState.update {
+                it.copy(
+                    running = true, mockAppSelected = true, health = health,
+                    lat = fLat, lng = fLng, speedMps = speed,
+                    emittedCount = fCount, reassertCount = fRe, leakSeen = fLeak,
+                    message = if (fLeak) "Re-asserting (leak seen)" else "Spoofing"
+                )
+            }
+            delay(INTERVAL_MS)
+        }
+    }
+
+    /** True if the OS last-known GPS fix is NOT ours (a real fix leaked through). */
+    private fun detectLeak(): Boolean {
+        val last = runCatching { lm.getLastKnownLocation(LocationManager.GPS_PROVIDER) }.getOrNull()
+            ?: return false
+        return !isMock(last)
+    }
+
+    private fun isMock(l: Location): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            l.isMock
+        } else {
+            @Suppress("DEPRECATION") l.isFromMockProvider
+        }
+
+    private fun makeLocation(provider: String, lat: Double, lng: Double, speed: Float, bearing: Float): Location {
+        return Location(provider).apply {
+            latitude = lat
+            longitude = lng
+            accuracy = 3.0f
+            altitude = 12.0
+            this.speed = speed
+            this.bearing = bearing
+            time = System.currentTimeMillis()
+            elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                bearingAccuracyDegrees = 1.0f
+                speedAccuracyMetersPerSecond = 0.5f
+                verticalAccuracyMeters = 3.0f
+            }
+        }
+    }
+
+    // --- lifecycle / foreground --------------------------------------------
+
+    private fun startAsForeground() {
+        val channelId = "mirage_mock"
+        val nm = getSystemService(NotificationManager::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val existing = nm.getNotificationChannel(channelId)
+            if (existing == null) {
+                nm.createNotificationChannel(
+                    NotificationChannel(channelId, "Mock location", NotificationManager.IMPORTANCE_LOW)
+                )
+            }
+        }
+        val notification: Notification = NotificationCompat.Builder(this, channelId)
+            .setContentTitle("Mirage — spoofing location")
+            .setContentText("Feeding a mock GPS route to the system")
+            .setSmallIcon(android.R.drawable.ic_menu_compass)
+            .setOngoing(true)
+            .build()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+        } else {
+            startForeground(NOTIF_ID, notification)
+        }
+    }
+
+    private fun acquireWakeLock() {
+        if (wakeLock?.isHeld == true) return
+        val pm = getSystemService(POWER_SERVICE) as PowerManager
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "mirage:mock").also {
+            it.setReferenceCounted(false)
+            it.acquire(60 * 60 * 1000L) // 1h safety cap
+        }
+    }
+
+    private fun stopEverything() {
+        loop?.cancel()
+        loop = null
+        for (p in providers) {
+            runCatching { lm.setTestProviderEnabled(p, false) }
+            runCatching { lm.removeTestProvider(p) }
+        }
+        runCatching { flp.setMockMode(false) }
+        runCatching { if (wakeLock?.isHeld == true) wakeLock?.release() }
+        wakeLock = null
+        MockState.update { it.copy(running = false, health = Health.RED, message = "Stopped") }
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    override fun onDestroy() {
+        scope.cancel()
+        super.onDestroy()
+    }
+
+    companion object {
+        const val ACTION_STOP = "com.mirage.spike.STOP"
+        private const val NOTIF_ID = 42
+        private const val INTERVAL_MS = 200L   // 5 Hz emit cadence
+        private const val WATCHDOG_EVERY = 10  // ~ every 2 s
+    }
+}
