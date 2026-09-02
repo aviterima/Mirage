@@ -82,8 +82,8 @@ fun MapScreen(
             modifier = Modifier.fillMaxSize(),
             cameraPositionState = camera,
             uiSettings = MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = false),
-            onMapClick = { vm.setDest(it.toE()) },
-            onMapLongClick = { vm.setStart(it.toE()) },
+            onMapClick = { vm.setDestPoint(it.toE()) },
+            onMapLongClick = { vm.setStartPoint(it.toE()) },
         ) {
             vm.start?.let { s ->
                 Marker(

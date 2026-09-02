@@ -41,8 +41,8 @@ class MirageViewModel : ViewModel() {
     private val routeEngine by lazy { GoogleDirectionsRouteEngine(BuildConfig.MAPS_API_KEY) }
     private val geocoder by lazy { GoogleGeocoder(BuildConfig.MAPS_API_KEY) }
 
-    fun setStart(p: LatLng) { start = p; invalidateRoute() }
-    fun setDest(p: LatLng) { dest = p; invalidateRoute() }
+    fun setStartPoint(p: LatLng) { start = p; invalidateRoute() }
+    fun setDestPoint(p: LatLng) { dest = p; invalidateRoute() }
     fun clearError() { error = null }
 
     private fun invalidateRoute() {
@@ -57,7 +57,7 @@ class MirageViewModel : ViewModel() {
             try {
                 val p = geocoder.geocode(query)
                 if (p == null) error = "No match for “$query”"
-                else { setDest(p); onFound(p) }
+                else { setDestPoint(p); onFound(p) }
             } catch (e: Exception) { error = e.message }
         }
     }
