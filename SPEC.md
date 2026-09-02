@@ -359,25 +359,84 @@ dither all live on Android; the iPhone is satisfied entirely by Google Maps shar
 
 ## 6. UI / UX specification (G5)
 
-Design principle: **map-first, one primary action visible at all times.**
+The UI is a **first-class pillar**, not a shell over the engine. Bar: a non-engineer
+sets and runs a realistic spoof in under 60 s, and a power user scripts a full day
+without fighting the tool.
 
-- **Home / Map screen**: full-bleed map; a single search bar (place/POI/address);
-  a floating primary button whose label reflects state (*Set location* →
-  *Simulate route* → *Stop*). Long-press to drop a pin.
-- **Route editor**: pick A and B, engine draws the snapped route; a bottom sheet
-  exposes the few knobs that matter — **average speed**, transport mode, realism
-  preset (Off / Realistic / Aggressive), loop, and time-compression. Advanced
-  params (accuracy band, stop rates, seed) behind an *Advanced* expander.
-- **Session HUD**: compact top card with live speed/coords/ETA and the
-  GREEN/AMBER/RED health chip; scrubber at the bottom.
-- **Library**: saved routes/pins/favorites; import/export.
-- **Design language**: Material 3, dynamic color, full dark mode, large touch
-  targets, minimal chrome. A first-run 3-step primer that walks the user through
-  enabling the mock-location developer setting (the one unavoidable setup step),
-  with a deep link to the right Settings page and a live check that it worked.
-- **Motion presets** so a non-expert never has to think about distributions:
-  *Realistic* (default) applies sensible stop rates, speed variance, and accuracy
-  jitter; *Constant* for deterministic/simple tests.
+### 6.1 Design principles
+1. **Map-first.** A full-bleed map is the canvas; controls float over it and never
+   bury it. You always see where the device "is."
+2. **One primary action at all times.** A single, state-aware primary button — its
+   label and color are the app's current verb (*Set location* → *Simulate* → **STOP**).
+   You never hunt for the next step.
+3. **Progressive disclosure.** Three knobs by default (where, how fast, how real);
+   everything else lives under *Advanced*. Novices see a clean face; experts get depth.
+4. **Status is never ambiguous.** A persistent health pill (GREEN spoofing / AMBER
+   re-asserting / RED real-location) is visible whenever a session runs — the tester
+   must always know, at a glance, that the spoof is holding.
+5. **Direct manipulation.** Drag the route line, drag pins, drag timeline steps.
+   Numbers are for confirmation, gestures are for control.
+6. **Calm, legible motion.** Material 3 expressive, dynamic color, real dark mode,
+   large touch targets, generous type. Animation clarifies state changes; it never
+   decorates.
+
+### 6.2 Primary screens
+
+- **Home / Map** — full-bleed map; a single top **search bar** (place, POI, landmark,
+  or address with autocomplete); **favorites row** (Home/Work/saved pins) as chips;
+  a bottom **primary action button**. Long-press drops a pin; tap a result to preview
+  it in a peek sheet with *Set here* / *Route from here*. A small **joystick toggle**
+  enters free-roam.
+- **Route setup (bottom sheet, expandable)** — A→B fields (each opens search),
+  the snapped route drawn live. The sheet shows only:
+  - **Average speed** (slider + unit toggle, big and central),
+  - **Transport mode** (drive/bike/walk segmented control),
+  - **Realism** (segmented: *Constant · Realistic · Busy*),
+  plus *Loop* and *Speed ×* (time compression). An **Advanced** expander reveals
+  accuracy band, stop rates, dither radius, update Hz, RNG seed. Drag the route line
+  to reshape; tap *+* to add a waypoint.
+- **Live session HUD** — collapses the setup sheet into a compact top card: current
+  **speed, coordinates, bearing, ETA**, the **health pill**, and a **scrubber** along
+  the bottom to seek/scrub the route. One giant **STOP**. Tapping the card expands
+  full telemetry.
+- **Day planner (scenario timeline)** — a vertical, reorderable timeline of **Stay**
+  and **Travel** steps (drag to reorder, swipe to delete). Each step is a card
+  (place name, time or duration, mode/speed); **Travel** legs show their mini-route.
+  A top strip picks the clock mode (*Real-time · Compressed ×N · Anchored @time*) and
+  flags any infeasible arrive-by in red with a suggested minimum. A **play head**
+  shows where "now" is during a run; tap any step to jump the device there.
+- **Library** — saved routes, scenarios, pins, and favorites as cards with map
+  thumbnails; search/filter; import/export (GPX/KML/JSON); duplicate, reverse, rename.
+- **Settings** — providers (map/routing/geocoding endpoints), units, default realism,
+  automation/ADB info, and the mock-location setup status.
+
+### 6.3 Onboarding (the one unavoidable setup step)
+A first-run flow makes enabling **Developer Options → Select mock location app**
+painless: a 3-step primer with a **deep link** straight to the right Settings page, a
+plain-language "why," and a **live check** that flips to a green ✓ the instant Mirage
+is selected — so users never get stuck on the single piece of required setup. Also
+surfaces the optional **iPhone location-sharing** setup (§5A) as a skippable card.
+
+### 6.4 Interaction & feedback details
+- **Health pill** is always tappable → a sheet explaining current state and, if RED,
+  a one-tap *Re-assert* and a link to what's wrong (e.g. mock app not selected).
+- **Presets over parameters**: *Realistic* is the default and needs zero tuning;
+  distributions/seeds exist but are never in the novice's way.
+- **Confirm-by-preview**: before a run, the route/scenario animates a fast preview so
+  the tester sees the shape before committing.
+- **Errors are actionable**, never codes: "Mock app not selected → Open Settings",
+  "Location sharing is off → Turn on".
+- **One-handed**: primary controls sit in the bottom third; nothing critical in the
+  top corners.
+- **Accessibility**: full TalkBack labels, ≥48dp targets, dynamic type, WCAG-AA
+  contrast in both themes, no color-only status (pill has icon + text).
+
+### 6.5 Visual language
+Material 3 (Material You dynamic color), an accent reserved for the primary action and
+the live route, a distinct semantic palette for the health pill (green/amber/red with
+icons), map-appropriate light/dark map styles, rounded 16–28dp surfaces, and motion
+that tracks state (route draws on, HUD slides up, play head advances). A visual mockup
+of Home, Route setup, Live HUD, and Day planner accompanies this spec.
 
 ---
 

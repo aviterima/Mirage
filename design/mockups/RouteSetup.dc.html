@@ -1,0 +1,133 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+    body { margin: 0; }
+    * { box-sizing: border-box; }
+    a { color: #4F46E5; } a:hover { color: #4338CA; }
+  </style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: #e9edf2; font-family: 'Manrope', system-ui, sans-serif; color: #1B1B1F;">
+
+  <!-- MAP -->
+  <svg viewBox="0 0 390 420" width="390" height="420" style="position: absolute; top: 0; left: 0;" preserveAspectRatio="xMidYMid slice">
+    <rect width="390" height="420" fill="#e9edf2"/>
+    <path d="M-20 60 Q 110 30 210 80 T 420 66 L 460 190 Q 260 235 130 195 T -20 220 Z" fill="#dbe9d4"/>
+    <g stroke="#ffffff" stroke-width="15" fill="none" stroke-linecap="round">
+      <path d="M-10 250 L 420 292"/>
+      <path d="M95 -10 L 128 470"/>
+      <path d="M300 -10 L 326 470"/>
+    </g>
+    <g stroke="#ffffff" stroke-width="7" fill="none" stroke-linecap="round" opacity="0.9">
+      <path d="M-10 150 L 420 168"/>
+      <path d="M215 -10 L 240 470"/>
+    </g>
+    <g fill="#dfe3ea">
+      <rect x="24" y="300" width="66" height="70" rx="4"/>
+      <rect x="176" y="316" width="104" height="60" rx="4"/>
+    </g>
+    <!-- route -->
+    <path d="M118 132 C 150 200, 210 210, 250 286" fill="none" stroke="#ffffff" stroke-width="11" stroke-linecap="round"/>
+    <path d="M118 132 C 150 200, 210 210, 250 286" fill="none" stroke="#4F46E5" stroke-width="6" stroke-linecap="round"/>
+  </svg>
+
+  <!-- pin A -->
+  <div style="position: absolute; left: 118px; top: 132px; transform: translate(-50%,-50%); width: 20px; height: 20px; border-radius: 50%; background: #16A34A; border: 3px solid #fff; box-shadow: 0 2px 6px rgba(0,0,0,0.25);"></div>
+  <!-- pin B -->
+  <div style="position: absolute; left: 250px; top: 286px; transform: translate(-50%,-100%);">
+    <svg width="30" height="40" viewBox="0 0 34 44"><path d="M17 2C9 2 3 8 3 16c0 9.5 14 26 14 26s14-16.5 14-26C31 8 25 2 17 2z" fill="#4F46E5" stroke="#fff" stroke-width="2.5"/><circle cx="17" cy="16" r="5" fill="#fff"/></svg>
+  </div>
+
+  <!-- back button -->
+  <div style="position: absolute; top: 52px; left: 16px; width: 44px; height: 44px; border-radius: 50%; background: #fff; box-shadow: 0 3px 10px rgba(20,20,40,0.14); display: flex; align-items: center; justify-content: center;">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1B1B1F" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+  </div>
+
+  <!-- BOTTOM SHEET -->
+  <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 512px; background: #fff; border-radius: 28px 28px 0 0; box-shadow: 0 -8px 30px rgba(20,20,40,0.14); padding: 12px 20px 20px; display: flex; flex-direction: column; gap: 14px;">
+    <div style="width: 40px; height: 4px; border-radius: 3px; background: #D6D9E0; align-self: center;"></div>
+    <div style="font-size: 20px; font-weight: 800; letter-spacing: -0.2px;">Simulate route</div>
+
+    <!-- A / B fields -->
+    <div style="display: flex; flex-direction: column; gap: 8px;">
+      <div style="display: flex; align-items: center; gap: 12px; background: #F4F5F8; border-radius: 14px; padding: 12px 14px;">
+        <div style="width: 12px; height: 12px; border-radius: 50%; background: #16A34A;"></div>
+        <span style="flex: 1; font-size: 15px; font-weight: 600;">Grand Park</span>
+        <span style="font-size: 12px; color: #80858E; font-weight: 600;">A</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 12px; background: #F4F5F8; border-radius: 14px; padding: 12px 14px;">
+        <svg width="13" height="16" viewBox="0 0 34 44"><path d="M17 2C9 2 3 8 3 16c0 9.5 14 26 14 26s14-16.5 14-26C31 8 25 2 17 2z" fill="#4F46E5"/></svg>
+        <span style="flex: 1; font-size: 15px; font-weight: 600;">Ferry Building</span>
+        <span style="font-size: 12px; color: #80858E; font-weight: 600;">B</span>
+      </div>
+    </div>
+
+    <!-- Average speed -->
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; align-items: baseline; justify-content: space-between;">
+        <span style="font-size: 14px; font-weight: 700; color: #44474E;">Average speed</span>
+        <span style="font-size: 22px; font-weight: 800; color: #4F46E5;">45 <span style="font-size: 13px; color: #80858E; font-weight: 700;">mph</span></span>
+      </div>
+      <div style="position: relative; height: 22px; display: flex; align-items: center;">
+        <div style="position: absolute; left: 0; right: 0; height: 6px; border-radius: 3px; background: #E7E8EE;"></div>
+        <div style="position: absolute; left: 0; width: 58%; height: 6px; border-radius: 3px; background: #4F46E5;"></div>
+        <div style="position: absolute; left: 58%; transform: translateX(-50%); width: 22px; height: 22px; border-radius: 50%; background: #4F46E5; border: 3px solid #fff; box-shadow: 0 2px 6px rgba(79,70,229,0.5);"></div>
+      </div>
+    </div>
+
+    <!-- Transport segmented -->
+    <div style="display: flex; background: #F0F1F5; border-radius: 14px; padding: 4px; gap: 4px;">
+      <div style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; background: #fff; border-radius: 11px; padding: 9px 0; font-size: 13.5px; font-weight: 700; box-shadow: 0 1px 4px rgba(20,20,40,0.1);">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#4F46E5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l1.5-4.5A2 2 0 0 1 8.4 7h7.2a2 2 0 0 1 1.9 1.5L19 13"/><path d="M4 13h16v4H4zM6 17v2M18 17v2"/><circle cx="7.5" cy="15" r="0.6"/><circle cx="16.5" cy="15" r="0.6"/></svg>
+        Drive
+      </div>
+      <div style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 9px 0; font-size: 13.5px; font-weight: 600; color: #6B7078;">Bike</div>
+      <div style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 9px 0; font-size: 13.5px; font-weight: 600; color: #6B7078;">Walk</div>
+    </div>
+
+    <!-- Realism segmented -->
+    <div style="display: flex; flex-direction: column; gap: 8px;">
+      <span style="font-size: 14px; font-weight: 700; color: #44474E;">Realism</span>
+      <div style="display: flex; background: #F0F1F5; border-radius: 14px; padding: 4px; gap: 4px;">
+        <div style="flex: 1; text-align: center; padding: 9px 0; font-size: 13.5px; font-weight: 600; color: #6B7078;">Constant</div>
+        <div style="flex: 1; text-align: center; background: #4F46E5; color: #fff; border-radius: 11px; padding: 9px 0; font-size: 13.5px; font-weight: 700;">Realistic</div>
+        <div style="flex: 1; text-align: center; padding: 9px 0; font-size: 13.5px; font-weight: 600; color: #6B7078;">Busy</div>
+      </div>
+    </div>
+
+    <!-- Loop + Speed + Advanced -->
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <div style="width: 42px; height: 24px; border-radius: 12px; background: #C9CCD4; position: relative;"><div style="position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff;"></div></div>
+        <span style="font-size: 13.5px; font-weight: 600; color: #44474E;">Loop</span>
+      </div>
+      <div style="flex: 1;"></div>
+      <div style="display: flex; align-items: center; gap: 10px; background: #F4F5F8; border-radius: 12px; padding: 6px 10px;">
+        <span style="font-size: 16px; font-weight: 800; color: #80858E;">−</span>
+        <span style="font-size: 13.5px; font-weight: 700;">Speed ×1</span>
+        <span style="font-size: 16px; font-weight: 800; color: #4F46E5;">+</span>
+      </div>
+    </div>
+
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 2px 2px;">
+      <span style="font-size: 14px; font-weight: 700; color: #44474E;">Advanced</span>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#80858E" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+    </div>
+
+    <div style="display: flex; align-items: center; justify-content: center; gap: 10px; background: #4F46E5; color: #fff; padding: 16px; border-radius: 18px; box-shadow: 0 8px 20px rgba(79,70,229,0.4); font-weight: 800; font-size: 16px; margin-top: 2px;">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="#fff" stroke="none"><path d="M8 5v14l11-7z"/></svg>
+      Start simulation
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 390, "h": 844, "title": "1 · Home / Map" },
+    { "file": "RouteSetup.dc.html", "x": 480, "y": 0, "w": 390, "h": 844, "title": "2 · Route setup" },
+    { "file": "LiveHUD.dc.html", "x": 960, "y": 0, "w": 390, "h": 844, "title": "3 · Live session" },
+    { "file": "DayPlanner.dc.html", "x": 1440, "y": 0, "w": 390, "h": 844, "title": "4 · Day planner" }
+  ],
+  "annotations": [
+    { "id": "flow-note", "x": 0, "y": -96, "w": 520, "text": "Mirage — Android UI flow. Map-first, one primary action per screen, always-visible spoof-health status. Light theme, Material 3." }
+  ],
+  "launch": { "view": "canvas" }
+}
