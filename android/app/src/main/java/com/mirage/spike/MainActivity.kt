@@ -68,6 +68,10 @@ private fun AppRoot(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { }
 
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        permissionLauncher.launch(neededPermissions())
+    }
+
     MapScreen(
         onStartService = onStartService,
         onStopService = onStopService,
