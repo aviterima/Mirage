@@ -36,6 +36,8 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build debug APK
+        env:
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
         run: ./gradlew --no-daemon assembleDebug
 
       - name: Lint (non-blocking)
