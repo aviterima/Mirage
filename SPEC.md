@@ -1,33 +1,37 @@
-# Last-Z — Location Simulation & Testing Platform
+# Mirage — Location Simulation & Testing Platform
 
-**Status:** Draft v0.1
+**Status:** Draft v0.2
 **Owner:** aviterima
-**Purpose:** A cross-platform (**Android + iOS**) toolset that reliably and
-accurately simulates device location for **QA and automated testing** of
-location-aware applications. Reference consumers: **Google Maps** on Android and
-**Apple Maps** on iOS — both must follow the simulated route without reverting to
-real location.
+**Purpose:** An **Android** app that reliably and accurately simulates device
+location for **QA and automated testing** of location-aware applications. The sole
+reference consumer is **Google Maps**: Google Maps on the Android device must follow
+the simulated route without ever reverting to real location. An **iPhone** can *view*
+that spoofed location with no iOS spoofing at all, via **Google Maps location
+sharing** (§5A). The iPhone never spoofs.
 
 ---
 
 ## 1. Context & framing
 
-Last-Z is a **location testing platform**. It feeds synthetic, realistic GPS fixes
-to the OS location stack so that apps under test behave as if the device were
+Mirage is a **location testing platform**. It feeds synthetic, realistic GPS fixes
+to the Android OS location stack so that apps under test behave as if the device were
 somewhere else, moving along a defined route.
 
-- **Android**: an on-device app that registers as the mock-location provider
-  (Developer Options → *Select mock location app*). No root.
-- **iOS**: a **host-tethered** tool that drives Apple's developer
-  location-simulation service over USB/tunnel (the same mechanism Xcode GPX
-  playback uses). No jailbreak. See §5A.
+- **Android (the only device that spoofs)**: an on-device app that registers as the
+  mock-location provider (Developer Options → *Select mock location app*). No root.
+  Google Maps on this device reads the mock and follows it.
+- **iPhone (view-only, never spoofs)**: sees the Android's spoofed location through
+  **Google Maps location sharing** — the Android account shares its live location
+  (which is the mock) with the iPhone's Google account, and the iPhone sees it in
+  Google Maps. No iOS tooling, no jailbreak, no tether. See §5A.
 
-This is the same category as Lockito / Mock GPS on Android and GeoPort /
-SimVirtualLocation / Xcode on iOS — but those products are inaccurate, drop out
-under real-world conditions, and lack a unified automation surface. The goal is a
-platform accurate and reliable enough to be the **primary location-testing harness**
-for an engineering org across both OSes, with **one route/motion definition** driving
-both backends.
+Scoping to **Google Maps only** and to **Android-only spoofing** is a deliberate
+simplification: it removes the entire iOS spoofing problem (Apple's developer
+location service, tunnels, Apple Maps) and lets the whole effort go into making the
+Android spoof accurate and unbreakable. This is the same category as Lockito / Mock
+GPS on Android — but those are inaccurate, drop out under real-world conditions, and
+lack an automation surface. The goal is a tool accurate and reliable enough to be the
+**primary location-testing harness** for the org.
 
 ### 1.1 In scope
 - Accurate, road-snapped route simulation with realistic motion physics.
@@ -38,7 +42,7 @@ both backends.
 ### 1.2 Explicitly out of scope (and why)
 - **Mock-flag hiding / anti-detection.** Android tags mocked fixes with
   `Location.isMock()` (API 31+) / `isFromMockProvider()`. Apps that reject mocked
-  locations do so deliberately. Last-Z will **not** attempt to strip or forge that
+  locations do so deliberately. Mirage will **not** attempt to strip or forge that
   flag (which would require root-level system hooks and cross into
   detection-evasion). For testing *your own* apps this is irrelevant — you control
   the consumer, so the flag never blocks you. This boundary keeps the tool squarely
@@ -46,10 +50,9 @@ both backends.
 - Any use aimed at defeating a third party's location checks (game anti-cheat,
   ride-share/delivery/dating/attendance geofencing). That is a ToS violation and
   potentially fraud; it is a non-goal and the product is not designed for it.
-- **iOS jailbreak / on-device iOS spoofing app.** There is no sanctioned on-device
-  API to inject location into first-party apps on a stock iPhone, and jailbreak
-  tweaks are fragile, insecure, and unfit for a professional test fleet. iOS uses
-  Apple's own developer location service via a tethered host instead (§5A).
+- **Any iPhone spoofing.** The iPhone never has its location spoofed — not by
+  jailbreak, not by a tethered developer tool, not at all. It only *views* the
+  Android's shared location in Google Maps (§5A). This is a hard product boundary.
 - **RF/GNSS signal spoofing** (transmitting fake satellite signals). Legally
   restricted, affects all nearby receivers; not a software-testing approach.
 
@@ -61,7 +64,7 @@ both backends.
 |---|------|----------------|
 | G1 | **Accuracy** | Simulated fix within routing-geometry tolerance of the real road; speed within ±X% of target average over any 30 s window. |
 | G2 | **Reliability** | Mock fixes delivered continuously with **zero unintended gaps** across screen-off, Doze, process restart, and Android Auto connect/disconnect. |
-| G0 | **Maps apps are the reference consumers** | **Google Maps** on Android (foreground nav **and** Android Auto) **and Apple Maps** on iOS follow the simulated route with zero reversion to real location for the entire session (iOS: for the duration of the tethered session, §5A.2). |
+| G0 | **Google Maps is the reference consumer** | **Google Maps** on the Android device (foreground nav **and** Android Auto) follows the simulated route with zero reversion to real location for the entire session. The iPhone sees the same location via Google Maps location sharing (§5A). |
 | G3 | **Realism** | Motion indistinguishable from a real drive on the derived fields (speed, bearing, accuracy, altitude) and stop/traffic behavior. |
 | G4 | **Automatability** | Full control via ADB intents / API with no UI interaction, for CI. |
 | G5 | **Usability** | A non-engineer can define and run a route in < 60 s. |
@@ -106,10 +109,9 @@ are **not** a priority — they are handled by design in §1.2, not by evasion.
   stream; service emits it.
 - **Engine and service are decoupled** so the service can keep emitting the last
   computed track even if the UI process is backgrounded or the editor is closed.
-- **Two delivery backends over one engine**: the Android on-device service and the
-  iOS host conductor (§5A) both consume the identical `Fix` stream. The diagram
-  above is the Android backend; the iOS conductor replaces `MockLocationService`
-  with a desktop process pushing the same stream to the device over the tunnel.
+- **Single Android target**: everything above runs on the Android device. The iPhone
+  needs no part of this — it views the resulting spoofed location through Google Maps
+  location sharing (§5A), so there is no second backend to build or keep in sync.
 
 ---
 
@@ -292,7 +294,7 @@ naturally: **car GPS → car nav (real)**, **phone mock → phone apps (spoofed)
 
 **Fallbacks (documented; not primary):**
 - **Test-SDK injection** for the *own* apps in the mixed fleet (§8A): those apps read
-  spoofed fixes from a Last-Z source directly, guaranteeing their spoof regardless of
+  spoofed fixes from a Mirage source directly, guaranteeing their spoof regardless of
   any fused-provider fight. Black-box apps in the fleet stay on the global-mock +
   car-own-GPS path above.
 - **Two-device rig** where absolute isolation is required (phone A → real car nav,
@@ -316,52 +318,42 @@ real.
 
 ---
 
-## 5A. iOS backend — Apple Maps, never-drop (host-tethered)
+## 5A. iPhone view via Google Maps location sharing (no iOS spoofing)
 
-iOS has **no on-device mock-location provider** for stock devices. The sanctioned,
-non-jailbreak way to make **Apple Maps and all system apps** follow a simulated
-route is Apple's **developer location-simulation service**, driven from a connected
-host computer. Last-Z's iOS backend is therefore a **desktop "conductor"** that
-consumes the *same* `Route` + `MotionModel` output as Android and pushes fixes to
-the device.
+The iPhone is **view-only** and requires **no development**. The mechanism is Google
+Maps' built-in **live location sharing**:
 
-### 5A.1 Mechanism
-- Host tool (cross-platform: macOS/Windows/Linux) speaks Apple's developer services
-  via **`pymobiledevice3`** (`developer dvt simulate-location set` / `play <gpx>`),
-  the same service Xcode uses for GPX playback.
-- **System-wide effect**: the simulated fix replaces Core Location, so **Apple Maps,
-  weather, geotagging, and third-party apps** all read it — no per-app hooks.
-- iOS 17+ requires a **RemoteXPC tunnel** (root/sudo on the host) established before
-  the developer service is reachable; on iOS < 17 the older Developer Disk Image
-  path applies. The conductor abstracts the version differences.
+1. The **Android** device spoofs its location (§5). Google Maps on the Android reads
+   the mock as its device location.
+2. The Android's Google account **shares its live location** (Google Maps → *Location
+   sharing*) with the **iPhone's** Google account.
+3. On the iPhone, Google Maps shows the Android account's avatar at the **spoofed**
+   location. That is the iPhone "receiving location through Google Maps."
 
-### 5A.2 Never-drop on iOS (honest constraints)
-The never-drop guarantee is **bounded by the tethered session** — an inherent
-platform limit, not a tooling gap. Within a session the conductor makes it robust:
-- Feed a continuous fix stream (from the shared `MotionModel`) rather than a one-shot
-  set, at a fixed cadence, so Maps keeps a fresh non-real fix.
-- **Connection watchdog**: detect USB/tunnel drop and auto-reconnect + re-establish
-  the tunnel, resuming the track at the correct time offset.
-- Prefer a stable wired connection; treat cable/port quality as a test-rig concern.
-- **Known caveats to validate in the iOS spike:** iOS 18.2 removed device-side QUIC
-  for the tunnel (TCP fallback needs Python 3.13+); simulate-location has had
-  reliability issues on some iOS 17 point releases. Pin a known-good iOS + tool
-  matrix for the lab.
-- **Cannot** survive device reboot or physical disconnect the way the Android
-  on-device service can — document this so tests are designed around it (the rig
-  stays tethered for the duration of a run).
+### 5A.1 What this is and isn't (honest scope)
+- ✅ The iPhone's Google Maps displays the Android's spoofed position, updated as the
+  Android moves along the simulated route.
+- ❌ It does **not** change the iPhone's own device location. The iPhone's blue dot,
+  Apple Maps, and every other iOS app still read the iPhone's real GPS. Only the
+  *shared-contact view* inside Google Maps shows the spoof. Per the scope, that is
+  exactly what's wanted.
+- **Fidelity caveat:** Google Maps location sharing updates the shared position on
+  Google's own cadence (seconds to a couple of minutes, and it can coalesce while
+  stationary). So the iPhone view is **lower-frequency and slightly delayed** versus
+  the high-rate mock the Android's own apps see. The Android side is the fidelity
+  source of truth; the iPhone view is a real-time-ish mirror, not frame-accurate.
 
-### 5A.3 Simulator & app-only path
-If a given test only needs *your own iOS app* (not Apple Maps) to follow a route,
-`xcrun simctl location` (Simulator) and Xcode GPX playback are simpler and fully
-sanctioned. The conductor exposes both; the tethered developer-service path is used
-when **Apple Maps / system-wide** behavior is under test.
+### 5A.2 Setup (one-time, no code)
+- Both devices signed into their Google accounts; sharing enabled Android → iPhone.
+- iPhone: Google Maps installed, logged in, viewing the shared person.
+- Optional Mirage helper on Android: a checklist/deep-link that confirms location
+  sharing is on and pointed at the right recipient before a test run, surfaced in the
+  session HUD so a run never starts with sharing off.
 
-### 5A.4 Shared engine
-`RouteEngine`, `MotionModel`, and the GPX interchange are **platform-agnostic** and
-live in a shared core. Android and the iOS conductor are thin delivery adapters over
-the identical fix stream, so a route defined once behaves identically on both — the
-key to using Last-Z as a single cross-platform harness.
+### 5A.3 Consequence for the build
+There is **no iOS codebase, no shared cross-platform engine to maintain, no tether**.
+Mirage is a single **Android** project. The engine, reliability work, scheduler, and
+dither all live on Android; the iPhone is satisfied entirely by Google Maps sharing.
 
 ---
 
@@ -400,9 +392,7 @@ Design principle: **map-first, one primary action visible at all times.**
 | Geocoding | **Photon / Nominatim** | Google Places / Mapbox optional. |
 | Location out | `LocationManager` test providers **+** `FusedLocationProviderClient` mock mode | Both, always (§5.1). |
 | Car integration | **androidx.car.app** (`CarConnection`) | Projection state detection. |
-| iOS delivery | **`pymobiledevice3`** developer location service, over RemoteXPC tunnel | Host-tethered conductor; system-wide incl. Apple Maps (§5A). |
-| iOS Simulator / app-only | `xcrun simctl location`, Xcode GPX | Optional simpler path when Apple Maps isn't the target. |
-| Shared core | Platform-agnostic route/motion engine + GPX | Feeds both Android app and iOS conductor identically. |
+| iPhone view | **Google Maps location sharing** (no code) | Android shares live (spoofed) location → iPhone views it (§5A). |
 | Concurrency | Coroutines + Flow | Emit loop, watchdog. |
 | Persistence | Room | Routes, favorites, session state. |
 | DI | Hilt | |
@@ -438,14 +428,14 @@ ScenarioState(scenarioId, stepIndex, offsetMs, active)
 
 ## 8A. Test-SDK injection (fallback for own apps in a mixed fleet)
 
-For apps the firm builds, an optional **Last-Z test SDK** lets an app read spoofed
-fixes directly from the Last-Z engine instead of (or in addition to) the OS location
+For apps the firm builds, an optional **Mirage test SDK** lets an app read spoofed
+fixes directly from the Mirage engine instead of (or in addition to) the OS location
 layer. This guarantees a per-app spoof that is immune to fused-provider priority
 fights — the mechanism behind the "phone apps spoofed while the car stays real"
 fallback (§5.4).
 
 - **Test-only wiring**: the SDK is a debug/test dependency; production builds use the
-  real `LocationManager`/FLP. A `LocationSource` abstraction swaps the Last-Z source
+  real `LocationManager`/FLP. A `LocationSource` abstraction swaps the Mirage source
   in under test (e.g. via a build flavor or a test `LocationProvider`).
 - **Same stream**: it consumes the identical `Fix`/`Scenario` stream as the OS-level
   backends, so behavior matches across own and black-box apps.
@@ -458,14 +448,14 @@ ADB intent surface (exact action strings TBD in impl):
 
 ```
 # start a saved route at 50 km/h average, realistic motion, deterministic
-adb shell am broadcast -a com.lastz.CONTROL --es cmd START \
+adb shell am broadcast -a com.mirage.CONTROL --es cmd START \
   --es route "route_id_or_gpx_path" --ef avgSpeedKmh 50 \
   --es preset realistic --el seed 42
 
-adb shell am broadcast -a com.lastz.CONTROL --es cmd TELEPORT --ef lat 37.42 --ef lng -122.08
-adb shell am broadcast -a com.lastz.CONTROL --es cmd SET_SPEED --ef avgSpeedKmh 30
-adb shell am broadcast -a com.lastz.CONTROL --es cmd PAUSE
-adb shell am broadcast -a com.lastz.CONTROL --es cmd STATUS   # -> structured log
+adb shell am broadcast -a com.mirage.CONTROL --es cmd TELEPORT --ef lat 37.42 --ef lng -122.08
+adb shell am broadcast -a com.mirage.CONTROL --es cmd SET_SPEED --ef avgSpeedKmh 30
+adb shell am broadcast -a com.mirage.CONTROL --es cmd PAUSE
+adb shell am broadcast -a com.mirage.CONTROL --es cmd STATUS   # -> structured log
 ```
 
 `STATUS` output includes current fix, session offset, and health
@@ -482,9 +472,9 @@ before it trusts results.
   2. **Android Auto coexistence spike** (§5.4) — on DHU + a physical unit, confirm
      whether the car's GPS reaches the phone's fused provider and prove the phone
      apps hold the spoof while the car nav stays real.
-  3. **iOS conductor spike** (§5A) — establish the RemoteXPC tunnel and drive
-     `simulate-location play` against **Apple Maps** on the target iOS version;
-     prove continuous streaming + tunnel auto-reconnect; pin the iOS/tool matrix.
+  3. **iPhone-sharing check** (§5A) — no code: confirm the Android's spoofed location
+     shows on the iPhone via Google Maps location sharing, and measure the update
+     latency so tests account for it.
 - **Phase 1 — Vertical slice.** Map + search → drop pin → point-to-point snapped
   route → simulate with target average speed + basic realism → live HUD. No-root.
 - **Phase 2 — Realism engine.** Speed distribution, accel curves, traffic-light /
@@ -497,12 +487,10 @@ before it trusts results.
 - **Phase 4.5 — Day scenario scheduler.** Timeline of Stay/Travel steps, clock
   modes (real-time / compressed / anchored), feasibility checks, resume-on-restart
   (§4.9).
-- **Phase 5 — Library & interchange + iOS conductor.** Save/organize, GPX/KML
-  import/export, multi-stop, loop/reverse, joystick; ship the iOS conductor driving
-  the shared engine (§5A) with the tunnel watchdog. Optional **test-SDK** (§8A) for
-  own apps.
-- **Phase 6 — Polish.** Offline maps, transport-mode profiles, onboarding primer,
-  design pass; unified control API spanning both backends.
+- **Phase 5 — Library & interchange.** Save/organize, GPX/KML import/export,
+  multi-stop, loop/reverse, joystick. Optional **test-SDK** (§8A) for own apps.
+- **Phase 6 — Polish.** Offline maps, transport-mode profiles, onboarding primer
+  (incl. the iPhone location-sharing setup), design pass.
 
 ---
 
@@ -528,15 +516,15 @@ before it trusts results.
 | Routing/geocoding cost & rate limits | Default to self-hostable OSM stack; keyed providers optional. |
 | `isMock` semantics differ across API levels | Handle both; document that mock-rejecting apps are unsupported by design (§1.2). |
 | Head unit with independent GPS | Documented limitation — phone-side mock only (§5.4). |
-| iOS never-drop is tethered-bounded | Inherent platform limit; conductor auto-reconnects the tunnel, rig stays wired for a run (§5A.2). |
-| iOS tooling churn (tunnel/QUIC, per-version breakage) | Pin a known-good iOS + `pymobiledevice3` + Python matrix; iOS spike gates the design (§5A.2). |
-| iOS reboot/disconnect ends simulation | Test design keeps the device tethered for the session; document clearly. |
+| iPhone view lags / coarsens (location-sharing cadence) | Documented fidelity limit (§5A.1); Android is the source of truth; measure latency in the Phase-0 check. |
+| Location sharing silently off before a run | Pre-run sharing check + HUD indicator on Android (§5A.2). |
+| Google Maps could change/limit mock following or sharing | Single-consumer risk; monitor across Google Maps/Play Services updates in the reliability suite. |
 
 ---
 
 ## 13. Legal / policy note
 
-Last-Z is built and documented as a **location testing tool** for apps you own or
+Mirage is built and documented as a **location testing tool** for apps you own or
 are authorized to test. It does not implement mock-detection evasion. Using
 location simulation to circumvent a third party's location-based controls or terms
 of service is out of scope and unsupported.
