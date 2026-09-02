@@ -224,7 +224,7 @@ class MockLocationService : Service() {
         val notification: Notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("Mirage — spoofing location")
             .setContentText("Feeding a mock GPS route to the system")
-            .setSmallIcon(android.R.drawable.ic_menu_compass)
+            .setSmallIcon(R.drawable.ic_stat_mirage)
             .setOngoing(true)
             .build()
 
