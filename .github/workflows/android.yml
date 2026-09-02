@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -58,3 +58,12 @@ jobs:
           name: lint-report
           path: android/app/build/reports/lint-results-debug.html
           if-no-files-found: ignore
+
+      - name: Publish rolling APK release (direct download)
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          name: Mirage — latest debug APK
+          prerelease: true
+          files: android/app/build/outputs/apk/debug/*.apk
