@@ -2,22 +2,32 @@
 
 **Status:** Draft v0.1
 **Owner:** aviterima
-**Purpose:** An Android app that reliably and accurately mocks device location for
-**QA and automated testing** of location-aware applications.
+**Purpose:** A cross-platform (**Android + iOS**) toolset that reliably and
+accurately simulates device location for **QA and automated testing** of
+location-aware applications. Reference consumers: **Google Maps** on Android and
+**Apple Maps** on iOS — both must follow the simulated route without reverting to
+real location.
 
 ---
 
 ## 1. Context & framing
 
-Last-Z is a **location testing tool**. It registers as Android's mock-location
-provider (Developer Options → *Select mock location app*) and feeds synthetic,
-realistic GPS fixes to the OS location stack so that apps under test behave as if
-the device were somewhere else, moving along a defined route.
+Last-Z is a **location testing platform**. It feeds synthetic, realistic GPS fixes
+to the OS location stack so that apps under test behave as if the device were
+somewhere else, moving along a defined route.
 
-This is the same category as Lockito, "Mock GPS", GPS JoyStick, etc. — but those
-products are inaccurate, drop out under real-world conditions, and lack an
-automation surface. The goal here is a platform accurate and reliable enough to be
-the **primary location-testing harness** for an engineering org.
+- **Android**: an on-device app that registers as the mock-location provider
+  (Developer Options → *Select mock location app*). No root.
+- **iOS**: a **host-tethered** tool that drives Apple's developer
+  location-simulation service over USB/tunnel (the same mechanism Xcode GPX
+  playback uses). No jailbreak. See §5A.
+
+This is the same category as Lockito / Mock GPS on Android and GeoPort /
+SimVirtualLocation / Xcode on iOS — but those products are inaccurate, drop out
+under real-world conditions, and lack a unified automation surface. The goal is a
+platform accurate and reliable enough to be the **primary location-testing harness**
+for an engineering org across both OSes, with **one route/motion definition** driving
+both backends.
 
 ### 1.1 In scope
 - Accurate, road-snapped route simulation with realistic motion physics.
@@ -36,6 +46,12 @@ the **primary location-testing harness** for an engineering org.
 - Any use aimed at defeating a third party's location checks (game anti-cheat,
   ride-share/delivery/dating/attendance geofencing). That is a ToS violation and
   potentially fraud; it is a non-goal and the product is not designed for it.
+- **iOS jailbreak / on-device iOS spoofing app.** There is no sanctioned on-device
+  API to inject location into first-party apps on a stock iPhone, and jailbreak
+  tweaks are fragile, insecure, and unfit for a professional test fleet. iOS uses
+  Apple's own developer location service via a tethered host instead (§5A).
+- **RF/GNSS signal spoofing** (transmitting fake satellite signals). Legally
+  restricted, affects all nearby receivers; not a software-testing approach.
 
 ---
 
@@ -45,7 +61,7 @@ the **primary location-testing harness** for an engineering org.
 |---|------|----------------|
 | G1 | **Accuracy** | Simulated fix within routing-geometry tolerance of the real road; speed within ±X% of target average over any 30 s window. |
 | G2 | **Reliability** | Mock fixes delivered continuously with **zero unintended gaps** across screen-off, Doze, process restart, and Android Auto connect/disconnect. |
-| G0 | **Google Maps is the reference consumer** | Google Maps (foreground nav **and** Android Auto projection) follows the simulated route with zero reversion to real location for the entire session. |
+| G0 | **Maps apps are the reference consumers** | **Google Maps** on Android (foreground nav **and** Android Auto) **and Apple Maps** on iOS follow the simulated route with zero reversion to real location for the entire session (iOS: for the duration of the tethered session, §5A.2). |
 | G3 | **Realism** | Motion indistinguishable from a real drive on the derived fields (speed, bearing, accuracy, altitude) and stop/traffic behavior. |
 | G4 | **Automatability** | Full control via ADB intents / API with no UI interaction, for CI. |
 | G5 | **Usability** | A non-engineer can define and run a route in < 60 s. |
@@ -90,6 +106,10 @@ are **not** a priority — they are handled by design in §1.2, not by evasion.
   stream; service emits it.
 - **Engine and service are decoupled** so the service can keep emitting the last
   computed track even if the UI process is backgrounded or the editor is closed.
+- **Two delivery backends over one engine**: the Android on-device service and the
+  iOS host conductor (§5A) both consume the identical `Fix` stream. The diagram
+  above is the Android backend; the iOS conductor replaces `MockLocationService`
+  with a desktop process pushing the same stream to the device over the tunnel.
 
 ---
 
@@ -239,6 +259,55 @@ real location.
 
 ---
 
+## 5A. iOS backend — Apple Maps, never-drop (host-tethered)
+
+iOS has **no on-device mock-location provider** for stock devices. The sanctioned,
+non-jailbreak way to make **Apple Maps and all system apps** follow a simulated
+route is Apple's **developer location-simulation service**, driven from a connected
+host computer. Last-Z's iOS backend is therefore a **desktop "conductor"** that
+consumes the *same* `Route` + `MotionModel` output as Android and pushes fixes to
+the device.
+
+### 5A.1 Mechanism
+- Host tool (cross-platform: macOS/Windows/Linux) speaks Apple's developer services
+  via **`pymobiledevice3`** (`developer dvt simulate-location set` / `play <gpx>`),
+  the same service Xcode uses for GPX playback.
+- **System-wide effect**: the simulated fix replaces Core Location, so **Apple Maps,
+  weather, geotagging, and third-party apps** all read it — no per-app hooks.
+- iOS 17+ requires a **RemoteXPC tunnel** (root/sudo on the host) established before
+  the developer service is reachable; on iOS < 17 the older Developer Disk Image
+  path applies. The conductor abstracts the version differences.
+
+### 5A.2 Never-drop on iOS (honest constraints)
+The never-drop guarantee is **bounded by the tethered session** — an inherent
+platform limit, not a tooling gap. Within a session the conductor makes it robust:
+- Feed a continuous fix stream (from the shared `MotionModel`) rather than a one-shot
+  set, at a fixed cadence, so Maps keeps a fresh non-real fix.
+- **Connection watchdog**: detect USB/tunnel drop and auto-reconnect + re-establish
+  the tunnel, resuming the track at the correct time offset.
+- Prefer a stable wired connection; treat cable/port quality as a test-rig concern.
+- **Known caveats to validate in the iOS spike:** iOS 18.2 removed device-side QUIC
+  for the tunnel (TCP fallback needs Python 3.13+); simulate-location has had
+  reliability issues on some iOS 17 point releases. Pin a known-good iOS + tool
+  matrix for the lab.
+- **Cannot** survive device reboot or physical disconnect the way the Android
+  on-device service can — document this so tests are designed around it (the rig
+  stays tethered for the duration of a run).
+
+### 5A.3 Simulator & app-only path
+If a given test only needs *your own iOS app* (not Apple Maps) to follow a route,
+`xcrun simctl location` (Simulator) and Xcode GPX playback are simpler and fully
+sanctioned. The conductor exposes both; the tethered developer-service path is used
+when **Apple Maps / system-wide** behavior is under test.
+
+### 5A.4 Shared engine
+`RouteEngine`, `MotionModel`, and the GPX interchange are **platform-agnostic** and
+live in a shared core. Android and the iOS conductor are thin delivery adapters over
+the identical fix stream, so a route defined once behaves identically on both — the
+key to using Last-Z as a single cross-platform harness.
+
+---
+
 ## 6. UI / UX specification (G5)
 
 Design principle: **map-first, one primary action visible at all times.**
@@ -274,6 +343,9 @@ Design principle: **map-first, one primary action visible at all times.**
 | Geocoding | **Photon / Nominatim** | Google Places / Mapbox optional. |
 | Location out | `LocationManager` test providers **+** `FusedLocationProviderClient` mock mode | Both, always (§5.1). |
 | Car integration | **androidx.car.app** (`CarConnection`) | Projection state detection. |
+| iOS delivery | **`pymobiledevice3`** developer location service, over RemoteXPC tunnel | Host-tethered conductor; system-wide incl. Apple Maps (§5A). |
+| iOS Simulator / app-only | `xcrun simctl location`, Xcode GPX | Optional simpler path when Apple Maps isn't the target. |
+| Shared core | Platform-agnostic route/motion engine + GPX | Feeds both Android app and iOS conductor identically. |
 | Concurrency | Coroutines + Flow | Emit loop, watchdog. |
 | Persistence | Room | Routes, favorites, session state. |
 | DI | Hilt | |
@@ -326,9 +398,12 @@ before it trusts results.
 
 - **Phase 0 — Spikes (de-risk first).**
   1. Foreground mock-provider service emitting to `gps` + FLP; prove continuous
-     emission with screen off + Doze.
+     emission with screen off + Doze, validated against **Google Maps**.
   2. **Android Auto revert spike** (§5.4) — confirm the real mechanism on DHU +
      a physical unit and prove the re-assert workaround.
+  3. **iOS conductor spike** (§5A) — establish the RemoteXPC tunnel and drive
+     `simulate-location play` against **Apple Maps** on the target iOS version;
+     prove continuous streaming + tunnel auto-reconnect; pin the iOS/tool matrix.
 - **Phase 1 — Vertical slice.** Map + search → drop pin → point-to-point snapped
   route → simulate with target average speed + basic realism → live HUD. No-root.
 - **Phase 2 — Realism engine.** Speed distribution, accel curves, traffic-light /
@@ -337,10 +412,11 @@ before it trusts results.
   auto-resume, G2 acceptance suite.
 - **Phase 4 — Automation API.** ADB/broadcast control + structured STATUS; example
   Espresso/CI integration.
-- **Phase 5 — Library & interchange.** Save/organize, GPX/KML import/export,
-  multi-stop, loop/reverse, joystick.
+- **Phase 5 — Library & interchange + iOS conductor.** Save/organize, GPX/KML
+  import/export, multi-stop, loop/reverse, joystick; ship the iOS conductor driving
+  the shared engine (§5A) with the tunnel watchdog.
 - **Phase 6 — Polish.** Offline maps, transport-mode profiles, onboarding primer,
-  design pass.
+  design pass; unified control API spanning both backends.
 
 ---
 
@@ -366,6 +442,9 @@ before it trusts results.
 | Routing/geocoding cost & rate limits | Default to self-hostable OSM stack; keyed providers optional. |
 | `isMock` semantics differ across API levels | Handle both; document that mock-rejecting apps are unsupported by design (§1.2). |
 | Head unit with independent GPS | Documented limitation — phone-side mock only (§5.4). |
+| iOS never-drop is tethered-bounded | Inherent platform limit; conductor auto-reconnects the tunnel, rig stays wired for a run (§5A.2). |
+| iOS tooling churn (tunnel/QUIC, per-version breakage) | Pin a known-good iOS + `pymobiledevice3` + Python matrix; iOS spike gates the design (§5A.2). |
+| iOS reboot/disconnect ends simulation | Test design keeps the device tethered for the session; document clearly. |
 
 ---
 
