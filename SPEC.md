@@ -134,10 +134,27 @@ are **not** a priority — they are handled by design in §1.2, not by evasion.
 - Pick **two endpoints** (search or map tap) → engine requests a **road-snapped
   route** from the routing provider (OSRM/GraphHopper default; Google/Mapbox
   Directions optional).
+- **The route is real, directed, road-legal geometry — not a drawn line.** Because
+  it comes from a routing engine over the actual road network, it inherently obeys:
+  - **One-way streets** (traversed only in the legal direction),
+  - **Turn restrictions** (no-left-turn, no-U-turn, banned movements),
+  - **Highway on-/off-ramp flows** (freeways are entered and exited only at real
+    ramps; merges and exits follow the ramp geometry),
+  - **Divided roads, roundabouts, and connectivity** as the network defines them.
+  Mirage **follows** that polyline exactly, so the spoofed drive is always a path a
+  real vehicle could legally take. The `MotionModel` (§4.4) adds motion on top and
+  never invents or shortcuts the path.
+- Route metadata (per-segment speed limits, road class, ramp/junction markers) is
+  retained from the provider and fed to the motion model for realistic speeds.
 - Multi-stop routes: ordered waypoints.
 - Route options: transport mode (drive/bike/walk/transit), avoid tolls/highways
   where the backend supports it.
-- Editable polyline: drag to reshape, insert/remove waypoints.
+- Editable polyline: drag to reshape or add a waypoint — each edit is **re-routed
+  through the engine**, so a dragged path still snaps to legal roads (it never
+  becomes a straight-line cheat between points).
+- **Offline note:** the mockup in `design/mockups` uses a hand-drawn grid only
+  because the design sandbox has no network; the shipping app always calls the
+  routing service. See §12 for the provider decision.
 
 ### 4.4 Motion model / realism engine (G3)
 The `MotionModel` converts a route polyline + parameters into a fixed-cadence time
