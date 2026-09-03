@@ -32,7 +32,7 @@ object ItineraryModel {
             MockState.update { it.copy(stepLabel = "Traveling to ${stop.name}") }
             emitAll(leg)
             val anchor = Fix(stop.point.lat, stop.point.lng, 0f, 0f, 4f)
-            val dwell = DwellModel(anchor, 20.0, rnd)
+            val dwell = DwellModel(anchor, 12.0, rnd)
             val totalMs = stop.dwellMinutes * 60_000L
             var elapsed = 0L
             var shownMin = -1L

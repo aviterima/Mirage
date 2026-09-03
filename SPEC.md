@@ -187,17 +187,17 @@ series of `Fix` objects.
 #### 4.4.1 Stationary behaviour (a person at a place, never a frozen pin)
 When the device is **stopped** (a Stay step, holding an endpoint, a Jump target), the
 engine runs `DwellModel`, which behaves like a phone in someone's pocket at an office
-or restaurant rather than a jittering pin:
-- **Still almost all the time**: the fix sits on one spot with sub-metre GPS noise
-  (σ ≈ 0.35 m), reported speed 0, accuracy 4–6 m.
-- **Occasional short walks**: every 1–8 minutes the person gets up and walks at
-  walking pace (~1.2 m/s ± 0.15) to another spot within the place radius (default
-  20 m of the anchor), with a proper bearing and speed, then sits still again.
-  About a third of walks return to the anchor, so the position never drifts away.
-- **No teleporting**: every fix is continuous with the last; nothing jumps.
-- **Radius scales with place size**: a small pin wanders within a few metres; a
-  **large location** (campus, mall, airport) can be given a larger radius so the
-  device plausibly moves around inside the venue over the day.
+or restaurant rather than a jittering pin. The anchor is "the desk":
+- **At the desk almost all the time**: the fix sits on the anchor with sub-metre GPS
+  noise (σ ≈ 0.35 m), reported speed 0, accuracy 4–6 m, for 3–15 minutes at a time.
+- **A short trip and back**: the person walks at walking pace (~1.2 m/s ± 0.15) to a
+  nearby spot **inside the building envelope** (4–12 m from the desk by default —
+  the coffee station, a colleague's desk), lingers 20 s–3 min, then walks back to
+  the desk. Bearing and speed are reported during the walk.
+- **No teleporting, no drift**: every fix is continuous with the last and every trip
+  ends back at the anchor.
+- **Radius scales with place size**: a large venue (campus, mall, airport) can be
+  given a larger radius so the device plausibly moves around inside it.
 - Seeded for determinism.
 - Set radius to 0 for a hard-fixed point when a test needs an exact coordinate.
 

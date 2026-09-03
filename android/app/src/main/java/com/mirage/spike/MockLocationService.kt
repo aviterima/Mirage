@@ -144,7 +144,7 @@ class MockLocationService : Service() {
         MockState.update {
             it.copy(stepLabel = if (last != null) "Arrived \u2014 holding position until Stop" else "Holding point until Stop")
         }
-        val dwell = DwellModel(hold, 20.0, ditherRnd)
+        val dwell = DwellModel(hold, 12.0, ditherRnd)
         while (scope.isActive) {
             pushFix(dwell.next(INTERVAL_MS / 1000.0))
             delay(INTERVAL_MS)
