@@ -245,10 +245,10 @@ private fun Controls(
     } else {
         // Average speed — the hero control
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
-            Text("Average speed", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text("Average speed \u00b7 ${vm.mode.name.lowercase().replaceFirstChar { it.uppercase() }}", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             Text("${vm.avgMph.toInt()} mph", color = ACCENT, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         }
-        Slider(value = vm.avgMph, onValueChange = { vm.avgMph = it }, valueRange = 5f..80f)
+        Slider(value = vm.avgMph, onValueChange = { vm.avgMph = it }, valueRange = speedRange(vm.mode))
 
         // Realism
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -264,10 +264,13 @@ private fun Controls(
 
     if (vm.itineraryMode) {
         // ---- Itinerary: ordered stops, each with a dwell time ----
-        Text("Search or tap a place, then add it as a stop. Legs use the mode & speed above.", fontSize = 12.sp, color = MUTED)
+        Text("Search or tap a place, then add it as a stop. Each leg keeps its own mode & speed \u2014 tap a stop\u2019s mode to change it.", fontSize = 12.sp, color = MUTED)
         vm.stops.forEachIndexed { i, stop ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("${i + 1}. ${stop.name}", fontSize = 13.sp, modifier = Modifier.weight(1f))
+                TextButton(onClick = { vm.cycleStopMode(i) }) {
+                    Text(stop.mode.name.lowercase().replaceFirstChar { it.uppercase() }, fontSize = 12.sp, color = ACCENT)
+                }
+                Text("${stop.name}", fontSize = 13.sp, modifier = Modifier.weight(1f))
                 TextButton(onClick = { vm.adjustDwell(i, -15) }) { Text("\u2212") }
                 Text("${stop.dwellMinutes} min", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 TextButton(onClick = { vm.adjustDwell(i, 15) }) { Text("+") }

@@ -2,6 +2,7 @@ package com.mirage.spike
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
@@ -35,7 +36,15 @@ class MirageViewModel : ViewModel() {
         private set
     var routePts by mutableStateOf<List<LatLng>>(emptyList())
         private set
-    var avgMph by mutableStateOf(45f)
+    /** Each transport mode keeps its OWN speed (mph) — a walker and a car never share a slider. */
+    val modeSpeeds = mutableStateMapOf(
+        TravelMode.DRIVE to defaultSpeed(TravelMode.DRIVE),
+        TravelMode.BIKE to defaultSpeed(TravelMode.BIKE),
+        TravelMode.WALK to defaultSpeed(TravelMode.WALK),
+    )
+    var avgMph: Float
+        get() = modeSpeeds[mode] ?: defaultSpeed(mode)
+        set(v) { modeSpeeds[mode] = v }
     var realism by mutableStateOf(Realism.REALISTIC)
     var mode by mutableStateOf(TravelMode.DRIVE)
     var phase by mutableStateOf(Phase.IDLE)
@@ -118,7 +127,7 @@ class MirageViewModel : ViewModel() {
             PlaybackSource.label = "Flight"
         } else {
             val r = lastRoute ?: return
-            val params = MotionParams(avgSpeedMps = avgMph * 0.44704, realism = realism)
+            val params = MotionParams(avgSpeedMps = avgMph * 0.44704, realism = realism, mode = mode)
             PlaybackSource.current = MotionModel(r, params).fixes()
             PlaybackSource.label = "Route"
         }
@@ -130,11 +139,19 @@ class MirageViewModel : ViewModel() {
 
     fun addStop(dwellMinutes: Int = 30) {
         val d = dest ?: run { error = "Search or tap a destination first"; return }
-        stops.add(ItineraryStop(destName, d, dwellMinutes))
+        stops.add(ItineraryStop(destName, d, dwellMinutes, mode, avgMph))
         error = null
     }
 
     fun removeStop(index: Int) { if (index in stops.indices) stops.removeAt(index) }
+
+    /** Cycle a stop's travel mode (Drive -> Bike -> Walk -> Fly) and give it that mode's speed. */
+    fun cycleStopMode(index: Int) {
+        if (index !in stops.indices) return
+        val st = stops[index]
+        val next = TravelMode.entries[(st.mode.ordinal + 1) % TravelMode.entries.size]
+        stops[index] = st.copy(mode = next, avgMph = modeSpeeds[next] ?: defaultSpeed(next))
+    }
 
     fun adjustDwell(index: Int, deltaMinutes: Int) {
         if (index !in stops.indices) return
@@ -146,19 +163,20 @@ class MirageViewModel : ViewModel() {
     fun startItinerary(onStart: () -> Unit) {
         val s = start ?: run { error = "Set a start point"; return }
         if (stops.isEmpty()) { error = "Add at least one stop"; return }
-        if (mode != TravelMode.FLY && !hasKey) { error = "Add MAPS_API_KEY to route"; return }
+        if (stops.any { it.mode != TravelMode.FLY } && !hasKey) { error = "Add MAPS_API_KEY to route"; return }
         viewModelScope.launch {
             error = null; itineraryBusy = true
             try {
-                val params = MotionParams(avgSpeedMps = avgMph * 0.44704, realism = realism)
                 var from = s
                 val legs = mutableListOf<Pair<Flow<Fix>, ItineraryStop>>()
                 val allPts = mutableListOf<LatLng>()
                 for (stop in stops) {
-                    val legFlow: Flow<Fix> = if (mode == TravelMode.FLY) {
+                    // Every leg travels with ITS OWN mode and speed.
+                    val legFlow: Flow<Fix> = if (stop.mode == TravelMode.FLY) {
                         val fm = FlightModel(from, stop.point); allPts += fm.pathPoints; fm.fixes()
                     } else {
-                        val r = routeEngine.route(RouteSpec(from, stop.point, mode = mode)); allPts += r.points
+                        val r = routeEngine.route(RouteSpec(from, stop.point, mode = stop.mode)); allPts += r.points
+                        val params = MotionParams(avgSpeedMps = stop.avgMph * 0.44704, realism = realism, mode = stop.mode)
                         MotionModel(r, params).fixes()
                     }
                     legs += legFlow to stop
@@ -178,4 +196,20 @@ class MirageViewModel : ViewModel() {
     fun onStopped() {
         phase = if (routePts.isEmpty()) Phase.IDLE else Phase.READY
     }
+}
+
+/** Sensible default speed (mph) for each way of getting around. */
+fun defaultSpeed(m: TravelMode): Float = when (m) {
+    TravelMode.DRIVE -> 45f
+    TravelMode.BIKE -> 12f
+    TravelMode.WALK -> 3f
+    TravelMode.FLY -> 550f
+}
+
+/** Slider range (mph) that makes sense for each mode. */
+fun speedRange(m: TravelMode): ClosedFloatingPointRange<Float> = when (m) {
+    TravelMode.DRIVE -> 5f..80f
+    TravelMode.BIKE -> 3f..25f
+    TravelMode.WALK -> 1f..6f
+    TravelMode.FLY -> 400f..600f
 }
