@@ -51,4 +51,5 @@ jobs:
 
       - name: Maps SDK for Android
         if: always()
-        run: echo "Maps SDK for Android: SDK-only (no REST endpoint) - confirmed working by the map rendering in the app."
+        run: |
+          echo "Maps SDK for Android: SDK-only (no REST endpoint) - confirmed working by the map rendering in the app."
