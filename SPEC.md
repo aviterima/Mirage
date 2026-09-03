@@ -184,19 +184,21 @@ series of `Fix` objects.
 - **Time compression**: playback multiplier (1×…N×) so a 40-min drive runs in
   seconds while preserving the shape of the track.
 
-#### 4.4.1 Stationary dither (never a frozen pin)
-When the device is **stopped** (a Stay step, a traffic-light dwell, or paused at a
-place), it must **not** report a perfectly fixed coordinate — real GPS wanders. The
-MotionModel runs a stationary model:
-- **Bounded random walk** around the anchor (mean-reverting / Ornstein–Uhlenbeck so
-  it drifts but stays near center), updated periodically rather than every tick.
-- **Radius scales with place size**: a small pin dithers within a few metres; a
-  **large location** (campus, mall, airport, depot) dithers within a configurable
-  larger radius, optionally a place polygon, so the device plausibly "moves around
-  inside" the venue over time.
-- **Accuracy field co-varies** with the dither (looser accuracy indoors/large venue),
-  and occasional larger jumps model a re-acquired fix.
-- Cadence, radius, and jitter are configurable per place and seeded for determinism.
+#### 4.4.1 Stationary behaviour (a person at a place, never a frozen pin)
+When the device is **stopped** (a Stay step, holding an endpoint, a Jump target), the
+engine runs `DwellModel`, which behaves like a phone in someone's pocket at an office
+or restaurant rather than a jittering pin:
+- **Still almost all the time**: the fix sits on one spot with sub-metre GPS noise
+  (σ ≈ 0.35 m), reported speed 0, accuracy 4–6 m.
+- **Occasional short walks**: every 1–8 minutes the person gets up and walks at
+  walking pace (~1.2 m/s ± 0.15) to another spot within the place radius (default
+  20 m of the anchor), with a proper bearing and speed, then sits still again.
+  About a third of walks return to the anchor, so the position never drifts away.
+- **No teleporting**: every fix is continuous with the last; nothing jumps.
+- **Radius scales with place size**: a small pin wanders within a few metres; a
+  **large location** (campus, mall, airport) can be given a larger radius so the
+  device plausibly moves around inside the venue over the day.
+- Seeded for determinism.
 - Set radius to 0 for a hard-fixed point when a test needs an exact coordinate.
 
 ### 4.5 Playback controls

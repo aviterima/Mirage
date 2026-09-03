@@ -19,7 +19,8 @@ data class ItineraryStop(
 
 /**
  * Plays an itinerary as ONE continuous fix stream: travel each leg, then dwell at the
- * stop (dithered, so it never looks frozen) for its duration, then the next leg.
+ * stop (still, with an occasional short walk, like a person at a place) for its
+ * duration, then the next leg.
  * When the last stop's dwell ends the stream completes and the service keeps holding
  * that point until the user taps Stop.
  */
@@ -31,6 +32,7 @@ object ItineraryModel {
             MockState.update { it.copy(stepLabel = "Traveling to ${stop.name}") }
             emitAll(leg)
             val anchor = Fix(stop.point.lat, stop.point.lng, 0f, 0f, 4f)
+            val dwell = DwellModel(anchor, 20.0, rnd)
             val totalMs = stop.dwellMinutes * 60_000L
             var elapsed = 0L
             var shownMin = -1L
@@ -40,7 +42,7 @@ object ItineraryModel {
                     shownMin = remainMin
                     MockState.update { it.copy(stepLabel = "At ${stop.name} \u2014 $remainMin min left") }
                 }
-                emit(MotionModel.dither(anchor, 6.0, rnd))
+                emit(dwell.next(dtMillis / 1000.0))
                 delay(dtMillis)
                 elapsed += dtMillis
             }

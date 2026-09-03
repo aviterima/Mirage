@@ -7,7 +7,6 @@ import java.util.Random
 import kotlin.math.asin
 import kotlin.math.atan2
 import kotlin.math.cos
-import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.sin
@@ -151,17 +150,6 @@ class MotionModel(
         val t = ((d - cum[i - 1]) / segLen).coerceIn(0.0, 1.0)
         val p = LatLng(a.lat + (b.lat - a.lat) * t, a.lng + (b.lng - a.lng) * t)
         return p to Geo.bearing(a, b)
-    }
-
-    companion object {
-        /** Dithered fix around an anchor for a stationary hold (SPEC §4.4.1). */
-        fun dither(anchor: Fix, radiusM: Double, rnd: Random): Fix {
-            val ang = rnd.nextDouble() * 2 * Math.PI
-            val r = radiusM * sqrt(rnd.nextDouble())
-            val p = Geo.offset(LatLng(anchor.lat, anchor.lng), r * cos(ang), r * sin(ang))
-            val acc = (anchor.accuracyM + hypot(r, r).toFloat() * 0.2f)
-            return anchor.copy(lat = p.lat, lng = p.lng, speedMps = 0f, accuracyM = acc)
-        }
     }
 }
 

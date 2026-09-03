@@ -18,7 +18,7 @@ import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import com.mirage.spike.engine.Fix
 import com.mirage.spike.engine.LatLng
-import com.mirage.spike.engine.MotionModel
+import com.mirage.spike.engine.DwellModel
 import com.mirage.spike.engine.PlaybackSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -137,15 +137,16 @@ class MockLocationService : Service() {
                 // stream error — fall through and hold wherever we got to
             }
         }
-        // Hold the endpoint (or the chosen static point) with realistic dither until the
+        // Hold the endpoint (or the chosen static point) like a person at a place until the
         // user taps Stop. Arriving is not the end of the simulation; Stop is.
         val anchorPt = last?.let { LatLng(it.lat, it.lng) } ?: PlaybackSource.routePoints.firstOrNull()
         val hold = anchorPt?.let { Fix(it.lat, it.lng, 0f, 0f, 4f) } ?: Fix(START_LAT, START_LNG, 0f, 0f, 4f)
         MockState.update {
             it.copy(stepLabel = if (last != null) "Arrived \u2014 holding position until Stop" else "Holding point until Stop")
         }
+        val dwell = DwellModel(hold, 20.0, ditherRnd)
         while (scope.isActive) {
-            pushFix(MotionModel.dither(hold, 6.0, ditherRnd))
+            pushFix(dwell.next(INTERVAL_MS / 1000.0))
             delay(INTERVAL_MS)
         }
     }
