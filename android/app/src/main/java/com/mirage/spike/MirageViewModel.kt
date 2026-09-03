@@ -44,6 +44,11 @@ class MirageViewModel : ViewModel() {
         private set
     var destName by mutableStateOf("Destination")
         private set
+    /** True while the next search pick / map tap should set the START rather than the destination. */
+    var pickingStart by mutableStateOf(false)
+    /** While simulating, the next trip normally begins where the simulation is right now. */
+    var useSimulatedStart by mutableStateOf(true)
+        private set
 
     // ---- Route ---------------------------------------------------------------
     var routePts by mutableStateOf<List<LatLng>>(emptyList())
@@ -91,12 +96,21 @@ class MirageViewModel : ViewModel() {
     private val geocoder by lazy { GoogleGeocoder(BuildConfig.MAPS_API_KEY) }
     private val places by lazy { GooglePlaces(BuildConfig.MAPS_API_KEY) }
 
-    fun setStartPoint(p: LatLng, name: String = "Dropped pin") { start = p; startName = name; invalidateRoute() }
+    fun setStartPoint(p: LatLng, name: String = "Dropped pin") {
+        start = p; startName = name; useSimulatedStart = false; pickingStart = false; invalidateRoute()
+    }
 
-    /** Where the next trip begins: the live simulated position while running, else the start pin. */
+    /** Back to "begin where the simulation is now" (only meaningful while running). */
+    fun useSimulatedPosition() { useSimulatedStart = true; pickingStart = false; invalidateRoute() }
+
+    /** A map tap sets whichever endpoint the user is currently choosing. */
+    fun placeTapped(p: LatLng) { if (pickingStart) setStartPoint(p) else setDestPoint(p) }
+
+    /** Where the next trip begins: the live simulated position while running (unless the
+     *  user chose an explicit start), else the start pin. */
     fun tripStart(): LatLng? {
         val st = MockState.status.value
-        return if (st.running) LatLng(st.lat, st.lng) else start
+        return if (st.running && useSimulatedStart) LatLng(st.lat, st.lng) else start
     }
     fun useMyLocation(p: LatLng) = setStartPoint(p, "My location")
     fun setDestPoint(p: LatLng) { dest = p; destName = "Dropped pin"; invalidateRoute() }
@@ -149,10 +163,16 @@ class MirageViewModel : ViewModel() {
 
     fun clearSuggestions() { suggestJob?.cancel(); suggestions.clear(); suggestBusy = false }
 
-    /** The user picked one row from the list: make it the destination. */
+    /** The user picked one row from the list: it becomes the start or the destination. */
     fun pickSuggestion(hit: PlaceHit) {
         clearSuggestions()
-        setDestPoint(hit.latLng); destName = hit.name; error = null
+        if (pickingStart) setStartPoint(hit.latLng, hit.name)
+        else { setDestPoint(hit.latLng); destName = hit.name }
+        error = null
+    }
+
+    private fun applySearchResult(p: LatLng, name: String) {
+        if (pickingStart) setStartPoint(p, name) else { setDestPoint(p); destName = name }
     }
 
     /** Search by place/business/landmark name (Places), biased to the current start;
@@ -164,7 +184,7 @@ class MirageViewModel : ViewModel() {
             error = null
             try {
                 val hit = places.searchText(query, start)
-                if (hit != null) { setDestPoint(hit.latLng); destName = hit.name; onFound(hit.latLng); return@launch }
+                if (hit != null) { applySearchResult(hit.latLng, hit.name); onFound(hit.latLng); return@launch }
             } catch (e: Exception) {
                 error = e.message ?: "Places search failed"
                 return@launch
@@ -172,7 +192,7 @@ class MirageViewModel : ViewModel() {
             // Places found nothing — try a plain-address geocode.
             try {
                 val p = geocoder.geocode(query)
-                if (p != null) { setDestPoint(p); destName = query; onFound(p) } else error = "No match for “$query”"
+                if (p != null) { applySearchResult(p, query); onFound(p) } else error = "No match for “$query”"
             } catch (e: Exception) { error = e.message ?: "Search failed" }
         }
     }
@@ -214,6 +234,7 @@ class MirageViewModel : ViewModel() {
             PlaybackSource.label = "Route"
         }
         PlaybackSource.routePoints = routePts
+        useSimulatedStart = true; pickingStart = false
         onStart()
     }
 
@@ -269,6 +290,7 @@ class MirageViewModel : ViewModel() {
                 PlaybackSource.current = ItineraryModel.play(legs, timeScale = ts)
                 PlaybackSource.routePoints = allPts
                 PlaybackSource.label = "Itinerary"
+                useSimulatedStart = true; pickingStart = false
                 onStart()
             } catch (e: Exception) {
                 error = e.message ?: "Itinerary routing failed"

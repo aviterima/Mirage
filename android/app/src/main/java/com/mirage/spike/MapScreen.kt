@@ -230,8 +230,8 @@ fun MapScreen(
                     else -> maxSheet
                 },
             ),
-            onMapClick = { vm.setDestPoint(it.toE()) },
-            onMapLongClick = { if (!status.running) vm.setStartPoint(it.toE()) },
+            onMapClick = { vm.placeTapped(it.toE()) },
+            onMapLongClick = { vm.setStartPoint(it.toE()) },
         ) {
             val arrow = remember { runCatching { navigationArrow(ACCENT) }.getOrNull() }
             vm.start?.let { s ->
@@ -276,7 +276,7 @@ fun MapScreen(
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it; vm.suggest(it, camera.position.target.toE()) },
-                    placeholder = { Text("Search a place or address") },
+                    placeholder = { Text(if (vm.pickingStart) "Search the START point" else "Search a place or address") },
                     leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = MUTED) },
                     trailingIcon = {
                         if (query.isNotEmpty()) IconButton(onClick = { query = ""; vm.clearSuggestions() }) {
@@ -341,7 +341,7 @@ fun MapScreen(
                         LiveHud(status, onCollapse = { sheetCollapsed = true }, onStop = onStop)
                         HorizontalDivider(color = MUTED.copy(alpha = 0.2f))
                         Text("Plan the next leg", fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                        Text("Starts from the current simulated position and replaces what is playing.", fontSize = 12.sp, color = MUTED)
+                        Text("Starts from the current simulated position unless you change the start; it replaces what is playing.", fontSize = 12.sp, color = MUTED)
                         Controls(vm = vm, status = status, mockBlocked = mockBlocked, onOpenSetup = { showSetup = true }, onResetStart = recentreOnReal, a = actions)
                     }
                     sheetCollapsed -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -450,14 +450,23 @@ private fun Controls(
     // Endpoints
     Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            val simStart = running && vm.useSimulatedStart
             EndpointRow(
                 GREEN, "From",
-                if (running) "Current simulated position" else vm.startName,
+                if (simStart) "Current simulated position" else vm.startName,
                 "Long-press the map to move the start",
-                trailing = if (!running && vm.startName != "My location") "Reset" else null,
-                onTrailing = onResetStart,
+                trailing = if (vm.pickingStart) "Cancel" else "Change",
+                onTrailing = { vm.pickingStart = !vm.pickingStart },
+                trailing2 = if (running && !simStart) "Use current position" else null,
+                onTrailing2 = { vm.useSimulatedPosition() },
             )
-            EndpointRow(VIOLET, "To", vm.dest?.let { vm.destName }, "Search above, or tap the map")
+            if (vm.pickingStart) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Choose the start: search above or tap the map.", fontSize = 12.sp, color = ACCENT, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    if (!running) TextButton(onClick = { vm.pickingStart = false; onResetStart() }) { Text("My real location", fontSize = 12.sp) }
+                }
+            }
+            EndpointRow(VIOLET, "To", vm.dest?.let { vm.destName }, if (vm.pickingStart) "Set after the start" else "Search above, or tap the map")
             vm.routeSummary?.let { Text(it, fontSize = 12.sp, color = ACCENT, fontWeight = FontWeight.SemiBold) }
         }
     }
@@ -576,6 +585,7 @@ private fun Controls(
 private fun EndpointRow(
     dot: Color, label: String, value: String?, placeholder: String,
     trailing: String? = null, onTrailing: () -> Unit = {},
+    trailing2: String? = null, onTrailing2: () -> Unit = {},
 ) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(10.dp).background(dot, CircleShape))
@@ -589,6 +599,7 @@ private fun EndpointRow(
             maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
+        if (trailing2 != null) TextButton(onClick = onTrailing2) { Text(trailing2, fontSize = 12.sp) }
         if (trailing != null) TextButton(onClick = onTrailing) { Text(trailing, fontSize = 12.sp) }
     }
 }
