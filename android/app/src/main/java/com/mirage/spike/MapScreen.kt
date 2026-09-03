@@ -1,9 +1,13 @@
 package com.mirage.spike
 
+import android.annotation.SuppressLint
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import android.location.Location
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -95,6 +99,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.BitmapDescriptor
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
@@ -115,7 +120,10 @@ import com.mirage.spike.engine.PlaceHit
 import com.mirage.spike.engine.PlaybackSource
 import com.mirage.spike.engine.Realism
 import com.mirage.spike.engine.TravelMode
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 private val ACCENT = Indigo
 private val MUTED = Color(0xFF5F6368)
@@ -175,20 +183,25 @@ fun MapScreen(
         context, android.Manifest.permission.ACCESS_FINE_LOCATION
     ) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
-    // On first load (and once permission is granted), centre on the device's real
-    // location and use it as the start point — unless a simulation is already running.
-    LaunchedEffect(hasLocPerm) {
-        if (hasLocPerm && !status.running) {
-            runCatching {
-                LocationServices.getFusedLocationProviderClient(context).lastLocation
-                    .addOnSuccessListener { loc ->
-                        if (loc != null && !MockState.status.value.running) {
-                            vm.useMyLocation(LatLng(loc.latitude, loc.longitude))
-                            camera.position = CameraPosition.fromLatLngZoom(GLatLng(loc.latitude, loc.longitude), 14f)
-                        }
-                    }
+    // Move the start pin and the camera to the device's REAL location: a fresh fix,
+    // never the fused provider's cached last point (which is the mock after a Stop).
+    val recentreOnReal: () -> Unit = {
+        if (hasLocPerm) scope.launch {
+            val p = realLocation(context)
+            if (p != null && !MockState.status.value.running) {
+                vm.useMyLocation(p)
+                runCatching { camera.animate(CameraUpdateFactory.newLatLngZoom(p.toG(), 14f)) }
             }
         }
+    }
+    // On first load (and once permission is granted), start from where the phone really is.
+    LaunchedEffect(hasLocPerm) { if (!status.running) recentreOnReal() }
+    // After a Stop, hand the app back to reality too: the old route is from a place we
+    // no longer are, so the start pin and camera return to the real location.
+    var wasRunning by remember { mutableStateOf(false) }
+    LaunchedEffect(status.running) {
+        if (wasRunning && !status.running) recentreOnReal()
+        wasRunning = status.running
     }
 
     val goTo: (LatLng) -> Unit = { p ->
@@ -217,7 +230,7 @@ fun MapScreen(
                     else -> maxSheet
                 },
             ),
-            onMapClick = { if (!status.running) vm.setDestPoint(it.toE()) },
+            onMapClick = { vm.setDestPoint(it.toE()) },
             onMapLongClick = { if (!status.running) vm.setStartPoint(it.toE()) },
         ) {
             val arrow = remember { runCatching { navigationArrow(ACCENT) }.getOrNull() }
@@ -263,7 +276,6 @@ fun MapScreen(
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it; vm.suggest(it, camera.position.target.toE()) },
-                    enabled = !status.running,
                     placeholder = { Text("Search a place or address") },
                     leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = MUTED) },
                     trailingIcon = {
@@ -276,7 +288,6 @@ fun MapScreen(
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = MaterialTheme.colorScheme.surface,
                         unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                        disabledContainerColor = MaterialTheme.colorScheme.surface,
                     ),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(onSearch = {
@@ -326,12 +337,18 @@ fun MapScreen(
             ) {
                 when {
                     status.running && sheetCollapsed -> MiniHud(status, onExpand = { sheetCollapsed = false }, onStop = onStop)
-                    status.running -> LiveHud(status, onCollapse = { sheetCollapsed = true }, onStop = onStop)
+                    status.running -> {
+                        LiveHud(status, onCollapse = { sheetCollapsed = true }, onStop = onStop)
+                        HorizontalDivider(color = MUTED.copy(alpha = 0.2f))
+                        Text("Plan the next leg", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        Text("Starts from the current simulated position and replaces what is playing.", fontSize = 12.sp, color = MUTED)
+                        Controls(vm = vm, status = status, mockBlocked = mockBlocked, onOpenSetup = { showSetup = true }, onResetStart = recentreOnReal, a = actions)
+                    }
                     sheetCollapsed -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { sheetCollapsed = false }) {
                             Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Expand controls", tint = ACCENT)
                         }
-                        Box(Modifier.weight(1f)) { PrimaryAction(vm, actions) }
+                        Box(Modifier.weight(1f)) { PrimaryAction(vm, false, actions) }
                     }
                     else -> {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -340,7 +357,7 @@ fun MapScreen(
                                 Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Collapse to see the map", tint = ACCENT)
                             }
                         }
-                        Controls(vm = vm, mockBlocked = mockBlocked, onOpenSetup = { showSetup = true }, a = actions)
+                        Controls(vm = vm, status = status, mockBlocked = mockBlocked, onOpenSetup = { showSetup = true }, onResetStart = recentreOnReal, a = actions)
                     }
                 }
             }
@@ -407,8 +424,16 @@ private fun SuggestionList(hits: List<PlaceHit>, busy: Boolean, from: LatLng?, o
 // ---- Planning controls -------------------------------------------------------------
 
 @Composable
-private fun Controls(vm: MirageViewModel, mockBlocked: Boolean, onOpenSetup: () -> Unit, a: SimActions) {
+private fun Controls(
+    vm: MirageViewModel,
+    status: MockStatus,
+    mockBlocked: Boolean,
+    onOpenSetup: () -> Unit,
+    onResetStart: () -> Unit,
+    a: SimActions,
+) {
     val fly = vm.mode == TravelMode.FLY
+    val running = status.running
 
     // Trip type
     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
@@ -425,7 +450,13 @@ private fun Controls(vm: MirageViewModel, mockBlocked: Boolean, onOpenSetup: () 
     // Endpoints
     Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            EndpointRow(GREEN, "From", vm.startName, "Long-press the map to move the start")
+            EndpointRow(
+                GREEN, "From",
+                if (running) "Current simulated position" else vm.startName,
+                "Long-press the map to move the start",
+                trailing = if (!running && vm.startName != "My location") "Reset" else null,
+                onTrailing = onResetStart,
+            )
             EndpointRow(VIOLET, "To", vm.dest?.let { vm.destName }, "Search above, or tap the map")
             vm.routeSummary?.let { Text(it, fontSize = 12.sp, color = ACCENT, fontWeight = FontWeight.SemiBold) }
         }
@@ -487,16 +518,16 @@ private fun Controls(vm: MirageViewModel, mockBlocked: Boolean, onOpenSetup: () 
         OutlinedButton(onClick = { vm.addStop() }, enabled = vm.dest != null, modifier = Modifier.fillMaxWidth()) {
             Text(if (vm.dest != null) "Add “${vm.destName}” as a stop" else "Search or tap a place to add a stop")
         }
-        PrimaryAction(vm, a)
+        PrimaryAction(vm, running, a)
     } else {
-        PrimaryAction(vm, a)
+        PrimaryAction(vm, running, a)
         // Find a place and simply BE there — no route, instant, holds until Stop.
         if (vm.dest != null) {
             OutlinedButton(onClick = { a.holdAt(vm.dest) }, modifier = Modifier.fillMaxWidth()) {
                 Text("Jump to “${vm.destName}” — no route")
             }
         }
-        if (vm.routePts.isNotEmpty()) {
+        if (vm.routePts.isNotEmpty() && !running) {
             TextButton(onClick = { a.holdAt(vm.start) }, modifier = Modifier.fillMaxWidth()) { Text("Hold the start point instead") }
         }
     }
@@ -542,8 +573,11 @@ private fun Controls(vm: MirageViewModel, mockBlocked: Boolean, onOpenSetup: () 
 }
 
 @Composable
-private fun EndpointRow(dot: Color, label: String, value: String?, placeholder: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+private fun EndpointRow(
+    dot: Color, label: String, value: String?, placeholder: String,
+    trailing: String? = null, onTrailing: () -> Unit = {},
+) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(10.dp).background(dot, CircleShape))
         Spacer(Modifier.width(10.dp))
         Text(label, fontSize = 12.sp, color = MUTED, modifier = Modifier.width(40.dp))
@@ -553,7 +587,9 @@ private fun EndpointRow(dot: Color, label: String, value: String?, placeholder: 
             fontWeight = if (value != null) FontWeight.SemiBold else FontWeight.Normal,
             color = if (value != null) MaterialTheme.colorScheme.onSurface else MUTED,
             maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
         )
+        if (trailing != null) TextButton(onClick = onTrailing) { Text(trailing, fontSize = 12.sp) }
     }
 }
 
@@ -580,17 +616,25 @@ private fun StopRow(index: Int, stop: ItineraryStop, onMode: () -> Unit, onDwell
 }
 
 @Composable
-private fun PrimaryAction(vm: MirageViewModel, a: SimActions) {
+private fun PrimaryAction(vm: MirageViewModel, running: Boolean, a: SimActions) {
     val fly = vm.mode == TravelMode.FLY
     if (vm.itineraryMode) {
         if (vm.itineraryBusy) BusyRow("Routing legs…")
-        else BigButton("Start itinerary", enabled = vm.stops.isNotEmpty(), onClick = a.startItinerary)
+        else BigButton(if (running) "Start new itinerary" else "Start itinerary", enabled = vm.stops.isNotEmpty(), onClick = a.startItinerary)
         return
     }
     when {
         vm.phase == Phase.ROUTING -> BusyRow("Routing…")
-        vm.routePts.isNotEmpty() -> BigButton(if (fly) "Start flight" else "Start simulation", onClick = a.start)
+        vm.routePts.isNotEmpty() -> BigButton(
+            when {
+                running -> if (fly) "Start new flight" else "Start new route"
+                fly -> "Start flight"
+                else -> "Start simulation"
+            },
+            onClick = a.start,
+        )
         vm.dest != null -> BigButton(if (fly) "Plot flight" else "Get route", icon = null, onClick = a.getRoute)
+        running -> BigButton("Search or tap a destination", enabled = false, icon = null, onClick = {})
         else -> BigButton("Hold the start point", onClick = { a.holdAt(vm.start) })
     }
 }
@@ -802,6 +846,32 @@ private fun navigationArrow(color: Color, sizePx: Int = 96): BitmapDescriptor {
     c.drawPath(p, arrow)
     return BitmapDescriptorFactory.fromBitmap(bmp)
 }
+
+/**
+ * A FRESH real fix. `lastLocation` is useless right after a Stop: the fused provider keeps
+ * handing out the final spoofed point until a new fix is computed, so ask for one and
+ * refuse anything still flagged as mock (a few retries while the providers settle).
+ */
+@SuppressLint("MissingPermission")
+private suspend fun realLocation(context: Context, attempts: Int = 4): LatLng? {
+    val flp = LocationServices.getFusedLocationProviderClient(context)
+    repeat(attempts) { i ->
+        val loc: Location? = suspendCancellableCoroutine { cont ->
+            runCatching {
+                flp.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+                    .addOnSuccessListener { if (cont.isActive) cont.resume(it) }
+                    .addOnFailureListener { if (cont.isActive) cont.resume(null) }
+            }.onFailure { if (cont.isActive) cont.resume(null) }
+        }
+        if (loc != null && !isMockLocation(loc)) return LatLng(loc.latitude, loc.longitude)
+        if (i < attempts - 1) delay(1500)
+    }
+    return null
+}
+
+private fun isMockLocation(l: Location): Boolean =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) l.isMock
+    else @Suppress("DEPRECATION") l.isFromMockProvider
 
 private fun armStatic(at: LatLng?) {
     PlaybackSource.current = null

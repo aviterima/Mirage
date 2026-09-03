@@ -1,11 +1,14 @@
 package com.mirage.spike
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.location.Criteria
 import android.location.Location
@@ -17,6 +20,7 @@ import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import com.mirage.spike.engine.DwellModel
 import com.mirage.spike.engine.Fix
 import com.mirage.spike.engine.LatLng
@@ -313,8 +317,27 @@ class MockLocationService : Service() {
         MockState.update {
             it.copy(running = false, health = Health.RED, message = message, stepLabel = "", progress = -1f, remainingSec = -1)
         }
+        nudgeRealFix()
         runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
         stopSelf()
+    }
+
+    /**
+     * Turning mock mode off does not discard the fused provider's cached last location —
+     * every app (Google Maps included) keeps seeing the final spoofed point until a new
+     * real fix is computed. Ask for one right now so the hand-back is immediate.
+     */
+    @SuppressLint("MissingPermission")
+    private fun nudgeRealFix() {
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
+        runCatching { flp.flushLocations() }
+        runCatching {
+            flp.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null).addOnSuccessListener { loc ->
+                if (loc != null && !isMock(loc)) {
+                    MockState.update { it.copy(lat = loc.latitude, lng = loc.longitude, message = "Stopped — real location restored") }
+                }
+            }
+        }
     }
 
     override fun onDestroy() {

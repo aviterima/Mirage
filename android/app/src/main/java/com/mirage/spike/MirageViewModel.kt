@@ -52,6 +52,7 @@ class MirageViewModel : ViewModel() {
         private set
     private var lastRoute: RouteResult? = null
     private var isFlight = false
+    private var flightOrigin: LatLng? = null
 
     // ---- Motion settings -----------------------------------------------------
     /** Each transport mode keeps its OWN speed (mph) — a walker and a car never share a slider. */
@@ -91,6 +92,12 @@ class MirageViewModel : ViewModel() {
     private val places by lazy { GooglePlaces(BuildConfig.MAPS_API_KEY) }
 
     fun setStartPoint(p: LatLng, name: String = "Dropped pin") { start = p; startName = name; invalidateRoute() }
+
+    /** Where the next trip begins: the live simulated position while running, else the start pin. */
+    fun tripStart(): LatLng? {
+        val st = MockState.status.value
+        return if (st.running) LatLng(st.lat, st.lng) else start
+    }
     fun useMyLocation(p: LatLng) = setStartPoint(p, "My location")
     fun setDestPoint(p: LatLng) { dest = p; destName = "Dropped pin"; invalidateRoute() }
     fun clearError() { error = null }
@@ -173,12 +180,12 @@ class MirageViewModel : ViewModel() {
     // ---- Single trip -------------------------------------------------------------
 
     fun buildRoute() {
-        val s = start ?: run { error = "Set a start point"; return }
+        val s = tripStart() ?: run { error = "Set a start point"; return }
         val d = dest ?: run { error = "Set a destination"; return }
         if (mode == TravelMode.FLY) {
             // Great-circle flight: computed locally, no routing API needed.
             val fm = FlightModel(s, d)
-            routePts = fm.pathPoints; routeDistanceM = fm.totalMeters; isFlight = true; lastRoute = null
+            routePts = fm.pathPoints; routeDistanceM = fm.totalMeters; isFlight = true; lastRoute = null; flightOrigin = s
             error = null; phase = Phase.READY
             return
         }
@@ -196,7 +203,7 @@ class MirageViewModel : ViewModel() {
     fun startSim(onStart: () -> Unit) {
         val ts = timeScale.toDouble()
         if (isFlight) {
-            val s = start ?: return
+            val s = flightOrigin ?: return
             val d = dest ?: return
             PlaybackSource.current = FlightModel(s, d, FlightParams(timeScale = ts)).fixes()
             PlaybackSource.label = "Flight"
@@ -236,7 +243,7 @@ class MirageViewModel : ViewModel() {
 
     /** Route every leg up front, then arm ONE continuous stream: travel, dwell, travel, dwell... */
     fun startItinerary(onStart: () -> Unit) {
-        val s = start ?: run { error = "Set a start point"; return }
+        val s = tripStart() ?: run { error = "Set a start point"; return }
         if (stops.isEmpty()) { error = "Add at least one stop"; return }
         if (stops.any { it.mode != TravelMode.FLY } && !hasKey) { error = "Add MAPS_API_KEY to route"; return }
         val ts = timeScale.toDouble()
