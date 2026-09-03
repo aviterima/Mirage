@@ -5,6 +5,9 @@ name: Verify Maps key
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/verify-maps-key.yml"
 
 permissions:
   contents: read
