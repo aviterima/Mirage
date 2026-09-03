@@ -2,6 +2,7 @@ package com.mirage.spike
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -42,14 +43,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.google.android.gms.location.LocationServices
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng as GLatLng
 import com.google.maps.android.compose.GoogleMap
+import com.google.maps.android.compose.MapProperties
 import com.google.maps.android.compose.MapUiSettings
 import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.Polyline
@@ -82,12 +87,35 @@ fun MapScreen(
     LaunchedEffect(status.lat, status.lng) { carState.position = GLatLng(status.lat, status.lng) }
     LaunchedEffect(vm.dest) { vm.dest?.let { camera.position = CameraPosition.fromLatLngZoom(it.toG(), 14f) } }
 
+    val context = LocalContext.current
+    val hasLocPerm = ContextCompat.checkSelfPermission(
+        context, android.Manifest.permission.ACCESS_FINE_LOCATION
+    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    // On first load (and once permission is granted), center on the device's real
+    // location and use it as the start point — unless a simulation is already running.
+    LaunchedEffect(hasLocPerm) {
+        if (hasLocPerm && !status.running) {
+            runCatching {
+                LocationServices.getFusedLocationProviderClient(context).lastLocation
+                    .addOnSuccessListener { loc ->
+                        if (loc != null && !MockState.status.value.running) {
+                            vm.setStartPoint(LatLng(loc.latitude, loc.longitude))
+                            camera.position = CameraPosition.fromLatLngZoom(GLatLng(loc.latitude, loc.longitude), 14f)
+                        }
+                    }
+            }
+        }
+    }
+
     Box(Modifier.fillMaxSize()) {
 
         GoogleMap(
             modifier = Modifier.fillMaxSize(),
             cameraPositionState = camera,
-            uiSettings = MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = false),
+            properties = MapProperties(isMyLocationEnabled = hasLocPerm),
+            uiSettings = MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = hasLocPerm),
+            contentPadding = PaddingValues(top = 96.dp),
             onMapClick = { vm.setDestPoint(it.toE()) },
             onMapLongClick = { vm.setStartPoint(it.toE()) },
         ) {

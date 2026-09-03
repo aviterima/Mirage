@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mirage.spike.engine.GoogleDirectionsRouteEngine
 import com.mirage.spike.engine.GoogleGeocoder
+import com.mirage.spike.engine.GooglePlaces
 import com.mirage.spike.engine.LatLng
 import com.mirage.spike.engine.MotionModel
 import com.mirage.spike.engine.MotionParams
@@ -40,6 +41,7 @@ class MirageViewModel : ViewModel() {
     val hasKey: Boolean get() = BuildConfig.MAPS_API_KEY.isNotBlank()
     private val routeEngine by lazy { GoogleDirectionsRouteEngine(BuildConfig.MAPS_API_KEY) }
     private val geocoder by lazy { GoogleGeocoder(BuildConfig.MAPS_API_KEY) }
+    private val places by lazy { GooglePlaces(BuildConfig.MAPS_API_KEY) }
 
     fun setStartPoint(p: LatLng) { start = p; invalidateRoute() }
     fun setDestPoint(p: LatLng) { dest = p; invalidateRoute() }
@@ -50,15 +52,24 @@ class MirageViewModel : ViewModel() {
         if (phase == Phase.READY) phase = Phase.IDLE
     }
 
+    /** Search by place/business/landmark name (Places), biased to the current start;
+     *  falls back to Geocoding for plain addresses. Surfaces the real API error. */
     fun search(query: String, onFound: (LatLng) -> Unit) {
         if (!hasKey) { error = "Add MAPS_API_KEY to search by name"; return }
         viewModelScope.launch {
             error = null
             try {
+                val hit = places.searchText(query, start)
+                if (hit != null) { setDestPoint(hit.latLng); onFound(hit.latLng); return@launch }
+            } catch (e: Exception) {
+                error = e.message ?: "Places search failed"
+                return@launch
+            }
+            // Places found nothing — try a plain-address geocode.
+            try {
                 val p = geocoder.geocode(query)
-                if (p == null) error = "No match for “$query”"
-                else { setDestPoint(p); onFound(p) }
-            } catch (e: Exception) { error = e.message }
+                if (p != null) { setDestPoint(p); onFound(p) } else error = "No match for “$query”"
+            } catch (e: Exception) { error = e.message ?: "Search failed" }
         }
     }
 
