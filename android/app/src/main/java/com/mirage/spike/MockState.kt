@@ -27,6 +27,7 @@ data class MockStatus(
     val reassertCount: Long = 0,
     val leakSeen: Boolean = false,
     val message: String = "Idle",
+    val stepLabel: String = "",
 )
 
 /** Process-wide status bridge between the service and the UI. */

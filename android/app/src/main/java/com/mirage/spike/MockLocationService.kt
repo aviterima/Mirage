@@ -17,6 +17,7 @@ import androidx.core.app.NotificationCompat
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import com.mirage.spike.engine.Fix
+import com.mirage.spike.engine.LatLng
 import com.mirage.spike.engine.MotionModel
 import com.mirage.spike.engine.PlaybackSource
 import kotlinx.coroutines.CancellationException
@@ -94,7 +95,7 @@ class MockLocationService : Service() {
             for (p in providers) addOneProvider(p)
             flp.setMockMode(true)
             MockState.update {
-                it.copy(mockAppSelected = true, running = true, health = Health.GREEN, message = "Spoofing")
+                it.copy(mockAppSelected = true, running = true, health = Health.GREEN, message = "Spoofing", stepLabel = "")
             }
             true
         } catch (e: SecurityException) {
@@ -125,23 +126,24 @@ class MockLocationService : Service() {
 
     private suspend fun runPlayback() {
         val src = PlaybackSource.current
+        var last: Fix? = null
         if (src != null) {
-            // A routed drive / flight: play it to the end, then hand location back to real GPS.
+            // Routed drive / flight / itinerary: play it to the end.
             try {
-                src.collect { fix -> pushFix(fix) }
+                src.collect { fix -> pushFix(fix); last = fix }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                // stream error — still revert below, never leave a mock behind
+                // stream error — fall through and hold wherever we got to
             }
-            revertToReal("Finished — real location restored")
-            return
         }
-        // Static spoof (user picked a point): hold THAT point with realistic dither until Stop.
-        val anchor = PlaybackSource.routePoints.firstOrNull()
-        val hold = if (anchor != null) Fix(anchor.lat, anchor.lng, 0f, 0f, 4f)
-                   else Fix(START_LAT, START_LNG, 0f, 0f, 4f)
-        MockState.update { it.copy(message = if (it.leakSeen) it.message else "Spoofing (static)") }
+        // Hold the endpoint (or the chosen static point) with realistic dither until the
+        // user taps Stop. Arriving is not the end of the simulation; Stop is.
+        val anchorPt = last?.let { LatLng(it.lat, it.lng) } ?: PlaybackSource.routePoints.firstOrNull()
+        val hold = anchorPt?.let { Fix(it.lat, it.lng, 0f, 0f, 4f) } ?: Fix(START_LAT, START_LNG, 0f, 0f, 4f)
+        MockState.update {
+            it.copy(stepLabel = if (last != null) "Arrived \u2014 holding position until Stop" else "Holding point until Stop")
+        }
         while (scope.isActive) {
             pushFix(MotionModel.dither(hold, 6.0, ditherRnd))
             delay(INTERVAL_MS)
@@ -259,7 +261,7 @@ class MockLocationService : Service() {
         runCatching { flp.setMockMode(false) }
         runCatching { if (wakeLock?.isHeld == true) wakeLock?.release() }
         wakeLock = null
-        MockState.update { it.copy(running = false, health = Health.RED, message = message) }
+        MockState.update { it.copy(running = false, health = Health.RED, message = message, stepLabel = "") }
         runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
         stopSelf()
     }

@@ -1,11 +1,15 @@
 package com.mirage.spike
 
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mirage.spike.engine.FlightModel
+import com.mirage.spike.engine.Fix
+import com.mirage.spike.engine.ItineraryModel
+import com.mirage.spike.engine.ItineraryStop
 import com.mirage.spike.engine.GoogleDirectionsRouteEngine
 import com.mirage.spike.engine.GoogleGeocoder
 import com.mirage.spike.engine.GooglePlaces
@@ -17,6 +21,7 @@ import com.mirage.spike.engine.Realism
 import com.mirage.spike.engine.RouteResult
 import com.mirage.spike.engine.RouteSpec
 import com.mirage.spike.engine.TravelMode
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 
 enum class Phase { IDLE, ROUTING, READY, RUNNING }
@@ -40,13 +45,21 @@ class MirageViewModel : ViewModel() {
     private var lastRoute: RouteResult? = null
     private var isFlight = false
 
+    // Itinerary: an ordered list of stops with a dwell time at each.
+    val stops = mutableStateListOf<ItineraryStop>()
+    var itineraryMode by mutableStateOf(false)
+    var itineraryBusy by mutableStateOf(false)
+        private set
+    var destName by mutableStateOf("Destination")
+        private set
+
     val hasKey: Boolean get() = BuildConfig.MAPS_API_KEY.isNotBlank()
     private val routeEngine by lazy { GoogleDirectionsRouteEngine(BuildConfig.MAPS_API_KEY) }
     private val geocoder by lazy { GoogleGeocoder(BuildConfig.MAPS_API_KEY) }
     private val places by lazy { GooglePlaces(BuildConfig.MAPS_API_KEY) }
 
     fun setStartPoint(p: LatLng) { start = p; invalidateRoute() }
-    fun setDestPoint(p: LatLng) { dest = p; invalidateRoute() }
+    fun setDestPoint(p: LatLng) { dest = p; destName = "Dropped pin"; invalidateRoute() }
     fun clearError() { error = null }
 
     private fun invalidateRoute() {
@@ -64,7 +77,7 @@ class MirageViewModel : ViewModel() {
             error = null
             try {
                 val hit = places.searchText(query, start)
-                if (hit != null) { setDestPoint(hit.latLng); onFound(hit.latLng); return@launch }
+                if (hit != null) { setDestPoint(hit.latLng); destName = hit.name; onFound(hit.latLng); return@launch }
             } catch (e: Exception) {
                 error = e.message ?: "Places search failed"
                 return@launch
@@ -72,7 +85,7 @@ class MirageViewModel : ViewModel() {
             // Places found nothing — try a plain-address geocode.
             try {
                 val p = geocoder.geocode(query)
-                if (p != null) { setDestPoint(p); onFound(p) } else error = "No match for “$query”"
+                if (p != null) { setDestPoint(p); destName = query; onFound(p) } else error = "No match for “$query”"
             } catch (e: Exception) { error = e.message ?: "Search failed" }
         }
     }
@@ -111,6 +124,55 @@ class MirageViewModel : ViewModel() {
         }
         PlaybackSource.routePoints = routePts
         onStart()
+    }
+
+    // ---- Itinerary ----------------------------------------------------------
+
+    fun addStop(dwellMinutes: Int = 30) {
+        val d = dest ?: run { error = "Search or tap a destination first"; return }
+        stops.add(ItineraryStop(destName, d, dwellMinutes))
+        error = null
+    }
+
+    fun removeStop(index: Int) { if (index in stops.indices) stops.removeAt(index) }
+
+    fun adjustDwell(index: Int, deltaMinutes: Int) {
+        if (index !in stops.indices) return
+        val st = stops[index]
+        stops[index] = st.copy(dwellMinutes = (st.dwellMinutes + deltaMinutes).coerceIn(0, 24 * 60))
+    }
+
+    /** Route every leg up front, then arm ONE continuous stream: travel, dwell, travel, dwell... */
+    fun startItinerary(onStart: () -> Unit) {
+        val s = start ?: run { error = "Set a start point"; return }
+        if (stops.isEmpty()) { error = "Add at least one stop"; return }
+        if (mode != TravelMode.FLY && !hasKey) { error = "Add MAPS_API_KEY to route"; return }
+        viewModelScope.launch {
+            error = null; itineraryBusy = true
+            try {
+                val params = MotionParams(avgSpeedMps = avgMph * 0.44704, realism = realism)
+                var from = s
+                val legs = mutableListOf<Pair<Flow<Fix>, ItineraryStop>>()
+                val allPts = mutableListOf<LatLng>()
+                for (stop in stops) {
+                    val legFlow: Flow<Fix> = if (mode == TravelMode.FLY) {
+                        val fm = FlightModel(from, stop.point); allPts += fm.pathPoints; fm.fixes()
+                    } else {
+                        val r = routeEngine.route(RouteSpec(from, stop.point, mode = mode)); allPts += r.points
+                        MotionModel(r, params).fixes()
+                    }
+                    legs += legFlow to stop
+                    from = stop.point
+                }
+                routePts = allPts
+                PlaybackSource.current = ItineraryModel.play(legs)
+                PlaybackSource.routePoints = allPts
+                PlaybackSource.label = "Itinerary"
+                onStart()
+            } catch (e: Exception) {
+                error = e.message ?: "Itinerary routing failed"
+            } finally { itineraryBusy = false }
+        }
     }
 
     fun onStopped() {

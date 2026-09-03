@@ -182,7 +182,8 @@ fun MapScreen(
                         mockBlocked = mockBlocked,
                         onGetRoute = { vm.buildRoute() },
                         onStart = { onRequestPermissions(); vm.startSim(onStartService) },
-                        onStatic = { onRequestPermissions(); armStatic(vm.start); onStartService() },
+                        onStartItinerary = { onRequestPermissions(); vm.startItinerary(onStartService) },
+                        onStatic = { at -> onRequestPermissions(); armStatic(at); onStartService() },
                     )
                 }
             }
@@ -207,7 +208,8 @@ private fun Controls(
     mockBlocked: Boolean,
     onGetRoute: () -> Unit,
     onStart: () -> Unit,
-    onStatic: () -> Unit,
+    onStartItinerary: () -> Unit,
+    onStatic: (LatLng?) -> Unit,
 ) {
     val fly = vm.mode == TravelMode.FLY
     // Endpoint hint
@@ -217,6 +219,12 @@ private fun Controls(
         else -> "Route ready to build"
     }
     Text(hint, fontSize = 12.sp, color = MUTED)
+
+    // Single trip vs multi-stop itinerary
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilterChip(selected = !vm.itineraryMode, onClick = { vm.itineraryMode = false }, label = { Text("Single trip") })
+        FilterChip(selected = vm.itineraryMode, onClick = { vm.itineraryMode = true }, label = { Text("Itinerary") })
+    }
 
     // Travel mode — Drive / Bike / Walk / Fly
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -254,24 +262,56 @@ private fun Controls(
         }
     }
 
-    // Primary action — smart by state
-    when {
-        vm.phase == Phase.ROUTING -> Row(verticalAlignment = Alignment.CenterVertically) {
-            CircularProgressIndicator(Modifier.size(20.dp)); Spacer(Modifier.width(10.dp)); Text("Routing…")
+    if (vm.itineraryMode) {
+        // ---- Itinerary: ordered stops, each with a dwell time ----
+        Text("Search or tap a place, then add it as a stop. Legs use the mode & speed above.", fontSize = 12.sp, color = MUTED)
+        vm.stops.forEachIndexed { i, stop ->
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("${i + 1}. ${stop.name}", fontSize = 13.sp, modifier = Modifier.weight(1f))
+                TextButton(onClick = { vm.adjustDwell(i, -15) }) { Text("\u2212") }
+                Text("${stop.dwellMinutes} min", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                TextButton(onClick = { vm.adjustDwell(i, 15) }) { Text("+") }
+                TextButton(onClick = { vm.removeStop(i) }) { Text("\u2715", color = Color(0xFFDC2626)) }
+            }
         }
-        vm.routePts.isNotEmpty() ->
-            Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) { Text(if (fly) "Start flight" else "Start simulation") }
-        fly && vm.dest != null ->
-            Button(onClick = onGetRoute, modifier = Modifier.fillMaxWidth()) { Text("Plot flight") }
-        vm.hasKey && vm.dest != null ->
-            Button(onClick = onGetRoute, modifier = Modifier.fillMaxWidth()) { Text("Get route") }
-        else ->
-            Button(onClick = onStatic, modifier = Modifier.fillMaxWidth()) { Text("Spoof this point") }
+        OutlinedButton(onClick = { vm.addStop() }, enabled = vm.dest != null, modifier = Modifier.fillMaxWidth()) {
+            Text(if (vm.dest != null) "Add \u201c${vm.destName}\u201d as a stop" else "Add a stop (search or tap a place first)")
+        }
+        if (vm.itineraryBusy) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(20.dp)); Spacer(Modifier.width(10.dp)); Text("Routing legs\u2026")
+            }
+        } else {
+            Button(onClick = onStartItinerary, enabled = vm.stops.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+                Text("Start itinerary")
+            }
+        }
+    } else {
+        // Primary action — smart by state
+        when {
+            vm.phase == Phase.ROUTING -> Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(20.dp)); Spacer(Modifier.width(10.dp)); Text("Routing\u2026")
+            }
+            vm.routePts.isNotEmpty() ->
+                Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) { Text(if (fly) "Start flight" else "Start simulation") }
+            fly && vm.dest != null ->
+                Button(onClick = onGetRoute, modifier = Modifier.fillMaxWidth()) { Text("Plot flight") }
+            vm.hasKey && vm.dest != null ->
+                Button(onClick = onGetRoute, modifier = Modifier.fillMaxWidth()) { Text("Get route") }
+            else ->
+                Button(onClick = { onStatic(vm.start) }, modifier = Modifier.fillMaxWidth()) { Text("Spoof this point") }
+        }
+        // Find a place and simply BE there — no route, instant, holds until Stop.
+        if (vm.dest != null) {
+            OutlinedButton(onClick = { onStatic(vm.dest) }, modifier = Modifier.fillMaxWidth()) {
+                Text("Jump to \u201c${vm.destName}\u201d \u2014 no route")
+            }
+        }
     }
 
     // Secondary / notices
-    if (vm.routePts.isNotEmpty()) {
-        OutlinedButton(onClick = onStatic, modifier = Modifier.fillMaxWidth()) { Text("Spoof start point instead") }
+    if (!vm.itineraryMode && vm.routePts.isNotEmpty()) {
+        OutlinedButton(onClick = { onStatic(vm.start) }, modifier = Modifier.fillMaxWidth()) { Text("Spoof start point instead") }
     }
     if (!vm.hasKey) {
         Text(
@@ -312,11 +352,14 @@ private fun LiveHud(status: MockStatus, onStop: () -> Unit) {
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
         }
     }
+    if (status.stepLabel.isNotEmpty()) {
+        Text(status.stepLabel, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = ACCENT)
+    }
     Text("${"%.5f".format(status.lat)}, ${"%.5f".format(status.lng)}",
         fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = MUTED)
     Text("Fixes ${status.emittedCount} · re-asserts ${status.reassertCount} · leak ${if (status.leakSeen) "YES ⚠" else "no"}",
         fontSize = 12.sp, color = MUTED)
-    Button(onClick = onStop, modifier = Modifier.fillMaxWidth()) { Text("Stop") }
+    Button(onClick = onStop, modifier = Modifier.fillMaxWidth()) { Text("Stop \u2014 return to real location") }
 }
 
 @Composable
