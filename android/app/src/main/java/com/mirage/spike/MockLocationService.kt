@@ -63,6 +63,13 @@ class MockLocationService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent == null) {
+            // Sticky restart after the process was killed: no armed route survives a
+            // process death, so never spoof a stale/default point — hand back to real GPS.
+            startAsForeground()
+            revertToReal("Stopped — real location restored")
+            return START_NOT_STICKY
+        }
         if (intent?.action == ACTION_STOP) {
             stopEverything()
             return START_NOT_STICKY
@@ -118,23 +125,23 @@ class MockLocationService : Service() {
 
     private suspend fun runPlayback() {
         val src = PlaybackSource.current
-        var last: Fix? = null
-        try {
-            if (src != null) {
-                src.collect { fix ->
-                    pushFix(fix)
-                    last = fix
-                }
+        if (src != null) {
+            // A routed drive / flight: play it to the end, then hand location back to real GPS.
+            try {
+                src.collect { fix -> pushFix(fix) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // stream error — still revert below, never leave a mock behind
             }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            // route stream error — fall through to hold
+            revertToReal("Finished — real location restored")
+            return
         }
-
-        // Hold the last (or start) position with realistic dither until stopped.
-        val hold = last ?: Fix(START_LAT, START_LNG, 0f, 0f, 4f)
-        MockState.update { it.copy(message = if (it.leakSeen) it.message else "Holding position") }
+        // Static spoof (user picked a point): hold THAT point with realistic dither until Stop.
+        val anchor = PlaybackSource.routePoints.firstOrNull()
+        val hold = if (anchor != null) Fix(anchor.lat, anchor.lng, 0f, 0f, 4f)
+                   else Fix(START_LAT, START_LNG, 0f, 0f, 4f)
+        MockState.update { it.copy(message = if (it.leakSeen) it.message else "Spoofing (static)") }
         while (scope.isActive) {
             pushFix(MotionModel.dither(hold, 6.0, ditherRnd))
             delay(INTERVAL_MS)
@@ -240,6 +247,11 @@ class MockLocationService : Service() {
     private fun stopEverything() {
         loop?.cancel()
         loop = null
+        revertToReal("Stopped — real location restored")
+    }
+
+    /** Hand location back to the real GPS: tear down every mock path. Idempotent. */
+    private fun revertToReal(message: String) {
         for (p in providers) {
             runCatching { lm.setTestProviderEnabled(p, false) }
             runCatching { lm.removeTestProvider(p) }
@@ -247,12 +259,19 @@ class MockLocationService : Service() {
         runCatching { flp.setMockMode(false) }
         runCatching { if (wakeLock?.isHeld == true) wakeLock?.release() }
         wakeLock = null
-        MockState.update { it.copy(running = false, health = Health.RED, message = "Stopped") }
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        MockState.update { it.copy(running = false, health = Health.RED, message = message) }
+        runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
         stopSelf()
     }
 
     override fun onDestroy() {
+        // Belt and braces: whatever path brought us here, leave no mock behind.
+        for (p in providers) {
+            runCatching { lm.setTestProviderEnabled(p, false) }
+            runCatching { lm.removeTestProvider(p) }
+        }
+        runCatching { flp.setMockMode(false) }
+        runCatching { if (wakeLock?.isHeld == true) wakeLock?.release() }
         scope.cancel()
         super.onDestroy()
     }

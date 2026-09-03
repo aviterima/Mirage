@@ -182,7 +182,7 @@ fun MapScreen(
                         mockBlocked = mockBlocked,
                         onGetRoute = { vm.buildRoute() },
                         onStart = { onRequestPermissions(); vm.startSim(onStartService) },
-                        onStatic = { onRequestPermissions(); armStatic(); onStartService() },
+                        onStatic = { onRequestPermissions(); armStatic(vm.start); onStartService() },
                     )
                 }
             }
@@ -351,9 +351,9 @@ private fun SetupDialog(
     )
 }
 
-private fun armStatic() {
+private fun armStatic(at: LatLng?) {
     com.mirage.spike.engine.PlaybackSource.current = null
-    com.mirage.spike.engine.PlaybackSource.routePoints = emptyList()
+    com.mirage.spike.engine.PlaybackSource.routePoints = listOfNotNull(at)
     com.mirage.spike.engine.PlaybackSource.label = "Static"
 }
 
