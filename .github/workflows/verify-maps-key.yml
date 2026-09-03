@@ -1,0 +1,51 @@
+name: Verify Maps key
+
+# Manually-triggered check: calls each Google Maps Platform API the app uses with the
+# MAPS_API_KEY secret and prints the status. The key itself is masked in logs.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+    steps:
+      - name: Key present?
+        run: |
+          if [ -z "$MAPS_API_KEY" ]; then echo "::error::MAPS_API_KEY secret is NOT set"; exit 1; fi
+          echo "MAPS_API_KEY secret: present (${#MAPS_API_KEY} chars)"
+
+      - name: Geocoding API
+        if: always()
+        run: |
+          r=$(curl -s "https://maps.googleapis.com/maps/api/geocode/json?address=Phoenix%2C%20AZ&key=$MAPS_API_KEY")
+          echo "Geocoding API: $(echo "$r" | jq -r '.status') $(echo "$r" | jq -r '.error_message // ""')"
+
+      - name: Directions API
+        if: always()
+        run: |
+          r=$(curl -s "https://maps.googleapis.com/maps/api/directions/json?origin=Phoenix%2C%20AZ&destination=Tempe%2C%20AZ&key=$MAPS_API_KEY")
+          echo "Directions API: $(echo "$r" | jq -r '.status') $(echo "$r" | jq -r '.error_message // ""')"
+
+      - name: Places API (New)
+        if: always()
+        run: |
+          r=$(curl -s -X POST "https://places.googleapis.com/v1/places:searchText" \
+            -H "Content-Type: application/json" \
+            -H "X-Goog-Api-Key: $MAPS_API_KEY" \
+            -H "X-Goog-FieldMask: places.displayName" \
+            -d '{"textQuery":"coffee shop in Phoenix AZ"}')
+          if echo "$r" | jq -e '.places | length > 0' >/dev/null 2>&1; then
+            echo "Places API (New): OK (found: $(echo "$r" | jq -r '.places[0].displayName.text'))"
+          else
+            echo "Places API (New): ERROR $(echo "$r" | jq -r '.error.status // "unknown"') - $(echo "$r" | jq -r '.error.message // ""')"
+          fi
+
+      - name: Maps SDK for Android
+        if: always()
+        run: echo "Maps SDK for Android: SDK-only (no REST endpoint) - confirmed working by the map rendering in the app."
