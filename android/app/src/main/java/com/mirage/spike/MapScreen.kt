@@ -78,7 +78,6 @@ fun MapScreen(
     val vm: MirageViewModel = viewModel()
     val status by MockState.status.collectAsState()
     var showSetup by remember { mutableStateOf(false) }
-    var showAdvanced by remember { mutableStateOf(false) }
 
     val camera = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(GLatLng(START_LAT, START_LNG), 13f)
@@ -177,8 +176,6 @@ fun MapScreen(
                 } else {
                     Controls(
                         vm = vm,
-                        showAdvanced = showAdvanced,
-                        onToggleAdvanced = { showAdvanced = !showAdvanced },
                         onOpenSetup = { showSetup = true },
                         onGetRoute = { vm.buildRoute() },
                         onStart = { onRequestPermissions(); vm.startSim(onStartService) },
@@ -203,50 +200,51 @@ fun MapScreen(
 @Composable
 private fun Controls(
     vm: MirageViewModel,
-    showAdvanced: Boolean,
-    onToggleAdvanced: () -> Unit,
     onOpenSetup: () -> Unit,
     onGetRoute: () -> Unit,
     onStart: () -> Unit,
     onStatic: () -> Unit,
 ) {
+    val fly = vm.mode == TravelMode.FLY
     // Endpoint hint
     val hint = when {
         vm.dest == null -> "Long-press the map to set start · tap to set destination · or search"
+        fly -> "Flight plotted point-to-point along the great circle"
         else -> "Route ready to build"
     }
     Text(hint, fontSize = 12.sp, color = MUTED)
 
-    // Average speed — the hero control
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
-        Text("Average speed", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-        Text("${vm.avgMph.toInt()} mph", color = ACCENT, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-    }
-    Slider(value = vm.avgMph, onValueChange = { vm.avgMph = it }, valueRange = 5f..80f)
-
-    // Realism
+    // Travel mode — Drive / Bike / Walk / Fly
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Realism.entries.forEach { r ->
+        TravelMode.entries.forEach { m ->
             FilterChip(
-                selected = vm.realism == r,
-                onClick = { vm.realism = r },
-                label = { Text(r.name.lowercase().replaceFirstChar { it.uppercase() }) },
+                selected = vm.mode == m,
+                onClick = { vm.chooseMode(m) },
+                label = { Text(m.name.lowercase().replaceFirstChar { it.uppercase() }) },
             )
         }
     }
 
-    // Advanced (mode)
-    TextButton(onClick = onToggleAdvanced) {
-        Text(if (showAdvanced) "Hide options" else "More options", color = ACCENT, fontSize = 13.sp)
-    }
-    if (showAdvanced) {
-        Text("Transport mode", fontSize = 13.sp, color = MUTED)
+    if (fly) {
+        Text(
+            "Emulated flight · taxi → climb to 35,000 ft → cruise ~550 mph → descent → landing",
+            fontSize = 12.sp, color = MUTED,
+        )
+    } else {
+        // Average speed — the hero control
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
+            Text("Average speed", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text("${vm.avgMph.toInt()} mph", color = ACCENT, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        }
+        Slider(value = vm.avgMph, onValueChange = { vm.avgMph = it }, valueRange = 5f..80f)
+
+        // Realism
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TravelMode.entries.forEach { m ->
+            Realism.entries.forEach { r ->
                 FilterChip(
-                    selected = vm.mode == m,
-                    onClick = { vm.mode = m },
-                    label = { Text(m.name.lowercase().replaceFirstChar { it.uppercase() }) },
+                    selected = vm.realism == r,
+                    onClick = { vm.realism = r },
+                    label = { Text(r.name.lowercase().replaceFirstChar { it.uppercase() }) },
                 )
             }
         }
@@ -258,7 +256,9 @@ private fun Controls(
             CircularProgressIndicator(Modifier.size(20.dp)); Spacer(Modifier.width(10.dp)); Text("Routing…")
         }
         vm.routePts.isNotEmpty() ->
-            Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) { Text("Start simulation") }
+            Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) { Text(if (fly) "Start flight" else "Start simulation") }
+        fly && vm.dest != null ->
+            Button(onClick = onGetRoute, modifier = Modifier.fillMaxWidth()) { Text("Plot flight") }
         vm.hasKey && vm.dest != null ->
             Button(onClick = onGetRoute, modifier = Modifier.fillMaxWidth()) { Text("Get route") }
         else ->

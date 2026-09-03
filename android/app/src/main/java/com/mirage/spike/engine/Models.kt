@@ -8,6 +8,8 @@ enum class TravelMode(val apiValue: String) {
     DRIVE("driving"),
     BIKE("bicycling"),
     WALK("walking"),
+    /** Emulated point-to-point flight (great circle); no routing API involved. */
+    FLY("flight"),
 }
 
 enum class Realism { CONSTANT, REALISTIC, BUSY }

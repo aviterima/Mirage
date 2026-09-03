@@ -4,9 +4,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import java.util.Random
+import kotlin.math.asin
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
+import kotlin.math.min
+import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -37,6 +40,21 @@ object Geo {
         val dLat = north / 111_320.0
         val dLng = east / (111_320.0 * cos(Math.toRadians(p.lat)))
         return LatLng(p.lat + dLat, p.lng + dLng)
+    }
+
+    /** Point at fraction [f] (0..1) along the great-circle arc from [a] to [b]. */
+    fun gcInterp(a: LatLng, b: LatLng, f: Double): LatLng {
+        val p1 = Math.toRadians(a.lat); val l1 = Math.toRadians(a.lng)
+        val p2 = Math.toRadians(b.lat); val l2 = Math.toRadians(b.lng)
+        val h = sin((p2 - p1) / 2).pow(2) + cos(p1) * cos(p2) * sin((l2 - l1) / 2).pow(2)
+        val d = 2 * asin(min(1.0, sqrt(h)))
+        if (d < 1e-9) return a
+        val aa = sin((1 - f) * d) / sin(d)
+        val bb = sin(f * d) / sin(d)
+        val x = aa * cos(p1) * cos(l1) + bb * cos(p2) * cos(l2)
+        val y = aa * cos(p1) * sin(l1) + bb * cos(p2) * sin(l2)
+        val z = aa * sin(p1) + bb * sin(p2)
+        return LatLng(Math.toDegrees(atan2(z, sqrt(x * x + y * y))), Math.toDegrees(atan2(y, x)))
     }
 }
 
