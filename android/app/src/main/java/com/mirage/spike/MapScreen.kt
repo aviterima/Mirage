@@ -165,6 +165,8 @@ fun MapScreen(
             }
         }
 
+        val mockBlocked = !status.running && !status.mockAppSelected && status.message.contains("Not the selected")
+
         // Bottom control sheet
         Card(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(10.dp),
@@ -177,6 +179,7 @@ fun MapScreen(
                     Controls(
                         vm = vm,
                         onOpenSetup = { showSetup = true },
+                        mockBlocked = mockBlocked,
                         onGetRoute = { vm.buildRoute() },
                         onStart = { onRequestPermissions(); vm.startSim(onStartService) },
                         onStatic = { onRequestPermissions(); armStatic(); onStartService() },
@@ -201,6 +204,7 @@ fun MapScreen(
 private fun Controls(
     vm: MirageViewModel,
     onOpenSetup: () -> Unit,
+    mockBlocked: Boolean,
     onGetRoute: () -> Unit,
     onStart: () -> Unit,
     onStatic: () -> Unit,
@@ -274,6 +278,18 @@ private fun Controls(
             "Map & routing need a Google Maps key — tap ⚙ to set it up. Spoofing works without it.",
             fontSize = 12.sp, color = Color(0xFFD97706),
         )
+    }
+    if (mockBlocked) {
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Mirage isn't set as the mock-location app yet, so Android won't let it move your location. " +
+                        "Fix: Developer options → Select mock location app → Mirage, then tap Start again.",
+                    fontSize = 12.sp, color = Color(0xFFDC2626),
+                )
+                Button(onClick = onOpenSetup, modifier = Modifier.fillMaxWidth()) { Text("Fix: select Mirage as mock app") }
+            }
+        }
     }
     vm.error?.let { Text("⚠ $it", fontSize = 12.sp, color = Color(0xFFDC2626)) }
 }

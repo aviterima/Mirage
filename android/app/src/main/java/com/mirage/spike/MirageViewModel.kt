@@ -110,7 +110,6 @@ class MirageViewModel : ViewModel() {
             PlaybackSource.label = "Route"
         }
         PlaybackSource.routePoints = routePts
-        phase = Phase.RUNNING
         onStart()
     }
 
