@@ -8,7 +8,14 @@ import kotlinx.coroutines.flow.flow
 import java.util.Random
 
 /** One itinerary stop: where, what to call it, and how long to stay there. */
-data class ItineraryStop(val name: String, val point: LatLng, val dwellMinutes: Int)
+data class ItineraryStop(
+    val name: String,
+    val point: LatLng,
+    val dwellMinutes: Int,
+    /** How this leg is traveled; each leg has its own mode and speed. */
+    val mode: TravelMode = TravelMode.DRIVE,
+    val avgMph: Float = 45f,
+)
 
 /**
  * Plays an itinerary as ONE continuous fix stream: travel each leg, then dwell at the

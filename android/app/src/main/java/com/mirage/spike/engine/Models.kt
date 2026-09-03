@@ -31,6 +31,7 @@ data class RouteResult(
 data class MotionParams(
     val avgSpeedMps: Double,
     val realism: Realism = Realism.REALISTIC,
+    val mode: TravelMode = TravelMode.DRIVE,
     val accuracyMeters: Float = 4f,
     val updateHz: Int = 5,
     val seed: Long? = null,

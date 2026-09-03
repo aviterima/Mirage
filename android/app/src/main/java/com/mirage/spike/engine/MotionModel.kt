@@ -73,6 +73,19 @@ class MotionModel(
     private val cum: DoubleArray = DoubleArray(pts.size)
     val totalMeters: Double
 
+    /** Mode-specific motion character: walkers don't brake like cars; cars stop at lights. */
+    private class Profile(
+        val variance: Double, val busyVariance: Double,
+        val stopProb: Double, val busyStopProb: Double,
+        val accelMax: Double, val maxFactor: Double,
+        val dwellMinMs: Int, val dwellSpanMs: Int,
+    )
+    private val profile: Profile = when (params.mode) {
+        TravelMode.WALK -> Profile(0.06, 0.10, 0.0004, 0.0010, 0.5, 1.25, 1000, 3000)
+        TravelMode.BIKE -> Profile(0.10, 0.18, 0.0010, 0.0030, 1.0, 1.4, 1500, 4000)
+        else -> Profile(0.12, 0.22, 0.0016, 0.0045, 2.0, 1.8, 2000, 6000)
+    }
+
     init {
         for (i in 1 until pts.size) cum[i] = cum[i - 1] + Geo.haversine(pts[i - 1], pts[i])
         totalMeters = if (pts.isEmpty()) 0.0 else cum[cum.size - 1]
@@ -85,8 +98,8 @@ class MotionModel(
         val dtMillis = (dt * 1000).toLong()
         val stopProbPerTick = when (params.realism) {
             Realism.CONSTANT -> 0.0
-            Realism.REALISTIC -> 0.0016
-            Realism.BUSY -> 0.0045
+            Realism.REALISTIC -> profile.stopProb
+            Realism.BUSY -> profile.busyStopProb
         }
 
         var dist = 0.0
@@ -94,12 +107,12 @@ class MotionModel(
         while (dist < totalMeters) {
             val target = when (params.realism) {
                 Realism.CONSTANT -> params.avgSpeedMps
-                Realism.REALISTIC -> params.avgSpeedMps * clamp(1.0 + rnd.nextGaussian() * 0.12, 0.55, 1.4)
-                Realism.BUSY -> params.avgSpeedMps * clamp(1.0 + rnd.nextGaussian() * 0.22, 0.2, 1.4)
+                Realism.REALISTIC -> params.avgSpeedMps * clamp(1.0 + rnd.nextGaussian() * profile.variance, 0.55, 1.4)
+                Realism.BUSY -> params.avgSpeedMps * clamp(1.0 + rnd.nextGaussian() * profile.busyVariance, 0.2, 1.4)
             }
-            // smooth accel/brake toward target (<= ~2 m/s^2)
-            speed += clamp(target - speed, -2.0, 2.0) * dt * 3.0
-            speed = clamp(speed, 0.0, params.avgSpeedMps * 1.8)
+            // smooth accel/brake toward target, bounded per mode
+            speed += clamp(target - speed, -profile.accelMax, profile.accelMax) * dt * 3.0
+            speed = clamp(speed, 0.0, params.avgSpeedMps * profile.maxFactor)
 
             dist += speed * dt * params.timeScale
             val at = clamp(dist, 0.0, totalMeters)
@@ -108,7 +121,7 @@ class MotionModel(
 
             // occasional realistic stop (traffic light / congestion)
             if (rnd.nextDouble() < stopProbPerTick) {
-                val dwellMs = 2000 + rnd.nextInt(6000)
+                val dwellMs = profile.dwellMinMs + rnd.nextInt(profile.dwellSpanMs)
                 var elapsed = 0
                 while (elapsed < dwellMs) {
                     emit(Fix(p.lat, p.lng, 0f, brg.toFloat(), params.accuracyMeters))
