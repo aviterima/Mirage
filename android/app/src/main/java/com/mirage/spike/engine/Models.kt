@@ -46,4 +46,8 @@ data class Fix(
     val bearingDeg: Float,
     val accuracyM: Float,
     val altitudeM: Double = 12.0,
+    /** 0..1 progress along the current leg, or -1 when not applicable (holding). */
+    val progress: Float = -1f,
+    /** Estimated seconds to the end of the current leg, or -1 when unknown. */
+    val remainingSec: Int = -1,
 )

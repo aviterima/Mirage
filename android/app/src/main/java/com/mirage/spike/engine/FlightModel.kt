@@ -38,12 +38,13 @@ class FlightModel(
             val p = Geo.gcInterp(origin, dest, f)
             val ahead = Geo.gcInterp(origin, dest, (f + 0.002).coerceAtMost(1.0))
             val brg = Geo.bearing(p, ahead)
-            emit(Fix(p.lat, p.lng, speed.toFloat(), brg.toFloat(), 5f, alt))
+            val eta = ((totalMeters - dist) / (params.cruiseSpeedMps * params.timeScale) * 1.12).toInt()
+            emit(Fix(p.lat, p.lng, speed.toFloat(), brg.toFloat(), 5f, alt, progress = f.toFloat(), remainingSec = eta))
             dist += speed * dt * params.timeScale
             delay(dtMs)
         }
         val finalBrg = Geo.bearing(pathPoints[pathPoints.size - 2], dest)
-        emit(Fix(dest.lat, dest.lng, 0f, finalBrg.toFloat(), 5f, 0.0))
+        emit(Fix(dest.lat, dest.lng, 0f, finalBrg.toFloat(), 5f, 0.0, progress = 1f, remainingSec = 0))
     }
 
     /** Speed (m/s) and altitude (m) as a function of progress fraction. */

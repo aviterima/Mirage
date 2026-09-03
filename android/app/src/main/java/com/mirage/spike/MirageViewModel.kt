@@ -7,13 +7,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.mirage.spike.engine.FlightModel
 import com.mirage.spike.engine.Fix
-import com.mirage.spike.engine.ItineraryModel
-import com.mirage.spike.engine.ItineraryStop
+import com.mirage.spike.engine.FlightModel
+import com.mirage.spike.engine.FlightParams
 import com.mirage.spike.engine.GoogleDirectionsRouteEngine
 import com.mirage.spike.engine.GoogleGeocoder
 import com.mirage.spike.engine.GooglePlaces
+import com.mirage.spike.engine.ItineraryModel
+import com.mirage.spike.engine.ItineraryStop
 import com.mirage.spike.engine.LatLng
 import com.mirage.spike.engine.MotionModel
 import com.mirage.spike.engine.MotionParams
@@ -27,18 +28,32 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 enum class Phase { IDLE, ROUTING, READY, RUNNING }
 
-/** Drives the map screen: endpoints, routing, average speed, and simulation control. */
+/** Drives the map screen: endpoints, routing, average speed, itinerary, and simulation control. */
 class MirageViewModel : ViewModel() {
 
+    // ---- Endpoints -----------------------------------------------------------
     var start by mutableStateOf<LatLng?>(LatLng(START_LAT, START_LNG))
+        private set
+    var startName by mutableStateOf("Map point")
         private set
     var dest by mutableStateOf<LatLng?>(null)
         private set
+    var destName by mutableStateOf("Destination")
+        private set
+
+    // ---- Route ---------------------------------------------------------------
     var routePts by mutableStateOf<List<LatLng>>(emptyList())
         private set
+    var routeDistanceM by mutableStateOf(0.0)
+        private set
+    private var lastRoute: RouteResult? = null
+    private var isFlight = false
+
+    // ---- Motion settings -----------------------------------------------------
     /** Each transport mode keeps its OWN speed (mph) — a walker and a car never share a slider. */
     val modeSpeeds = mutableStateMapOf(
         TravelMode.DRIVE to defaultSpeed(TravelMode.DRIVE),
@@ -50,22 +65,21 @@ class MirageViewModel : ViewModel() {
         set(v) { modeSpeeds[mode] = v }
     var realism by mutableStateOf(Realism.REALISTIC)
     var mode by mutableStateOf(TravelMode.DRIVE)
+    /** Fast-forward for testing: positions advance N× faster than real time. */
+    var timeScale by mutableStateOf(1f)
+
     var phase by mutableStateOf(Phase.IDLE)
         private set
     var error by mutableStateOf<String?>(null)
 
-    private var lastRoute: RouteResult? = null
-    private var isFlight = false
-
-    // Itinerary: an ordered list of stops with a dwell time at each.
+    // ---- Itinerary: an ordered list of stops with a dwell time at each ------
     val stops = mutableStateListOf<ItineraryStop>()
     var itineraryMode by mutableStateOf(false)
     var itineraryBusy by mutableStateOf(false)
         private set
-    var destName by mutableStateOf("Destination")
-        private set
+    val dwellTotalMinutes: Int get() = stops.sumOf { it.dwellMinutes }
 
-    // Type-ahead: matching places for what the user is typing (Uber-style pick list).
+    // ---- Type-ahead: matching places for what the user is typing ------------
     val suggestions = mutableStateListOf<PlaceHit>()
     var suggestBusy by mutableStateOf(false)
         private set
@@ -76,19 +90,40 @@ class MirageViewModel : ViewModel() {
     private val geocoder by lazy { GoogleGeocoder(BuildConfig.MAPS_API_KEY) }
     private val places by lazy { GooglePlaces(BuildConfig.MAPS_API_KEY) }
 
-    fun setStartPoint(p: LatLng) { start = p; invalidateRoute() }
+    fun setStartPoint(p: LatLng, name: String = "Dropped pin") { start = p; startName = name; invalidateRoute() }
+    fun useMyLocation(p: LatLng) = setStartPoint(p, "My location")
     fun setDestPoint(p: LatLng) { dest = p; destName = "Dropped pin"; invalidateRoute() }
     fun clearError() { error = null }
 
     private fun invalidateRoute() {
-        routePts = emptyList(); lastRoute = null; isFlight = false
+        routePts = emptyList(); lastRoute = null; isFlight = false; routeDistanceM = 0.0
         if (phase == Phase.READY) phase = Phase.IDLE
     }
 
     fun chooseMode(m: TravelMode) { mode = m; invalidateRoute() }
 
+    /** Distance and a time estimate at the chosen speed, once a route/flight is plotted. */
+    val routeSummary: String?
+        get() {
+            if (routePts.isEmpty() || routeDistanceM <= 0.0) return null
+            val secs = if (isFlight) {
+                routeDistanceM / 245.0 * 1.12
+            } else {
+                val base = routeDistanceM / (avgMph * 0.44704)
+                base * when (realism) {
+                    Realism.CONSTANT -> 1.0
+                    Realism.REALISTIC -> 1.08
+                    Realism.BUSY -> 1.25
+                }
+            }
+            val ff = if (timeScale > 1f) " · ${timeScale.toInt()}× fast-forward" else ""
+            return "${fmtMiles(routeDistanceM)} · about ${fmtDuration(secs / timeScale)}$ff"
+        }
+
+    // ---- Search ----------------------------------------------------------------
+
     /** Refresh the pick list as the user types (debounced; last keystroke wins). */
-    fun suggest(query: String) {
+    fun suggest(query: String, bias: LatLng?) {
         suggestJob?.cancel()
         val q = query.trim()
         if (q.length < 2 || !hasKey) { suggestions.clear(); suggestBusy = false; return }
@@ -96,7 +131,7 @@ class MirageViewModel : ViewModel() {
             delay(350)
             suggestBusy = true
             try {
-                val hits = places.searchMany(q, start, 8)
+                val hits = places.searchMany(q, bias ?: start, 8)
                 suggestions.clear(); suggestions.addAll(hits)
                 error = null
             } catch (e: Exception) {
@@ -135,13 +170,15 @@ class MirageViewModel : ViewModel() {
         }
     }
 
+    // ---- Single trip -------------------------------------------------------------
+
     fun buildRoute() {
         val s = start ?: run { error = "Set a start point"; return }
         val d = dest ?: run { error = "Set a destination"; return }
         if (mode == TravelMode.FLY) {
             // Great-circle flight: computed locally, no routing API needed.
             val fm = FlightModel(s, d)
-            routePts = fm.pathPoints; isFlight = true; lastRoute = null
+            routePts = fm.pathPoints; routeDistanceM = fm.totalMeters; isFlight = true; lastRoute = null
             error = null; phase = Phase.READY
             return
         }
@@ -150,20 +187,22 @@ class MirageViewModel : ViewModel() {
             error = null; phase = Phase.ROUTING
             try {
                 val r = routeEngine.route(RouteSpec(s, d, mode = mode))
-                lastRoute = r; routePts = r.points; isFlight = false; phase = Phase.READY
+                lastRoute = r; routePts = r.points; routeDistanceM = r.distanceMeters; isFlight = false
+                phase = Phase.READY
             } catch (e: Exception) { error = e.message; phase = Phase.IDLE }
         }
     }
 
     fun startSim(onStart: () -> Unit) {
+        val ts = timeScale.toDouble()
         if (isFlight) {
             val s = start ?: return
             val d = dest ?: return
-            PlaybackSource.current = FlightModel(s, d).fixes()
+            PlaybackSource.current = FlightModel(s, d, FlightParams(timeScale = ts)).fixes()
             PlaybackSource.label = "Flight"
         } else {
             val r = lastRoute ?: return
-            val params = MotionParams(avgSpeedMps = avgMph * 0.44704, realism = realism, mode = mode)
+            val params = MotionParams(avgSpeedMps = avgMph * 0.44704, realism = realism, mode = mode, timeScale = ts)
             PlaybackSource.current = MotionModel(r, params).fixes()
             PlaybackSource.label = "Route"
         }
@@ -171,7 +210,7 @@ class MirageViewModel : ViewModel() {
         onStart()
     }
 
-    // ---- Itinerary ----------------------------------------------------------
+    // ---- Itinerary ----------------------------------------------------------------
 
     fun addStop(dwellMinutes: Int = 30) {
         val d = dest ?: run { error = "Search or tap a destination first"; return }
@@ -200,6 +239,7 @@ class MirageViewModel : ViewModel() {
         val s = start ?: run { error = "Set a start point"; return }
         if (stops.isEmpty()) { error = "Add at least one stop"; return }
         if (stops.any { it.mode != TravelMode.FLY } && !hasKey) { error = "Add MAPS_API_KEY to route"; return }
+        val ts = timeScale.toDouble()
         viewModelScope.launch {
             error = null; itineraryBusy = true
             try {
@@ -209,17 +249,17 @@ class MirageViewModel : ViewModel() {
                 for (stop in stops) {
                     // Every leg travels with ITS OWN mode and speed.
                     val legFlow: Flow<Fix> = if (stop.mode == TravelMode.FLY) {
-                        val fm = FlightModel(from, stop.point); allPts += fm.pathPoints; fm.fixes()
+                        val fm = FlightModel(from, stop.point, FlightParams(timeScale = ts)); allPts += fm.pathPoints; fm.fixes()
                     } else {
                         val r = routeEngine.route(RouteSpec(from, stop.point, mode = stop.mode)); allPts += r.points
-                        val params = MotionParams(avgSpeedMps = stop.avgMph * 0.44704, realism = realism, mode = stop.mode)
+                        val params = MotionParams(avgSpeedMps = stop.avgMph * 0.44704, realism = realism, mode = stop.mode, timeScale = ts)
                         MotionModel(r, params).fixes()
                     }
                     legs += legFlow to stop
                     from = stop.point
                 }
                 routePts = allPts
-                PlaybackSource.current = ItineraryModel.play(legs)
+                PlaybackSource.current = ItineraryModel.play(legs, timeScale = ts)
                 PlaybackSource.routePoints = allPts
                 PlaybackSource.label = "Itinerary"
                 onStart()
@@ -248,4 +288,18 @@ fun speedRange(m: TravelMode): ClosedFloatingPointRange<Float> = when (m) {
     TravelMode.BIKE -> 3f..25f
     TravelMode.WALK -> 1f..6f
     TravelMode.FLY -> 400f..600f
+}
+
+fun fmtMiles(meters: Double): String {
+    val mi = meters / 1609.344
+    return if (mi < 10) String.format("%.1f mi", mi) else "${mi.roundToInt()} mi"
+}
+
+fun fmtDuration(sec: Double): String {
+    val s = sec.coerceAtLeast(0.0)
+    if (s < 60) return "${s.toInt()} s"
+    val mins = (s / 60).roundToInt()
+    if (mins < 60) return "$mins min"
+    val h = mins / 60; val m = mins % 60
+    return if (m == 0) "$h h" else "$h h $m min"
 }

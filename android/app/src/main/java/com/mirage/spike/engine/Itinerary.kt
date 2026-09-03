@@ -25,7 +25,7 @@ data class ItineraryStop(
  * that point until the user taps Stop.
  */
 object ItineraryModel {
-    fun play(legs: List<Pair<Flow<Fix>, ItineraryStop>>, updateHz: Int = 5): Flow<Fix> = flow {
+    fun play(legs: List<Pair<Flow<Fix>, ItineraryStop>>, updateHz: Int = 5, timeScale: Double = 1.0): Flow<Fix> = flow {
         val rnd = Random()
         val dtMillis = (1000 / updateHz).toLong()
         for ((leg, stop) in legs) {
@@ -33,16 +33,18 @@ object ItineraryModel {
             emitAll(leg)
             val anchor = Fix(stop.point.lat, stop.point.lng, 0f, 0f, 4f)
             val dwell = DwellModel(anchor, 12.0, rnd)
-            val totalMs = stop.dwellMinutes * 60_000L
+            // Wall-clock dwell; in fast-forward the same simulated stay passes sooner.
+            val totalMs = (stop.dwellMinutes * 60_000L / timeScale).toLong()
             var elapsed = 0L
             var shownMin = -1L
             while (elapsed < totalMs) {
-                val remainMin = (totalMs - elapsed + 59_999L) / 60_000L
+                val remainMin = (((totalMs - elapsed) * timeScale).toLong() + 59_999L) / 60_000L
                 if (remainMin != shownMin) {
                     shownMin = remainMin
                     MockState.update { it.copy(stepLabel = "At ${stop.name} \u2014 $remainMin min left") }
                 }
-                emit(dwell.next(dtMillis / 1000.0))
+                val prog = if (totalMs > 0) (elapsed.toDouble() / totalMs).toFloat() else 1f
+                emit(dwell.next(dtMillis / 1000.0).copy(progress = prog, remainingSec = ((totalMs - elapsed) / 1000).toInt()))
                 delay(dtMillis)
                 elapsed += dtMillis
             }

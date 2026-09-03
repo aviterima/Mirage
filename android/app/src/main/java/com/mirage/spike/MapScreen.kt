@@ -1,41 +1,70 @@
 package com.mirage.spike
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Path
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DirectionsBike
+import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.DirectionsWalk
+import androidx.compose.material.icons.filled.Flight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -50,21 +79,25 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.android.gms.location.LocationServices
-import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.CameraUpdateFactory
+import com.google.android.gms.maps.model.BitmapDescriptor
+import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLngBounds
 import com.google.android.gms.maps.model.LatLng as GLatLng
@@ -76,14 +109,31 @@ import com.google.maps.android.compose.Polyline
 import com.google.maps.android.compose.rememberCameraPositionState
 import com.google.maps.android.compose.rememberMarkerState
 import com.mirage.spike.engine.Geo
+import com.mirage.spike.engine.ItineraryStop
 import com.mirage.spike.engine.LatLng
 import com.mirage.spike.engine.PlaceHit
-import kotlinx.coroutines.launch
+import com.mirage.spike.engine.PlaybackSource
 import com.mirage.spike.engine.Realism
 import com.mirage.spike.engine.TravelMode
+import kotlinx.coroutines.launch
 
-private val ACCENT = Color(0xFF4F46E5)
+private val ACCENT = Indigo
 private val MUTED = Color(0xFF5F6368)
+private val GREEN = Color(0xFF16A34A)
+private val AMBER = Color(0xFFD97706)
+private val RED = Color(0xFFDC2626)
+private val VIOLET = Color(0xFF7C3AED)
+
+/** Live state of the one-time device setup, read when the Setup dialog opens. */
+data class SetupChecks(val location: Boolean, val notifications: Boolean, val battery: Boolean)
+
+/** The simulation controls handed from the screen down to the sheet. */
+private class SimActions(
+    val getRoute: () -> Unit,
+    val start: () -> Unit,
+    val startItinerary: () -> Unit,
+    val holdAt: (LatLng?) -> Unit,
+)
 
 @Composable
 fun MapScreen(
@@ -92,6 +142,7 @@ fun MapScreen(
     onOpenDevSettings: () -> Unit,
     onRequestBattery: () -> Unit,
     onRequestPermissions: () -> Unit,
+    setupChecks: () -> SetupChecks,
 ) {
     val vm: MirageViewModel = viewModel()
     val status by MockState.status.collectAsState()
@@ -99,13 +150,16 @@ fun MapScreen(
     var sheetCollapsed by remember { mutableStateOf(false) }
     // The control sheet may never take more than half the screen; the map keeps the rest.
     val maxSheet = (LocalConfiguration.current.screenHeightDp * 0.5f).dp
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val keyboard = LocalSoftwareKeyboardController.current
+    val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
     val camera = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(GLatLng(START_LAT, START_LNG), 13f)
     }
     val carState = rememberMarkerState()
     LaunchedEffect(status.lat, status.lng) { carState.position = GLatLng(status.lat, status.lng) }
-    LaunchedEffect(vm.dest) { vm.dest?.let { camera.position = CameraPosition.fromLatLngZoom(it.toG(), 14f) } }
     // Frame the whole route (or itinerary) in the visible part of the map.
     LaunchedEffect(vm.routePts) {
         if (vm.routePts.size >= 2) {
@@ -114,13 +168,14 @@ fun MapScreen(
             runCatching { camera.animate(CameraUpdateFactory.newLatLngBounds(b.build(), 90)) }
         }
     }
+    // A problem must be visible even if the sheet was tucked away.
+    LaunchedEffect(vm.error) { if (vm.error != null) sheetCollapsed = false }
 
-    val context = LocalContext.current
     val hasLocPerm = ContextCompat.checkSelfPermission(
         context, android.Manifest.permission.ACCESS_FINE_LOCATION
     ) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
-    // On first load (and once permission is granted), center on the device's real
+    // On first load (and once permission is granted), centre on the device's real
     // location and use it as the start point — unless a simulation is already running.
     LaunchedEffect(hasLocPerm) {
         if (hasLocPerm && !status.running) {
@@ -128,7 +183,7 @@ fun MapScreen(
                 LocationServices.getFusedLocationProviderClient(context).lastLocation
                     .addOnSuccessListener { loc ->
                         if (loc != null && !MockState.status.value.running) {
-                            vm.setStartPoint(LatLng(loc.latitude, loc.longitude))
+                            vm.useMyLocation(LatLng(loc.latitude, loc.longitude))
                             camera.position = CameraPosition.fromLatLngZoom(GLatLng(loc.latitude, loc.longitude), 14f)
                         }
                     }
@@ -136,45 +191,70 @@ fun MapScreen(
         }
     }
 
+    val goTo: (LatLng) -> Unit = { p ->
+        scope.launch { runCatching { camera.animate(CameraUpdateFactory.newLatLngZoom(p.toG(), 15f)) } }
+    }
+    val actions = SimActions(
+        getRoute = { vm.buildRoute() },
+        start = { onRequestPermissions(); vm.startSim(onStartService) },
+        startItinerary = { onRequestPermissions(); vm.startItinerary(onStartService) },
+        holdAt = { at -> onRequestPermissions(); armStatic(at); onStartService() },
+    )
+    val onStop = { onStopService(); vm.onStopped() }
+
     Box(Modifier.fillMaxSize()) {
 
         GoogleMap(
             modifier = Modifier.fillMaxSize(),
             cameraPositionState = camera,
             properties = MapProperties(isMyLocationEnabled = hasLocPerm),
-            uiSettings = MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = hasLocPerm),
-            contentPadding = PaddingValues(top = 96.dp, bottom = if (status.running) 220.dp else if (sheetCollapsed) 96.dp else maxSheet),
-            onMapClick = { vm.setDestPoint(it.toE()) },
-            onMapLongClick = { vm.setStartPoint(it.toE()) },
+            uiSettings = MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = hasLocPerm, compassEnabled = true),
+            contentPadding = PaddingValues(
+                top = topInset + 84.dp,
+                bottom = when {
+                    sheetCollapsed -> 100.dp
+                    status.running -> 300.dp
+                    else -> maxSheet
+                },
+            ),
+            onMapClick = { if (!status.running) vm.setDestPoint(it.toE()) },
+            onMapLongClick = { if (!status.running) vm.setStartPoint(it.toE()) },
         ) {
+            val arrow = remember { runCatching { navigationArrow(ACCENT) }.getOrNull() }
             vm.start?.let { s ->
                 Marker(
                     state = rememberMarkerState(key = "s-${s.lat},${s.lng}", position = s.toG()),
                     icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN),
                     title = "Start",
+                    snippet = vm.startName,
                 )
             }
             vm.dest?.let { d ->
                 Marker(
                     state = rememberMarkerState(key = "d-${d.lat},${d.lng}", position = d.toG()),
                     icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_VIOLET),
-                    title = "Destination",
+                    title = vm.destName,
                 )
             }
             if (vm.routePts.isNotEmpty()) {
                 Polyline(points = vm.routePts.map { it.toG() }, color = ACCENT, width = 14f)
             }
-            if (status.running) Marker(state = carState, title = "Mirage")
+            if (status.running) {
+                Marker(
+                    state = carState,
+                    icon = arrow ?: BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE),
+                    anchor = Offset(0.5f, 0.5f),
+                    flat = true,
+                    rotation = status.bearingDeg,
+                    zIndex = 10f,
+                    title = "Mirage",
+                )
+            }
         }
 
-        // Floating search bar + settings, with a type-ahead pick list underneath.
-        val scope = rememberCoroutineScope()
-        val keyboard = LocalSoftwareKeyboardController.current
+        // ---- Search + setup, with the type-ahead pick list underneath ----------------
         var query by remember { mutableStateOf("") }
-        val goTo: (LatLng) -> Unit = { p ->
-            scope.launch { runCatching { camera.animate(CameraUpdateFactory.newLatLngZoom(p.toG(), 15f)) } }
-        }
-        Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(12.dp)) {
+        Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding().padding(12.dp)) {
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -182,18 +262,24 @@ fun MapScreen(
             ) {
                 OutlinedTextField(
                     value = query,
-                    onValueChange = { query = it; vm.suggest(it) },
+                    onValueChange = { query = it; vm.suggest(it, camera.position.target.toE()) },
+                    enabled = !status.running,
                     placeholder = { Text("Search a place or address") },
-                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = MUTED) },
                     trailingIcon = {
                         if (query.isNotEmpty()) IconButton(onClick = { query = ""; vm.clearSuggestions() }) {
-                            Icon(Icons.Filled.Close, contentDescription = "Clear")
+                            Icon(Icons.Filled.Close, contentDescription = "Clear", tint = MUTED)
                         }
                     },
                     singleLine = true,
                     shape = RoundedCornerShape(28.dp),
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = {
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surface,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                        disabledContainerColor = MaterialTheme.colorScheme.surface,
+                    ),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = {
                         keyboard?.hide()
                         // Enter with a list showing = take the top row; otherwise run a plain search.
                         val top = vm.suggestions.firstOrNull()
@@ -227,45 +313,34 @@ fun MapScreen(
 
         val mockBlocked = !status.running && !status.mockAppSelected && status.message.contains("Not the selected")
 
-        // Bottom control sheet — capped at half the screen, scrolls inside, collapsible.
-        val onGetRoute = { vm.buildRoute() }
-        val onStart = { onRequestPermissions(); vm.startSim(onStartService) }
-        val onStartItinerary = { onRequestPermissions(); vm.startItinerary(onStartService) }
-        val onStatic: (LatLng?) -> Unit = { at -> onRequestPermissions(); armStatic(at); onStartService() }
+        // ---- Bottom sheet: capped at half the screen, scrolls inside, collapsible -----
         Card(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(10.dp).heightIn(max = maxSheet),
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(10.dp).heightIn(max = maxSheet),
             shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
         ) {
             Column(
                 Modifier.padding(horizontal = 18.dp, vertical = 10.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 when {
-                    status.running -> LiveHud(status) { onStopService(); vm.onStopped() }
+                    status.running && sheetCollapsed -> MiniHud(status, onExpand = { sheetCollapsed = false }, onStop = onStop)
+                    status.running -> LiveHud(status, onCollapse = { sheetCollapsed = true }, onStop = onStop)
                     sheetCollapsed -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { sheetCollapsed = false }) {
                             Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Expand controls", tint = ACCENT)
                         }
-                        Box(Modifier.weight(1f)) {
-                            PrimaryAction(vm, onGetRoute, onStart, onStartItinerary, onStatic)
-                        }
+                        Box(Modifier.weight(1f)) { PrimaryAction(vm, actions) }
                     }
                     else -> {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Surface(shape = RoundedCornerShape(2.dp), color = MUTED.copy(alpha = 0.35f), modifier = Modifier.size(width = 40.dp, height = 4.dp)) {}
+                            Text("Plan", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                             IconButton(onClick = { sheetCollapsed = true }) {
                                 Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Collapse to see the map", tint = ACCENT)
                             }
                         }
-                        Controls(
-                            vm = vm,
-                            onOpenSetup = { showSetup = true },
-                            mockBlocked = mockBlocked,
-                            onGetRoute = onGetRoute,
-                            onStart = onStart,
-                            onStartItinerary = onStartItinerary,
-                            onStatic = onStatic,
-                        )
+                        Controls(vm = vm, mockBlocked = mockBlocked, onOpenSetup = { showSetup = true }, a = actions)
                     }
                 }
             }
@@ -273,7 +348,10 @@ fun MapScreen(
     }
 
     if (showSetup) {
+        val checks = remember { setupChecks() }
         SetupDialog(
+            status = status,
+            checks = checks,
             hasKey = vm.hasKey,
             onDismiss = { showSetup = false },
             onDev = onOpenDevSettings,
@@ -282,6 +360,8 @@ fun MapScreen(
         )
     }
 }
+
+// ---- Search results ----------------------------------------------------------------
 
 /** Uber-style pick list: every matching place with its address and distance from the start. */
 @Composable
@@ -316,7 +396,7 @@ private fun SuggestionList(hits: List<PlaceHit>, busy: Boolean, from: LatLng?, o
                     }
                     if (from != null) {
                         Spacer(Modifier.width(8.dp))
-                        Text(formatMiles(Geo.haversine(from, hit.latLng)), fontSize = 12.sp, color = MUTED)
+                        Text(fmtMiles(Geo.haversine(from, hit.latLng)), fontSize = 12.sp, color = MUTED)
                     }
                 }
             }
@@ -324,56 +404,54 @@ private fun SuggestionList(hits: List<PlaceHit>, busy: Boolean, from: LatLng?, o
     }
 }
 
-private fun formatMiles(meters: Double): String {
-    val mi = meters / 1609.344
-    return if (mi < 10) String.format("%.1f mi", mi) else "${mi.toInt()} mi"
-}
+// ---- Planning controls -------------------------------------------------------------
 
 @Composable
-private fun Controls(
-    vm: MirageViewModel,
-    onOpenSetup: () -> Unit,
-    mockBlocked: Boolean,
-    onGetRoute: () -> Unit,
-    onStart: () -> Unit,
-    onStartItinerary: () -> Unit,
-    onStatic: (LatLng?) -> Unit,
-) {
+private fun Controls(vm: MirageViewModel, mockBlocked: Boolean, onOpenSetup: () -> Unit, a: SimActions) {
     val fly = vm.mode == TravelMode.FLY
-    // Endpoint hint
-    val hint = when {
-        vm.dest == null -> "Long-press the map to set start · tap to set destination · or search"
-        fly -> "Flight plotted point-to-point along the great circle"
-        else -> "Route ready to build"
-    }
-    Text(hint, fontSize = 12.sp, color = MUTED)
 
-    // Single trip vs multi-stop itinerary
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilterChip(selected = !vm.itineraryMode, onClick = { vm.itineraryMode = false }, label = { Text("Single trip") })
-        FilterChip(selected = vm.itineraryMode, onClick = { vm.itineraryMode = true }, label = { Text("Itinerary") })
+    // Trip type
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+        SegmentedButton(
+            selected = !vm.itineraryMode, onClick = { vm.itineraryMode = false },
+            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2), label = { Text("Single trip") },
+        )
+        SegmentedButton(
+            selected = vm.itineraryMode, onClick = { vm.itineraryMode = true },
+            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2), label = { Text("Itinerary") },
+        )
     }
 
-    // Travel mode — Drive / Bike / Walk / Fly
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    // Endpoints
+    Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            EndpointRow(GREEN, "From", vm.startName, "Long-press the map to move the start")
+            EndpointRow(VIOLET, "To", vm.dest?.let { vm.destName }, "Search above, or tap the map")
+            vm.routeSummary?.let { Text(it, fontSize = 12.sp, color = ACCENT, fontWeight = FontWeight.SemiBold) }
+        }
+    }
+
+    // Travel mode
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         TravelMode.entries.forEach { m ->
             FilterChip(
                 selected = vm.mode == m,
                 onClick = { vm.chooseMode(m) },
-                label = { Text(m.name.lowercase().replaceFirstChar { it.uppercase() }) },
+                label = { Text(m.label()) },
+                leadingIcon = { Icon(m.icon(), contentDescription = null, modifier = Modifier.size(18.dp)) },
             )
         }
     }
 
     if (fly) {
-        Text(
-            "Emulated flight · taxi → climb to 35,000 ft → cruise ~550 mph → descent → landing",
-            fontSize = 12.sp, color = MUTED,
-        )
+        Text("Emulated flight: taxi, climb to 35,000 ft, cruise at about 550 mph, descent, landing.", fontSize = 12.sp, color = MUTED)
     } else {
         // Average speed — the hero control
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
-            Text("Average speed \u00b7 ${vm.mode.name.lowercase().replaceFirstChar { it.uppercase() }}", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                if (vm.itineraryMode) "Next leg speed · ${vm.mode.label()}" else "Average speed · ${vm.mode.label()}",
+                fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+            )
             Text("${vm.avgMph.toInt()} mph", color = ACCENT, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         }
         Slider(value = vm.avgMph, onValueChange = { vm.avgMph = it }, valueRange = speedRange(vm.mode))
@@ -381,136 +459,243 @@ private fun Controls(
         // Realism
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Realism.entries.forEach { r ->
-                FilterChip(
-                    selected = vm.realism == r,
-                    onClick = { vm.realism = r },
-                    label = { Text(r.name.lowercase().replaceFirstChar { it.uppercase() }) },
-                )
+                FilterChip(selected = vm.realism == r, onClick = { vm.realism = r }, label = { Text(r.label()) })
             }
         }
     }
 
     if (vm.itineraryMode) {
         // ---- Itinerary: ordered stops, each with a dwell time ----
-        Text("Search or tap a place, then add it as a stop. Each leg keeps its own mode & speed \u2014 tap a stop\u2019s mode to change it.", fontSize = 12.sp, color = MUTED)
+        Text(
+            "Add stops in order. Each leg travels with the mode and speed set above; tap a stop's icon to change its mode.",
+            fontSize = 12.sp, color = MUTED,
+        )
         vm.stops.forEachIndexed { i, stop ->
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { vm.cycleStopMode(i) }) {
-                    Text(stop.mode.name.lowercase().replaceFirstChar { it.uppercase() }, fontSize = 12.sp, color = ACCENT)
-                }
-                Text("${stop.name}", fontSize = 13.sp, modifier = Modifier.weight(1f))
-                TextButton(onClick = { vm.adjustDwell(i, -15) }) { Text("\u2212") }
-                Text("${stop.dwellMinutes} min", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                TextButton(onClick = { vm.adjustDwell(i, 15) }) { Text("+") }
-                TextButton(onClick = { vm.removeStop(i) }) { Text("\u2715", color = Color(0xFFDC2626)) }
-            }
+            StopRow(
+                index = i, stop = stop,
+                onMode = { vm.cycleStopMode(i) },
+                onDwell = { vm.adjustDwell(i, it) },
+                onRemove = { vm.removeStop(i) },
+            )
+        }
+        if (vm.stops.isNotEmpty()) {
+            Text(
+                "${vm.stops.size} ${if (vm.stops.size == 1) "stop" else "stops"} · ${fmtDuration(vm.dwellTotalMinutes * 60.0)} on site in total",
+                fontSize = 12.sp, color = MUTED,
+            )
         }
         OutlinedButton(onClick = { vm.addStop() }, enabled = vm.dest != null, modifier = Modifier.fillMaxWidth()) {
-            Text(if (vm.dest != null) "Add \u201c${vm.destName}\u201d as a stop" else "Add a stop (search or tap a place first)")
+            Text(if (vm.dest != null) "Add “${vm.destName}” as a stop" else "Search or tap a place to add a stop")
         }
-        PrimaryAction(vm, onGetRoute, onStart, onStartItinerary, onStatic)
+        PrimaryAction(vm, a)
     } else {
-        PrimaryAction(vm, onGetRoute, onStart, onStartItinerary, onStatic)
+        PrimaryAction(vm, a)
         // Find a place and simply BE there — no route, instant, holds until Stop.
         if (vm.dest != null) {
-            OutlinedButton(onClick = { onStatic(vm.dest) }, modifier = Modifier.fillMaxWidth()) {
-                Text("Jump to \u201c${vm.destName}\u201d \u2014 no route")
+            OutlinedButton(onClick = { a.holdAt(vm.dest) }, modifier = Modifier.fillMaxWidth()) {
+                Text("Jump to “${vm.destName}” — no route")
             }
+        }
+        if (vm.routePts.isNotEmpty()) {
+            TextButton(onClick = { a.holdAt(vm.start) }, modifier = Modifier.fillMaxWidth()) { Text("Hold the start point instead") }
         }
     }
 
-    // Secondary / notices
-    if (!vm.itineraryMode && vm.routePts.isNotEmpty()) {
-        OutlinedButton(onClick = { onStatic(vm.start) }, modifier = Modifier.fillMaxWidth()) { Text("Spoof start point instead") }
+    // Fast-forward (testing)
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Fast-forward", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+        listOf(1f, 2f, 5f, 10f).forEach { s ->
+            FilterChip(selected = vm.timeScale == s, onClick = { vm.timeScale = s }, label = { Text("${s.toInt()}×") })
+        }
     }
-    if (!vm.hasKey) {
+    if (vm.timeScale > 1f) {
         Text(
-            "Map & routing need a Google Maps key — tap ⚙ to set it up. Spoofing works without it.",
-            fontSize = 12.sp, color = Color(0xFFD97706),
+            "Positions advance ${vm.timeScale.toInt()}× faster than real time (for testing); reported speed stays realistic.",
+            fontSize = 12.sp, color = AMBER,
         )
     }
+
+    // Notices
+    if (!vm.hasKey) {
+        Text("Map, search and routing need a Google Maps key — tap ⚙ for details. Holding a point works without it.", fontSize = 12.sp, color = AMBER)
+    }
     if (mockBlocked) {
-        Card(Modifier.fillMaxWidth()) {
+        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = RED.copy(alpha = 0.08f))) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    "Mirage isn't set as the mock-location app yet, so Android won't let it move your location. " +
-                        "Fix: Developer options → Select mock location app → Mirage, then tap Start again.",
-                    fontSize = 12.sp, color = Color(0xFFDC2626),
+                    "Mirage isn't selected as the mock-location app yet, so Android won't let it move your location. " +
+                        "Developer options → Select mock location app → Mirage, then tap Start again.",
+                    fontSize = 12.sp, color = RED,
                 )
                 Button(onClick = onOpenSetup, modifier = Modifier.fillMaxWidth()) { Text("Fix: select Mirage as mock app") }
             }
         }
     }
-    vm.error?.let { Text("⚠ $it", fontSize = 12.sp, color = Color(0xFFDC2626)) }
+    vm.error?.let {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.Warning, contentDescription = null, tint = RED, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(it, fontSize = 12.sp, color = RED, modifier = Modifier.weight(1f))
+            TextButton(onClick = { vm.clearError() }) { Text("Dismiss", fontSize = 12.sp) }
+        }
+    }
 }
 
 @Composable
-private fun PrimaryAction(
-    vm: MirageViewModel,
-    onGetRoute: () -> Unit,
-    onStart: () -> Unit,
-    onStartItinerary: () -> Unit,
-    onStatic: (LatLng?) -> Unit,
-) {
+private fun EndpointRow(dot: Color, label: String, value: String?, placeholder: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(10.dp).background(dot, CircleShape))
+        Spacer(Modifier.width(10.dp))
+        Text(label, fontSize = 12.sp, color = MUTED, modifier = Modifier.width(40.dp))
+        Text(
+            value ?: placeholder,
+            fontSize = 14.sp,
+            fontWeight = if (value != null) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (value != null) MaterialTheme.colorScheme.onSurface else MUTED,
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun StopRow(index: Int, stop: ItineraryStop, onMode: () -> Unit, onDwell: (Int) -> Unit, onRemove: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(22.dp).background(ACCENT, CircleShape), contentAlignment = Alignment.Center) {
+            Text("${index + 1}", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        }
+        IconButton(onClick = onMode, modifier = Modifier.size(36.dp)) {
+            Icon(stop.mode.icon(), contentDescription = "Travel mode: ${stop.mode.label()} (tap to change)", tint = ACCENT)
+        }
+        Column(Modifier.weight(1f)) {
+            Text(stop.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("${stop.mode.label()} · ${stop.avgMph.toInt()} mph", fontSize = 11.sp, color = MUTED)
+        }
+        IconButton(onClick = { onDwell(-15) }, modifier = Modifier.size(32.dp)) { Text("−", fontSize = 18.sp) }
+        Text("${stop.dwellMinutes} min", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        IconButton(onClick = { onDwell(15) }, modifier = Modifier.size(32.dp)) { Text("+", fontSize = 18.sp) }
+        IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
+            Icon(Icons.Filled.Delete, contentDescription = "Remove stop", tint = RED)
+        }
+    }
+}
+
+@Composable
+private fun PrimaryAction(vm: MirageViewModel, a: SimActions) {
     val fly = vm.mode == TravelMode.FLY
     if (vm.itineraryMode) {
-        if (vm.itineraryBusy) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(Modifier.size(20.dp)); Spacer(Modifier.width(10.dp)); Text("Routing legs\u2026")
-            }
-        } else {
-            Button(onClick = onStartItinerary, enabled = vm.stops.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
-                Text("Start itinerary")
-            }
-        }
+        if (vm.itineraryBusy) BusyRow("Routing legs…")
+        else BigButton("Start itinerary", enabled = vm.stops.isNotEmpty(), onClick = a.startItinerary)
         return
     }
-    // Primary action — smart by state
     when {
-        vm.phase == Phase.ROUTING -> Row(verticalAlignment = Alignment.CenterVertically) {
-            CircularProgressIndicator(Modifier.size(20.dp)); Spacer(Modifier.width(10.dp)); Text("Routing\u2026")
-        }
-        vm.routePts.isNotEmpty() ->
-            Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) { Text(if (fly) "Start flight" else "Start simulation") }
-        fly && vm.dest != null ->
-            Button(onClick = onGetRoute, modifier = Modifier.fillMaxWidth()) { Text("Plot flight") }
-        vm.hasKey && vm.dest != null ->
-            Button(onClick = onGetRoute, modifier = Modifier.fillMaxWidth()) { Text("Get route") }
-        else ->
-            Button(onClick = { onStatic(vm.start) }, modifier = Modifier.fillMaxWidth()) { Text("Spoof this point") }
+        vm.phase == Phase.ROUTING -> BusyRow("Routing…")
+        vm.routePts.isNotEmpty() -> BigButton(if (fly) "Start flight" else "Start simulation", onClick = a.start)
+        vm.dest != null -> BigButton(if (fly) "Plot flight" else "Get route", icon = null, onClick = a.getRoute)
+        else -> BigButton("Hold the start point", onClick = { a.holdAt(vm.start) })
     }
 }
 
 @Composable
-private fun LiveHud(status: MockStatus, onStop: () -> Unit) {
-    val mph = status.speedMps / 0.44704f
-    val healthColor = when (status.health) {
-        Health.GREEN -> Color(0xFF16A34A)
-        Health.AMBER -> Color(0xFFD97706)
-        Health.RED -> Color(0xFFDC2626)
+private fun BigButton(text: String, enabled: Boolean = true, icon: ImageVector? = Icons.Filled.PlayArrow, onClick: () -> Unit) {
+    Button(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth().height(48.dp)) {
+        if (icon != null) { Icon(icon, contentDescription = null); Spacer(Modifier.width(6.dp)) }
+        Text(text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
     }
+}
+
+@Composable
+private fun BusyRow(text: String) {
+    Row(Modifier.height(48.dp), verticalAlignment = Alignment.CenterVertically) {
+        CircularProgressIndicator(Modifier.size(20.dp)); Spacer(Modifier.width(10.dp)); Text(text)
+    }
+}
+
+// ---- Live HUD (running) -------------------------------------------------------------
+
+private fun healthColor(h: Health) = when (h) {
+    Health.GREEN -> GREEN
+    Health.AMBER -> AMBER
+    Health.RED -> RED
+}
+
+@Composable
+private fun LiveHud(status: MockStatus, onCollapse: () -> Unit, onStop: () -> Unit) {
+    val mph = (status.speedMps / 0.44704f).toInt()
+    val hc = healthColor(status.health)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Row(verticalAlignment = Alignment.Bottom) {
-            Text("${mph.toInt()}", fontSize = 34.sp, fontWeight = FontWeight.Bold)
+            Text("$mph", fontSize = 34.sp, fontWeight = FontWeight.Bold)
             Text(" mph", fontSize = 15.sp, color = MUTED)
         }
-        Surface(shape = RoundedCornerShape(20.dp), color = healthColor.copy(alpha = 0.12f)) {
-            Text("● ${status.message}", color = healthColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Surface(shape = RoundedCornerShape(20.dp), color = hc.copy(alpha = 0.12f)) {
+                Text(
+                    "● ${status.message}", color = hc, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+            }
+            IconButton(onClick = onCollapse) {
+                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Collapse to see the map", tint = ACCENT)
+            }
         }
     }
     if (status.stepLabel.isNotEmpty()) {
-        Text(status.stepLabel, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = ACCENT)
+        Text(status.stepLabel, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = ACCENT)
     }
-    Text("${"%.5f".format(status.lat)}, ${"%.5f".format(status.lng)}",
-        fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = MUTED)
-    Text("Fixes ${status.emittedCount} · re-asserts ${status.reassertCount} · leak ${if (status.leakSeen) "YES ⚠" else "no"}",
-        fontSize = 12.sp, color = MUTED)
-    Button(onClick = onStop, modifier = Modifier.fillMaxWidth()) { Text("Stop \u2014 return to real location") }
+    if (status.progress >= 0f) {
+        LinearProgressIndicator(progress = { status.progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("${(status.progress * 100).toInt()}% of this leg", fontSize = 12.sp, color = MUTED)
+            if (status.remainingSec >= 0) Text("about ${fmtDuration(status.remainingSec.toDouble())} left", fontSize = 12.sp, color = MUTED)
+        }
+    }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(
+            "${"%.5f".format(status.lat)}, ${"%.5f".format(status.lng)}",
+            fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = MUTED,
+        )
+        if (status.label.isNotEmpty()) Text(status.label, fontSize = 12.sp, color = MUTED)
+    }
+    Text(
+        "Fixes ${status.emittedCount} · re-asserts ${status.reassertCount} · leak ${if (status.leakSeen) "YES ⚠" else "no"}",
+        fontSize = 11.sp, color = MUTED,
+    )
+    Button(
+        onClick = onStop,
+        colors = ButtonDefaults.buttonColors(containerColor = RED),
+        modifier = Modifier.fillMaxWidth().height(48.dp),
+    ) {
+        Icon(Icons.Filled.Stop, contentDescription = null); Spacer(Modifier.width(6.dp))
+        Text("Stop — return to real location", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+    }
 }
+
+/** One-line HUD when the sheet is collapsed while running: still shows health, and Stop stays reachable. */
+@Composable
+private fun MiniHud(status: MockStatus, onExpand: () -> Unit, onStop: () -> Unit) {
+    val mph = (status.speedMps / 0.44704f).toInt()
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onExpand) {
+            Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Expand status", tint = ACCENT)
+        }
+        Box(Modifier.size(10.dp).background(healthColor(status.health), CircleShape))
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text("$mph mph", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text(status.stepLabel.ifEmpty { status.message }, fontSize = 12.sp, color = MUTED, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Button(onClick = onStop, colors = ButtonDefaults.buttonColors(containerColor = RED), contentPadding = PaddingValues(horizontal = 14.dp)) {
+            Text("Stop")
+        }
+    }
+}
+
+// ---- Setup dialog ------------------------------------------------------------------
 
 @Composable
 private fun SetupDialog(
+    status: MockStatus,
+    checks: SetupChecks,
     hasKey: Boolean,
     onDismiss: () -> Unit,
     onDev: () -> Unit,
@@ -523,28 +708,105 @@ private fun SetupDialog(
         title = { Text("Setup") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("1. Select Mirage as the mock-location app.", fontSize = 13.sp)
-                OutlinedButton(onClick = onDev, modifier = Modifier.fillMaxWidth()) { Text("Open Developer options") }
-                Text("2. Allow location & notifications.", fontSize = 13.sp)
-                OutlinedButton(onClick = onPerms, modifier = Modifier.fillMaxWidth()) { Text("Grant permissions") }
-                Text("3. Keep it running in Doze.", fontSize = 13.sp)
-                OutlinedButton(onClick = onBattery, modifier = Modifier.fillMaxWidth()) { Text("Ignore battery optimization") }
-                Spacer(Modifier.height(2.dp))
+                Text("One-time device setup. Each step shows its current state.", fontSize = 12.sp, color = MUTED)
+                SetupRow(
+                    ok = status.mockAppSelected, title = "Mock-location app",
+                    detail = if (status.mockAppSelected) "Mirage is selected" else "Developer options → Select mock location app → Mirage (verified on first Start)",
+                    action = "Open Developer options", onAction = onDev,
+                )
+                SetupRow(
+                    ok = checks.location, title = "Location permission",
+                    detail = if (checks.location) "Precise location granted" else "Precise location is required",
+                    action = "Grant", onAction = onPerms,
+                )
+                SetupRow(
+                    ok = checks.notifications, title = "Notifications",
+                    detail = if (checks.notifications) "Enabled" else "Needed for the persistent status and its Stop button",
+                    action = "Grant", onAction = onPerms,
+                )
+                SetupRow(
+                    ok = checks.battery, title = "Battery optimization",
+                    detail = if (checks.battery) "Ignored — the simulation can run all day" else "Allow so the simulation survives Doze",
+                    action = "Allow", onAction = onBattery,
+                )
+                HorizontalDivider()
                 Text(
                     if (hasKey) "Google Maps key: set ✓"
-                    else "Google Maps key: not set — the map & routing stay off until MAPS_API_KEY is provided (see README).",
+                    else "Google Maps key: not set — map, search and routing stay off until MAPS_API_KEY is provided (see README).",
                     fontSize = 12.sp,
-                    color = if (hasKey) Color(0xFF16A34A) else Color(0xFFD97706),
+                    color = if (hasKey) GREEN else AMBER,
                 )
+                Text("Mirage ${BuildConfig.VERSION_NAME}", fontSize = 11.sp, color = MUTED)
             }
         },
     )
 }
 
+@Composable
+private fun SetupRow(ok: Boolean, title: String, detail: String, action: String, onAction: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            if (ok) Icons.Filled.Check else Icons.Filled.Warning,
+            contentDescription = if (ok) "Done" else "Needs attention",
+            tint = if (ok) GREEN else AMBER,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(detail, fontSize = 12.sp, color = MUTED)
+        }
+        if (!ok) TextButton(onClick = onAction) { Text(action, fontSize = 12.sp) }
+    }
+}
+
+// ---- Helpers ------------------------------------------------------------------------
+
+private fun TravelMode.label(): String = when (this) {
+    TravelMode.DRIVE -> "Drive"
+    TravelMode.BIKE -> "Bike"
+    TravelMode.WALK -> "Walk"
+    TravelMode.FLY -> "Fly"
+}
+
+private fun TravelMode.icon(): ImageVector = when (this) {
+    TravelMode.DRIVE -> Icons.Filled.DirectionsCar
+    TravelMode.BIKE -> Icons.Filled.DirectionsBike
+    TravelMode.WALK -> Icons.Filled.DirectionsWalk
+    TravelMode.FLY -> Icons.Filled.Flight
+}
+
+private fun Realism.label(): String = when (this) {
+    Realism.CONSTANT -> "Steady"
+    Realism.REALISTIC -> "Realistic"
+    Realism.BUSY -> "Heavy traffic"
+}
+
+/** A heading arrow in a white halo, drawn once, for the moving position marker. */
+private fun navigationArrow(color: Color, sizePx: Int = 96): BitmapDescriptor {
+    val bmp = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+    val c = Canvas(bmp)
+    val s = sizePx.toFloat()
+    val halo = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = android.graphics.Color.WHITE }
+    c.drawCircle(s / 2, s / 2, s * 0.42f, halo)
+    val body = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color.toArgb() }
+    c.drawCircle(s / 2, s / 2, s * 0.34f, body)
+    val arrow = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = android.graphics.Color.WHITE }
+    val p = Path().apply {
+        moveTo(s / 2, s * 0.20f)
+        lineTo(s * 0.70f, s * 0.68f)
+        lineTo(s / 2, s * 0.56f)
+        lineTo(s * 0.30f, s * 0.68f)
+        close()
+    }
+    c.drawPath(p, arrow)
+    return BitmapDescriptorFactory.fromBitmap(bmp)
+}
+
 private fun armStatic(at: LatLng?) {
-    com.mirage.spike.engine.PlaybackSource.current = null
-    com.mirage.spike.engine.PlaybackSource.routePoints = listOfNotNull(at)
-    com.mirage.spike.engine.PlaybackSource.label = "Static"
+    PlaybackSource.current = null
+    PlaybackSource.routePoints = listOfNotNull(at)
+    PlaybackSource.label = "Static"
 }
 
 private fun LatLng.toG() = GLatLng(lat, lng)

@@ -116,14 +116,16 @@ class MotionModel(
             dist += speed * dt * params.timeScale
             val at = clamp(dist, 0.0, totalMeters)
             val (p, brg) = interpolate(at)
-            emit(Fix(p.lat, p.lng, speed.toFloat(), brg.toFloat(), params.accuracyMeters))
+            val prog = (at / totalMeters).toFloat()
+            val eta = ((totalMeters - at) / (params.avgSpeedMps * params.timeScale)).toInt()
+            emit(Fix(p.lat, p.lng, speed.toFloat(), brg.toFloat(), params.accuracyMeters, progress = prog, remainingSec = eta))
 
             // occasional realistic stop (traffic light / congestion)
             if (rnd.nextDouble() < stopProbPerTick) {
-                val dwellMs = profile.dwellMinMs + rnd.nextInt(profile.dwellSpanMs)
+                val dwellMs = ((profile.dwellMinMs + rnd.nextInt(profile.dwellSpanMs)) / params.timeScale).toInt()
                 var elapsed = 0
                 while (elapsed < dwellMs) {
-                    emit(Fix(p.lat, p.lng, 0f, brg.toFloat(), params.accuracyMeters))
+                    emit(Fix(p.lat, p.lng, 0f, brg.toFloat(), params.accuracyMeters, progress = prog, remainingSec = eta))
                     delay(dtMillis)
                     elapsed += dtMillis.toInt()
                 }
@@ -134,7 +136,7 @@ class MotionModel(
         // final point
         val end = pts[pts.size - 1]
         val brgEnd = Geo.bearing(pts[pts.size - 2], end)
-        emit(Fix(end.lat, end.lng, 0f, brgEnd.toFloat(), params.accuracyMeters))
+        emit(Fix(end.lat, end.lng, 0f, brgEnd.toFloat(), params.accuracyMeters, progress = 1f, remainingSec = 0))
     }
 
     /** Point + bearing at [d] metres along the route. */

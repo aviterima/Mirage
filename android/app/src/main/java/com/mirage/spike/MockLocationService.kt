@@ -3,6 +3,7 @@ package com.mirage.spike
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -16,9 +17,9 @@ import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
+import com.mirage.spike.engine.DwellModel
 import com.mirage.spike.engine.Fix
 import com.mirage.spike.engine.LatLng
-import com.mirage.spike.engine.DwellModel
 import com.mirage.spike.engine.PlaybackSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -37,10 +38,11 @@ import java.util.Random
  *
  * Feeds a mock fix to BOTH the LocationManager test providers (gps + network) AND the
  * Fused Location Provider (which Google Maps reads), at a fixed cadence. It plays the
- * [PlaybackSource] fix stream (a routed drive) when one is armed, otherwise holds the
- * start point with realistic dither. A wake lock + foreground service keep it alive
- * through screen-off / Doze; a watchdog re-asserts on provider drop and flags any
- * real-fix leakage. See SPEC §5.
+ * [PlaybackSource] fix stream (route / flight / itinerary) when one is armed, then holds
+ * the final point like a person at a place until Stop. A wake lock + foreground service
+ * keep it alive through screen-off / Doze; a watchdog re-asserts on provider drop and
+ * flags any real-fix leakage. Only Stop (button or notification) hands location back
+ * to the real GPS. See SPEC §5.
  */
 class MockLocationService : Service() {
 
@@ -60,6 +62,7 @@ class MockLocationService : Service() {
     private var reasserts = 0L
     private var leakEver = false
     private var tick = 0
+    private var notifTick = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -71,19 +74,20 @@ class MockLocationService : Service() {
             revertToReal("Stopped — real location restored")
             return START_NOT_STICKY
         }
-        if (intent?.action == ACTION_STOP) {
+        if (intent.action == ACTION_STOP) {
             stopEverything()
             return START_NOT_STICKY
         }
         startAsForeground()
         acquireWakeLock()
-        if (loop == null || loop?.isActive != true) {
-            if (setupProviders()) {
-                loop = scope.launch { runPlayback() }
-            } else {
-                stopEverything()
-                return START_NOT_STICKY
-            }
+        // A new Start while already running replaces the playback (new route, jump, ...).
+        loop?.cancel()
+        loop = null
+        if (setupProviders()) {
+            loop = scope.launch { runPlayback() }
+        } else {
+            stopEverything()
+            return START_NOT_STICKY
         }
         return START_STICKY
     }
@@ -95,7 +99,11 @@ class MockLocationService : Service() {
             for (p in providers) addOneProvider(p)
             flp.setMockMode(true)
             MockState.update {
-                it.copy(mockAppSelected = true, running = true, health = Health.GREEN, message = "Spoofing", stepLabel = "")
+                it.copy(
+                    mockAppSelected = true, running = true, health = Health.GREEN,
+                    message = "Simulating", stepLabel = "", label = PlaybackSource.label,
+                    progress = -1f, remainingSec = -1,
+                )
             }
             true
         } catch (e: SecurityException) {
@@ -142,8 +150,9 @@ class MockLocationService : Service() {
         val anchorPt = last?.let { LatLng(it.lat, it.lng) } ?: PlaybackSource.routePoints.firstOrNull()
         val hold = anchorPt?.let { Fix(it.lat, it.lng, 0f, 0f, 4f) } ?: Fix(START_LAT, START_LNG, 0f, 0f, 4f)
         MockState.update {
-            it.copy(stepLabel = if (last != null) "Arrived \u2014 holding position until Stop" else "Holding point until Stop")
+            it.copy(stepLabel = if (last != null) "Arrived — holding position until Stop" else "Holding point until Stop")
         }
+        refreshNotification()
         val dwell = DwellModel(hold, 12.0, ditherRnd)
         while (scope.isActive) {
             pushFix(dwell.next(INTERVAL_MS / 1000.0))
@@ -172,6 +181,7 @@ class MockLocationService : Service() {
                     runCatching { addOneProvider(p) }
                 }
             }
+            if (wakeLock?.isHeld != true) acquireWakeLock()
             leakNow = detectLeak()
             if (leakNow) leakEver = true
         }
@@ -180,11 +190,14 @@ class MockLocationService : Service() {
         MockState.update {
             it.copy(
                 running = true, mockAppSelected = true, health = health,
-                lat = fix.lat, lng = fix.lng, speedMps = fix.speedMps,
+                lat = fix.lat, lng = fix.lng, speedMps = fix.speedMps, bearingDeg = fix.bearingDeg,
+                progress = fix.progress, remainingSec = fix.remainingSec,
                 emittedCount = count, reassertCount = reasserts, leakSeen = leakEver,
-                message = if (leakEver) "Re-asserting (leak seen)" else "Spoofing"
+                message = if (leakEver) "Re-asserting (leak seen)" else "Simulating",
+                label = PlaybackSource.label,
             )
         }
+        if (++notifTick >= NOTIFY_EVERY) { notifTick = 0; refreshNotification() }
     }
 
     private fun detectLeak(): Boolean {
@@ -216,21 +229,44 @@ class MockLocationService : Service() {
 
     // --- lifecycle / foreground --------------------------------------------
 
-    private fun startAsForeground() {
-        val channelId = "mirage_mock"
+    private fun ensureChannel() {
         val nm = getSystemService(NotificationManager::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm.getNotificationChannel(channelId) == null) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm.getNotificationChannel(CHANNEL_ID) == null) {
             nm.createNotificationChannel(
-                NotificationChannel(channelId, "Mock location", NotificationManager.IMPORTANCE_LOW)
+                NotificationChannel(CHANNEL_ID, "Simulation status", NotificationManager.IMPORTANCE_LOW).apply {
+                    description = "Shown while Mirage is simulating your location"
+                }
             )
         }
-        val notification: Notification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("Mirage — spoofing location")
-            .setContentText("Feeding a mock GPS route to the system")
+    }
+
+    private fun buildNotification(text: String): Notification {
+        val flagsPi = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        val open = PendingIntent.getActivity(
+            this, 0,
+            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            flagsPi,
+        )
+        val stop = PendingIntent.getService(
+            this, 1,
+            Intent(this, MockLocationService::class.java).setAction(ACTION_STOP),
+            flagsPi,
+        )
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Mirage — simulating location")
+            .setContentText(text)
             .setSmallIcon(R.drawable.ic_stat_mirage)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setContentIntent(open)
+            .addAction(0, "Stop — real location", stop)
             .build()
+    }
 
+    private fun startAsForeground() {
+        ensureChannel()
+        val notification = buildNotification("Starting…")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
         } else {
@@ -238,12 +274,24 @@ class MockLocationService : Service() {
         }
     }
 
+    /** Keep the persistent notification telling the truth: step, speed, health. */
+    private fun refreshNotification() {
+        val st = MockState.status.value
+        if (!st.running) return
+        val mph = (st.speedMps / 0.44704f).toInt()
+        val step = st.stepLabel.ifBlank { st.label.ifBlank { "Simulating" } }
+        val text = if (mph > 0) "$step · $mph mph" else step
+        runCatching { getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotification(text)) }
+    }
+
+    @Suppress("WakelockTimeout")
     private fun acquireWakeLock() {
         if (wakeLock?.isHeld == true) return
         val pm = getSystemService(POWER_SERVICE) as PowerManager
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "mirage:mock").also {
             it.setReferenceCounted(false)
-            it.acquire(60 * 60 * 1000L)
+            // No timeout: an itinerary can run all day. Released in revertToReal/onDestroy.
+            it.acquire()
         }
     }
 
@@ -262,7 +310,9 @@ class MockLocationService : Service() {
         runCatching { flp.setMockMode(false) }
         runCatching { if (wakeLock?.isHeld == true) wakeLock?.release() }
         wakeLock = null
-        MockState.update { it.copy(running = false, health = Health.RED, message = message, stepLabel = "") }
+        MockState.update {
+            it.copy(running = false, health = Health.RED, message = message, stepLabel = "", progress = -1f, remainingSec = -1)
+        }
         runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
         stopSelf()
     }
@@ -281,8 +331,11 @@ class MockLocationService : Service() {
 
     companion object {
         const val ACTION_STOP = "com.mirage.spike.STOP"
+        private const val CHANNEL_ID = "mirage_mock"
         private const val NOTIF_ID = 42
         private const val INTERVAL_MS = 200L
         private const val WATCHDOG_EVERY = 10
+        /** Refresh the notification every ~5 s at 5 Hz. */
+        private const val NOTIFY_EVERY = 25
     }
 }
