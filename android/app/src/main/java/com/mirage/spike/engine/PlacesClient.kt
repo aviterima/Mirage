@@ -8,7 +8,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 
-data class PlaceHit(val latLng: LatLng, val name: String)
+data class PlaceHit(val latLng: LatLng, val name: String, val address: String = "")
 
 class PlacesException(message: String) : Exception(message)
 
@@ -22,10 +22,17 @@ class GooglePlaces(
 ) {
     private val jsonType = "application/json".toMediaType()
 
-    suspend fun searchText(query: String, bias: LatLng?): PlaceHit? = withContext(Dispatchers.IO) {
-        if (apiKey.isBlank() || query.isBlank()) return@withContext null
+    /** Best single match (used when the user presses Enter without picking from the list). */
+    suspend fun searchText(query: String, bias: LatLng?): PlaceHit? = searchMany(query, bias, 1).firstOrNull()
 
-        val payload = JSONObject().put("textQuery", query)
+    /**
+     * Up to [max] relevant matches for a name/address, biased toward [bias] — this is what
+     * feeds the type-ahead list so "Pomo" shows every Pomo nearby, not just the closest.
+     */
+    suspend fun searchMany(query: String, bias: LatLng?, max: Int = 8): List<PlaceHit> = withContext(Dispatchers.IO) {
+        if (apiKey.isBlank() || query.isBlank()) return@withContext emptyList()
+
+        val payload = JSONObject().put("textQuery", query).put("maxResultCount", max.coerceIn(1, 20))
         if (bias != null) {
             payload.put(
                 "locationBias",
@@ -51,12 +58,13 @@ class GooglePlaces(
                 val msg = runCatching { JSONObject(body).getJSONObject("error").getString("message") }.getOrNull()
                 throw PlacesException(msg ?: "Places error ${resp.code}")
             }
-            val places = JSONObject(body).optJSONArray("places")
-            if (places == null || places.length() == 0) return@use null
-            val first = places.getJSONObject(0)
-            val loc = first.getJSONObject("location")
-            val name = first.optJSONObject("displayName")?.optString("text").takeUnless { it.isNullOrBlank() } ?: query
-            PlaceHit(LatLng(loc.getDouble("latitude"), loc.getDouble("longitude")), name)
+            val places = JSONObject(body).optJSONArray("places") ?: return@use emptyList()
+            (0 until places.length()).mapNotNull { i ->
+                val pl = places.getJSONObject(i)
+                val loc = pl.optJSONObject("location") ?: return@mapNotNull null
+                val name = pl.optJSONObject("displayName")?.optString("text").takeUnless { it.isNullOrBlank() } ?: query
+                PlaceHit(LatLng(loc.getDouble("latitude"), loc.getDouble("longitude")), name, pl.optString("formattedAddress"))
+            }
         }
     }
 }

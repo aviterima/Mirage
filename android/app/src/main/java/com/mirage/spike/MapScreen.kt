@@ -1,5 +1,6 @@
 package com.mirage.spike
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -18,8 +19,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -27,6 +30,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -42,6 +46,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,6 +55,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -68,7 +75,10 @@ import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.Polyline
 import com.google.maps.android.compose.rememberCameraPositionState
 import com.google.maps.android.compose.rememberMarkerState
+import com.mirage.spike.engine.Geo
 import com.mirage.spike.engine.LatLng
+import com.mirage.spike.engine.PlaceHit
+import kotlinx.coroutines.launch
 import com.mirage.spike.engine.Realism
 import com.mirage.spike.engine.TravelMode
 
@@ -157,30 +167,61 @@ fun MapScreen(
             if (status.running) Marker(state = carState, title = "Mirage")
         }
 
-        // Floating search bar + settings
-        Row(
-            Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            var query by remember { mutableStateOf("") }
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                placeholder = { Text("Search a place or address") },
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                singleLine = true,
-                shape = RoundedCornerShape(28.dp),
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = {
-                    if (query.isNotBlank()) vm.search(query) { }
-                }),
-                modifier = Modifier.weight(1f),
-            )
-            Surface(shape = CircleShape, shadowElevation = 3.dp, modifier = Modifier.size(52.dp)) {
-                IconButton(onClick = { showSetup = true }) {
-                    Icon(Icons.Filled.Settings, contentDescription = "Setup", tint = ACCENT)
+        // Floating search bar + settings, with a type-ahead pick list underneath.
+        val scope = rememberCoroutineScope()
+        val keyboard = LocalSoftwareKeyboardController.current
+        var query by remember { mutableStateOf("") }
+        val goTo: (LatLng) -> Unit = { p ->
+            scope.launch { runCatching { camera.animate(CameraUpdateFactory.newLatLngZoom(p.toG(), 15f)) } }
+        }
+        Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(12.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it; vm.suggest(it) },
+                    placeholder = { Text("Search a place or address") },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (query.isNotEmpty()) IconButton(onClick = { query = ""; vm.clearSuggestions() }) {
+                            Icon(Icons.Filled.Close, contentDescription = "Clear")
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(28.dp),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = {
+                        keyboard?.hide()
+                        // Enter with a list showing = take the top row; otherwise run a plain search.
+                        val top = vm.suggestions.firstOrNull()
+                        if (top != null) {
+                            vm.pickSuggestion(top); query = top.name; goTo(top.latLng)
+                        } else if (query.isNotBlank()) {
+                            vm.search(query, goTo)
+                        }
+                    }),
+                    modifier = Modifier.weight(1f),
+                )
+                Surface(shape = CircleShape, shadowElevation = 3.dp, modifier = Modifier.size(52.dp)) {
+                    IconButton(onClick = { showSetup = true }) {
+                        Icon(Icons.Filled.Settings, contentDescription = "Setup", tint = ACCENT)
+                    }
                 }
+            }
+            if (vm.suggestions.isNotEmpty() || vm.suggestBusy) {
+                Spacer(Modifier.height(6.dp))
+                SuggestionList(
+                    hits = vm.suggestions,
+                    busy = vm.suggestBusy,
+                    from = vm.start,
+                    onPick = { hit ->
+                        keyboard?.hide()
+                        vm.pickSuggestion(hit); query = hit.name; goTo(hit.latLng)
+                    },
+                )
             }
         }
 
@@ -240,6 +281,52 @@ fun MapScreen(
             onBattery = onRequestBattery,
         )
     }
+}
+
+/** Uber-style pick list: every matching place with its address and distance from the start. */
+@Composable
+private fun SuggestionList(hits: List<PlaceHit>, busy: Boolean, from: LatLng?, onPick: (PlaceHit) -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        shadowElevation = 6.dp,
+        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp),
+    ) {
+        Column(Modifier.verticalScroll(rememberScrollState())) {
+            if (busy && hits.isEmpty()) {
+                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Text("Searching…", fontSize = 13.sp, color = MUTED)
+                }
+            }
+            hits.forEachIndexed { i, hit ->
+                if (i > 0) HorizontalDivider(color = MUTED.copy(alpha = 0.15f))
+                Row(
+                    Modifier.fillMaxWidth().clickable { onPick(hit) }.padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Filled.Place, contentDescription = null, tint = ACCENT, modifier = Modifier.size(22.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(hit.name, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (hit.address.isNotBlank()) {
+                            Text(hit.address, fontSize = 12.sp, color = MUTED, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                    if (from != null) {
+                        Spacer(Modifier.width(8.dp))
+                        Text(formatMiles(Geo.haversine(from, hit.latLng)), fontSize = 12.sp, color = MUTED)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatMiles(meters: Double): String {
+    val mi = meters / 1609.344
+    return if (mi < 10) String.format("%.1f mi", mi) else "${mi.toInt()} mi"
 }
 
 @Composable

@@ -17,11 +17,14 @@ import com.mirage.spike.engine.GooglePlaces
 import com.mirage.spike.engine.LatLng
 import com.mirage.spike.engine.MotionModel
 import com.mirage.spike.engine.MotionParams
+import com.mirage.spike.engine.PlaceHit
 import com.mirage.spike.engine.PlaybackSource
 import com.mirage.spike.engine.Realism
 import com.mirage.spike.engine.RouteResult
 import com.mirage.spike.engine.RouteSpec
 import com.mirage.spike.engine.TravelMode
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 
@@ -62,6 +65,12 @@ class MirageViewModel : ViewModel() {
     var destName by mutableStateOf("Destination")
         private set
 
+    // Type-ahead: matching places for what the user is typing (Uber-style pick list).
+    val suggestions = mutableStateListOf<PlaceHit>()
+    var suggestBusy by mutableStateOf(false)
+        private set
+    private var suggestJob: Job? = null
+
     val hasKey: Boolean get() = BuildConfig.MAPS_API_KEY.isNotBlank()
     private val routeEngine by lazy { GoogleDirectionsRouteEngine(BuildConfig.MAPS_API_KEY) }
     private val geocoder by lazy { GoogleGeocoder(BuildConfig.MAPS_API_KEY) }
@@ -78,10 +87,37 @@ class MirageViewModel : ViewModel() {
 
     fun chooseMode(m: TravelMode) { mode = m; invalidateRoute() }
 
+    /** Refresh the pick list as the user types (debounced; last keystroke wins). */
+    fun suggest(query: String) {
+        suggestJob?.cancel()
+        val q = query.trim()
+        if (q.length < 2 || !hasKey) { suggestions.clear(); suggestBusy = false; return }
+        suggestJob = viewModelScope.launch {
+            delay(350)
+            suggestBusy = true
+            try {
+                val hits = places.searchMany(q, start, 8)
+                suggestions.clear(); suggestions.addAll(hits)
+                error = null
+            } catch (e: Exception) {
+                error = e.message ?: "Places search failed"
+            } finally { suggestBusy = false }
+        }
+    }
+
+    fun clearSuggestions() { suggestJob?.cancel(); suggestions.clear(); suggestBusy = false }
+
+    /** The user picked one row from the list: make it the destination. */
+    fun pickSuggestion(hit: PlaceHit) {
+        clearSuggestions()
+        setDestPoint(hit.latLng); destName = hit.name; error = null
+    }
+
     /** Search by place/business/landmark name (Places), biased to the current start;
      *  falls back to Geocoding for plain addresses. Surfaces the real API error. */
     fun search(query: String, onFound: (LatLng) -> Unit) {
         if (!hasKey) { error = "Add MAPS_API_KEY to search by name"; return }
+        clearSuggestions()
         viewModelScope.launch {
             error = null
             try {
