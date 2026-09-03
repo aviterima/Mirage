@@ -8,13 +8,18 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -43,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -51,7 +57,9 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
+import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.CameraPosition
+import com.google.android.gms.maps.model.LatLngBounds
 import com.google.android.gms.maps.model.LatLng as GLatLng
 import com.google.maps.android.compose.GoogleMap
 import com.google.maps.android.compose.MapProperties
@@ -78,6 +86,9 @@ fun MapScreen(
     val vm: MirageViewModel = viewModel()
     val status by MockState.status.collectAsState()
     var showSetup by remember { mutableStateOf(false) }
+    var sheetCollapsed by remember { mutableStateOf(false) }
+    // The control sheet may never take more than half the screen; the map keeps the rest.
+    val maxSheet = (LocalConfiguration.current.screenHeightDp * 0.5f).dp
 
     val camera = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(GLatLng(START_LAT, START_LNG), 13f)
@@ -85,6 +96,14 @@ fun MapScreen(
     val carState = rememberMarkerState()
     LaunchedEffect(status.lat, status.lng) { carState.position = GLatLng(status.lat, status.lng) }
     LaunchedEffect(vm.dest) { vm.dest?.let { camera.position = CameraPosition.fromLatLngZoom(it.toG(), 14f) } }
+    // Frame the whole route (or itinerary) in the visible part of the map.
+    LaunchedEffect(vm.routePts) {
+        if (vm.routePts.size >= 2) {
+            val b = LatLngBounds.Builder()
+            vm.routePts.forEach { b.include(it.toG()) }
+            runCatching { camera.animate(CameraUpdateFactory.newLatLngBounds(b.build(), 90)) }
+        }
+    }
 
     val context = LocalContext.current
     val hasLocPerm = ContextCompat.checkSelfPermission(
@@ -114,7 +133,7 @@ fun MapScreen(
             cameraPositionState = camera,
             properties = MapProperties(isMyLocationEnabled = hasLocPerm),
             uiSettings = MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = hasLocPerm),
-            contentPadding = PaddingValues(top = 96.dp),
+            contentPadding = PaddingValues(top = 96.dp, bottom = if (status.running) 220.dp else if (sheetCollapsed) 96.dp else maxSheet),
             onMapClick = { vm.setDestPoint(it.toE()) },
             onMapLongClick = { vm.setStartPoint(it.toE()) },
         ) {
@@ -167,24 +186,46 @@ fun MapScreen(
 
         val mockBlocked = !status.running && !status.mockAppSelected && status.message.contains("Not the selected")
 
-        // Bottom control sheet
+        // Bottom control sheet — capped at half the screen, scrolls inside, collapsible.
+        val onGetRoute = { vm.buildRoute() }
+        val onStart = { onRequestPermissions(); vm.startSim(onStartService) }
+        val onStartItinerary = { onRequestPermissions(); vm.startItinerary(onStartService) }
+        val onStatic: (LatLng?) -> Unit = { at -> onRequestPermissions(); armStatic(at); onStartService() }
         Card(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(10.dp),
-            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 24.dp, bottomEnd = 24.dp),
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(10.dp).heightIn(max = maxSheet),
+            shape = RoundedCornerShape(24.dp),
         ) {
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (status.running) {
-                    LiveHud(status) { onStopService(); vm.onStopped() }
-                } else {
-                    Controls(
-                        vm = vm,
-                        onOpenSetup = { showSetup = true },
-                        mockBlocked = mockBlocked,
-                        onGetRoute = { vm.buildRoute() },
-                        onStart = { onRequestPermissions(); vm.startSim(onStartService) },
-                        onStartItinerary = { onRequestPermissions(); vm.startItinerary(onStartService) },
-                        onStatic = { at -> onRequestPermissions(); armStatic(at); onStartService() },
-                    )
+            Column(
+                Modifier.padding(horizontal = 18.dp, vertical = 10.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                when {
+                    status.running -> LiveHud(status) { onStopService(); vm.onStopped() }
+                    sheetCollapsed -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { sheetCollapsed = false }) {
+                            Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Expand controls", tint = ACCENT)
+                        }
+                        Box(Modifier.weight(1f)) {
+                            PrimaryAction(vm, onGetRoute, onStart, onStartItinerary, onStatic)
+                        }
+                    }
+                    else -> {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Surface(shape = RoundedCornerShape(2.dp), color = MUTED.copy(alpha = 0.35f), modifier = Modifier.size(width = 40.dp, height = 4.dp)) {}
+                            IconButton(onClick = { sheetCollapsed = true }) {
+                                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Collapse to see the map", tint = ACCENT)
+                            }
+                        }
+                        Controls(
+                            vm = vm,
+                            onOpenSetup = { showSetup = true },
+                            mockBlocked = mockBlocked,
+                            onGetRoute = onGetRoute,
+                            onStart = onStart,
+                            onStartItinerary = onStartItinerary,
+                            onStatic = onStatic,
+                        )
+                    }
                 }
             }
         }
@@ -280,30 +321,9 @@ private fun Controls(
         OutlinedButton(onClick = { vm.addStop() }, enabled = vm.dest != null, modifier = Modifier.fillMaxWidth()) {
             Text(if (vm.dest != null) "Add \u201c${vm.destName}\u201d as a stop" else "Add a stop (search or tap a place first)")
         }
-        if (vm.itineraryBusy) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(Modifier.size(20.dp)); Spacer(Modifier.width(10.dp)); Text("Routing legs\u2026")
-            }
-        } else {
-            Button(onClick = onStartItinerary, enabled = vm.stops.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
-                Text("Start itinerary")
-            }
-        }
+        PrimaryAction(vm, onGetRoute, onStart, onStartItinerary, onStatic)
     } else {
-        // Primary action — smart by state
-        when {
-            vm.phase == Phase.ROUTING -> Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(Modifier.size(20.dp)); Spacer(Modifier.width(10.dp)); Text("Routing\u2026")
-            }
-            vm.routePts.isNotEmpty() ->
-                Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) { Text(if (fly) "Start flight" else "Start simulation") }
-            fly && vm.dest != null ->
-                Button(onClick = onGetRoute, modifier = Modifier.fillMaxWidth()) { Text("Plot flight") }
-            vm.hasKey && vm.dest != null ->
-                Button(onClick = onGetRoute, modifier = Modifier.fillMaxWidth()) { Text("Get route") }
-            else ->
-                Button(onClick = { onStatic(vm.start) }, modifier = Modifier.fillMaxWidth()) { Text("Spoof this point") }
-        }
+        PrimaryAction(vm, onGetRoute, onStart, onStartItinerary, onStatic)
         // Find a place and simply BE there — no route, instant, holds until Stop.
         if (vm.dest != null) {
             OutlinedButton(onClick = { onStatic(vm.dest) }, modifier = Modifier.fillMaxWidth()) {
@@ -335,6 +355,43 @@ private fun Controls(
         }
     }
     vm.error?.let { Text("⚠ $it", fontSize = 12.sp, color = Color(0xFFDC2626)) }
+}
+
+@Composable
+private fun PrimaryAction(
+    vm: MirageViewModel,
+    onGetRoute: () -> Unit,
+    onStart: () -> Unit,
+    onStartItinerary: () -> Unit,
+    onStatic: (LatLng?) -> Unit,
+) {
+    val fly = vm.mode == TravelMode.FLY
+    if (vm.itineraryMode) {
+        if (vm.itineraryBusy) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(20.dp)); Spacer(Modifier.width(10.dp)); Text("Routing legs\u2026")
+            }
+        } else {
+            Button(onClick = onStartItinerary, enabled = vm.stops.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+                Text("Start itinerary")
+            }
+        }
+        return
+    }
+    // Primary action — smart by state
+    when {
+        vm.phase == Phase.ROUTING -> Row(verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator(Modifier.size(20.dp)); Spacer(Modifier.width(10.dp)); Text("Routing\u2026")
+        }
+        vm.routePts.isNotEmpty() ->
+            Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) { Text(if (fly) "Start flight" else "Start simulation") }
+        fly && vm.dest != null ->
+            Button(onClick = onGetRoute, modifier = Modifier.fillMaxWidth()) { Text("Plot flight") }
+        vm.hasKey && vm.dest != null ->
+            Button(onClick = onGetRoute, modifier = Modifier.fillMaxWidth()) { Text("Get route") }
+        else ->
+            Button(onClick = { onStatic(vm.start) }, modifier = Modifier.fillMaxWidth()) { Text("Spoof this point") }
+    }
 }
 
 @Composable
