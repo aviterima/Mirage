@@ -192,6 +192,14 @@ fun MapScreen(
     // never the fused provider's cached last point (which is the mock after a Stop).
     val recentreOnReal: () -> Unit = {
         if (hasLocPerm) scope.launch {
+            // Instantly: any real last-known fix puts the map on your location right away…
+            quickLastReal(context)?.let { q ->
+                if (!MockState.status.value.running) {
+                    vm.useMyLocation(q)
+                    runCatching { camera.animate(CameraUpdateFactory.newLatLngZoom(q.toG(), 14f)) }
+                }
+            }
+            // …then a fresh fix refines it (and is the only thing trusted right after a Stop).
             val p = realLocation(context)
             if (p != null) {
                 vm.useMyLocation(p)
@@ -998,6 +1006,20 @@ private suspend fun realLocation(context: Context): LatLng? {
 
 private fun ageSec(l: Location): Long =
     (android.os.SystemClock.elapsedRealtimeNanos() - l.elapsedRealtimeNanos) / 1_000_000_000L
+
+/** The fastest real (non-mock) position available, any age — for putting the map somewhere sensible at once. */
+@SuppressLint("MissingPermission")
+private suspend fun quickLastReal(context: Context): LatLng? {
+    val flp = LocationServices.getFusedLocationProviderClient(context)
+    val last = await<Location?> { done -> flp.lastLocation.addOnSuccessListener { done(it) }.addOnFailureListener { done(null) } }
+    if (last != null && !isMockLocation(last)) return LatLng(last.latitude, last.longitude)
+    val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    for (provider in listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER)) {
+        val l = runCatching { lm.getLastKnownLocation(provider) }.getOrNull() ?: continue
+        if (!isMockLocation(l)) return LatLng(l.latitude, l.longitude)
+    }
+    return null
+}
 
 /** Bridge a one-shot callback API into a suspend call; the callback fires at most once. */
 private suspend fun <T> await(start: ((T) -> Unit) -> Unit): T = suspendCancellableCoroutine { cont ->

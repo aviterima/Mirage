@@ -23,8 +23,8 @@ android {
         applicationId = "com.mirage.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 18
-        versionName = "0.6.2"
+        versionCode = 19
+        versionName = "0.6.3"
         manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
         buildConfigField("String", "MAPS_API_KEY", "\"$mapsApiKey\"")
     }
