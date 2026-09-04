@@ -75,5 +75,7 @@ dependencies {
 
     // JVM unit tests: engine models and the ViewModel state machine (run in CI before release)
     testImplementation("junit:junit:4.13.2")
+    // Unit tests run against a stub android.jar whose org.json returns nothing; use the real one.
+    testImplementation("org.json:json:20240303")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
 }
