@@ -7,7 +7,9 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
 import android.location.Location
+import android.location.LocationManager
 import android.os.Build
+import android.os.CancellationSignal
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -102,6 +104,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.google.android.gms.location.CurrentLocationRequest
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.maps.CameraUpdateFactory
@@ -155,6 +158,7 @@ fun MapScreen(
     onRequestBattery: () -> Unit,
     onRequestPermissions: () -> Unit,
     setupChecks: () -> SetupChecks,
+    hasLocPerm: Boolean,
 ) {
     val vm: MirageViewModel = viewModel()
     val status by MockState.status.collectAsState()
@@ -168,7 +172,8 @@ fun MapScreen(
     val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
     val camera = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(GLatLng(START_LAT, START_LNG), 13f)
+        // Continental view until the real fix arrives — never pretend to know where you are.
+        position = CameraPosition.fromLatLngZoom(GLatLng(39.5, -98.35), 3f)
     }
     val carState = rememberMarkerState()
     LaunchedEffect(status.lat, status.lng) { carState.position = GLatLng(status.lat, status.lng) }
@@ -183,10 +188,6 @@ fun MapScreen(
     // A problem must be visible even if the sheet was tucked away.
     LaunchedEffect(vm.error) { if (vm.error != null) sheetCollapsed = false }
 
-    val hasLocPerm = ContextCompat.checkSelfPermission(
-        context, android.Manifest.permission.ACCESS_FINE_LOCATION
-    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-
     // Move the start pin and the camera to the device's REAL location: a fresh fix,
     // never the fused provider's cached last point (which is the mock after a Stop).
     val recentreOnReal: () -> Unit = {
@@ -196,9 +197,9 @@ fun MapScreen(
                 vm.useMyLocation(p)
                 runCatching { camera.animate(CameraUpdateFactory.newLatLngZoom(p.toG(), 14f)) }
             } else {
-                vm.error = "Could not get a real fix right now"
+                vm.error = "Could not get a real fix — is Location turned on?"
             }
-        }
+        } else vm.error = "Location permission is needed — tap ⚙ to grant it"
     }
     // On first load (and once permission is granted), start from where the phone really is.
     LaunchedEffect(hasLocPerm) { if (!status.running) recentreOnReal() }
@@ -945,25 +946,63 @@ private fun navigationArrow(color: Color, sizePx: Int = 96): BitmapDescriptor {
 }
 
 /**
- * A FRESH real fix. `lastLocation` is useless right after a Stop: the fused provider keeps
- * handing out the final spoofed point until a new fix is computed, so ask for one and
- * refuse anything still flagged as mock (a few retries while the providers settle).
+ * A FRESH real fix, never a cached mock. Right after a Stop the fused provider's cache is
+ * the final spoofed point (and `getCurrentLocation` happily returns cached fixes up to a
+ * minute old), so: demand zero cache age, then fall back to the platform network and GPS
+ * providers directly, then to any non-mock last-known fix. Null only if nothing real exists.
  */
 @SuppressLint("MissingPermission")
-private suspend fun realLocation(context: Context, attempts: Int = 4): LatLng? {
+private suspend fun realLocation(context: Context): LatLng? {
     val flp = LocationServices.getFusedLocationProviderClient(context)
-    repeat(attempts) { i ->
-        val loc: Location? = suspendCancellableCoroutine { cont ->
-            runCatching {
-                flp.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
-                    .addOnSuccessListener { if (cont.isActive) cont.resume(it) }
-                    .addOnFailureListener { if (cont.isActive) cont.resume(null) }
-            }.onFailure { if (cont.isActive) cont.resume(null) }
+    val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+
+    // 1. A recent real last-known fix is good enough to start with (instant).
+    val last = await<Location?> { done -> flp.lastLocation.addOnSuccessListener { done(it) }.addOnFailureListener { done(null) } }
+    if (last != null && !isMockLocation(last) && ageSec(last) < 60) return LatLng(last.latitude, last.longitude)
+
+    // 2. Fused provider, fresh computation only.
+    repeat(2) {
+        val req = CurrentLocationRequest.Builder()
+            .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
+            .setMaxUpdateAgeMillis(0)
+            .setDurationMillis(12_000)
+            .build()
+        val loc = await<Location?> { done ->
+            flp.getCurrentLocation(req, null).addOnSuccessListener { done(it) }.addOnFailureListener { done(null) }
         }
         if (loc != null && !isMockLocation(loc)) return LatLng(loc.latitude, loc.longitude)
-        if (i < attempts - 1) delay(1500)
+        delay(1000)
+    }
+
+    // 3. Platform providers directly (network is fast indoors; GPS if that fails).
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        for (provider in listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER)) {
+            if (!runCatching { lm.isProviderEnabled(provider) }.getOrDefault(false)) continue
+            val loc = await<Location?> { done ->
+                runCatching {
+                    lm.getCurrentLocation(provider, CancellationSignal(), ContextCompat.getMainExecutor(context)) { done(it) }
+                }.onFailure { done(null) }
+            }
+            if (loc != null && !isMockLocation(loc)) return LatLng(loc.latitude, loc.longitude)
+        }
+    }
+
+    // 4. Any real last-known fix, however old, beats nothing.
+    if (last != null && !isMockLocation(last)) return LatLng(last.latitude, last.longitude)
+    for (provider in listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER)) {
+        val l = runCatching { lm.getLastKnownLocation(provider) }.getOrNull() ?: continue
+        if (!isMockLocation(l)) return LatLng(l.latitude, l.longitude)
     }
     return null
+}
+
+private fun ageSec(l: Location): Long =
+    (android.os.SystemClock.elapsedRealtimeNanos() - l.elapsedRealtimeNanos) / 1_000_000_000L
+
+/** Bridge a one-shot callback API into a suspend call; the callback fires at most once. */
+private suspend fun <T> await(start: ((T) -> Unit) -> Unit): T = suspendCancellableCoroutine { cont ->
+    var delivered = false
+    start { v -> if (!delivered && cont.isActive) { delivered = true; cont.resume(v) } }
 }
 
 private fun isMockLocation(l: Location): Boolean =

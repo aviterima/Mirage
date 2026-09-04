@@ -16,8 +16,17 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 
@@ -80,12 +89,24 @@ private fun AppRoot(
     onRequestBattery: () -> Unit,
     setupChecks: () -> SetupChecks,
 ) {
+    val context = LocalContext.current
+    fun fineGranted() = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+        PackageManager.PERMISSION_GRANTED
+    // Permission is live state: it flips the moment the dialog is answered, and is
+    // re-checked whenever the app comes back to the foreground (granted via Settings).
+    var hasLocPerm by remember { mutableStateOf(fineGranted()) }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { }
+    ) { hasLocPerm = fineGranted() }
 
     LaunchedEffect(Unit) {
-        permissionLauncher.launch(neededPermissions())
+        if (!hasLocPerm) permissionLauncher.launch(neededPermissions())
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val obs = LifecycleEventObserver { _, e -> if (e == Lifecycle.Event.ON_RESUME) hasLocPerm = fineGranted() }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
     }
 
     MapScreen(
@@ -95,6 +116,7 @@ private fun AppRoot(
         onRequestBattery = onRequestBattery,
         onRequestPermissions = { permissionLauncher.launch(neededPermissions()) },
         setupChecks = setupChecks,
+        hasLocPerm = hasLocPerm,
     )
 }
 

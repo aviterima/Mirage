@@ -152,7 +152,12 @@ class MockLocationService : Service() {
         // Hold the endpoint (or the chosen static point) like a person at a place until the
         // user taps Stop. Arriving is not the end of the simulation; Stop is.
         val anchorPt = last?.let { LatLng(it.lat, it.lng) } ?: PlaybackSource.routePoints.firstOrNull()
-        val hold = anchorPt?.let { Fix(it.lat, it.lng, 0f, 0f, 4f) } ?: Fix(START_LAT, START_LNG, 0f, 0f, 4f)
+        if (anchorPt == null) {
+            // Nothing to play and nothing to hold: never invent a point — hand back to real GPS.
+            revertToReal("Nothing to simulate — real location restored")
+            return
+        }
+        val hold = Fix(anchorPt.lat, anchorPt.lng, 0f, 0f, 4f)
         MockState.update {
             it.copy(stepLabel = if (last != null) "Arrived — holding position until Stop" else "Holding point until Stop")
         }

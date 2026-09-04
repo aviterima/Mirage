@@ -42,9 +42,10 @@ enum class PlanMode { SNAP, ROUTE, ITINERARY }
 class MirageViewModel : ViewModel() {
 
     // ---- Endpoints -----------------------------------------------------------
-    var start by mutableStateOf<LatLng?>(LatLng(START_LAT, START_LNG))
+    // No made-up default: until a real fix (or a pick) arrives the start is simply unset.
+    var start by mutableStateOf<LatLng?>(null)
         private set
-    var startName by mutableStateOf("Map point")
+    var startName by mutableStateOf("Not set — use ⌖ or search")
         private set
     var dest by mutableStateOf<LatLng?>(null)
         private set
