@@ -7,7 +7,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.mirage.spike.engine.ApiCheck
+import com.mirage.spike.engine.ApiConfig
 import com.mirage.spike.engine.Fix
+import com.mirage.spike.engine.KeyTester
 import com.mirage.spike.engine.FlightModel
 import com.mirage.spike.engine.Geo
 import com.mirage.spike.engine.GoogleDirectionsRouteEngine
@@ -124,10 +127,34 @@ class MirageViewModel : ViewModel() {
         private set
     private var suggestJob: Job? = null
 
-    val hasKey: Boolean get() = BuildConfig.MAPS_API_KEY.isNotBlank()
-    private val routeEngine by lazy { GoogleDirectionsRouteEngine(BuildConfig.MAPS_API_KEY) }
-    private val geocoder by lazy { GoogleGeocoder(BuildConfig.MAPS_API_KEY) }
-    private val places by lazy { GooglePlaces(BuildConfig.MAPS_API_KEY) }
+    // ---- API access: built-in key, the user's own key, or Mirage's hosted gateway -------
+    var api by mutableStateOf(ApiConfig(BuildConfig.MIRAGE_API_BASE, BuildConfig.MAPS_API_KEY, ""))
+        private set
+    private var routeEngine = GoogleDirectionsRouteEngine(api)
+    private var geocoder = GoogleGeocoder(api)
+    private var places = GooglePlaces(api)
+    val hasKey: Boolean get() = api.enabled
+    /** Result of the last "Test key" run, per API; null = not run yet. */
+    var keyTest by mutableStateOf<List<ApiCheck>?>(null)
+        private set
+    var keyTesting by mutableStateOf(false)
+        private set
+
+    fun configureApi(cfg: ApiConfig) {
+        api = cfg
+        routeEngine = GoogleDirectionsRouteEngine(cfg)
+        geocoder = GoogleGeocoder(cfg)
+        places = GooglePlaces(cfg)
+        keyTest = null
+    }
+
+    /** Try every API with a tiny request and keep Google's exact reason for anything that fails. */
+    fun testKey(cfg: ApiConfig = api) {
+        viewModelScope.launch {
+            keyTesting = true
+            try { keyTest = KeyTester(cfg).test() } finally { keyTesting = false }
+        }
+    }
 
     /** An explicit user choice of start (pin, search pick, ⌖ menu). */
     fun setStartPoint(p: LatLng, name: String = "Dropped pin") {
@@ -372,6 +399,53 @@ class MirageViewModel : ViewModel() {
         if (index !in stops.indices) return
         val st = stops[index]
         stops[index] = st.copy(dwellMinutes = (st.dwellMinutes + deltaMinutes).coerceIn(0, 24 * 60))
+    }
+
+    fun moveStop(index: Int, delta: Int) {
+        val j = index + delta
+        if (index !in stops.indices || j !in stops.indices) return
+        val a = stops[index]; stops[index] = stops[j]; stops[j] = a
+        invalidateRoute()
+    }
+
+    fun setStopMode(index: Int, m: TravelMode) {
+        if (index !in stops.indices) return
+        stops[index] = stops[index].copy(mode = m, avgMph = modeSpeeds[m] ?: defaultSpeed(m))
+        invalidateRoute()
+    }
+
+    /** Finish the day where it began. */
+    fun addReturnToStart() {
+        val s = start ?: run { error = "Set a start first"; return }
+        stops.add(ItineraryStop(if (startFromReal) "Home (start)" else "$startName (start)", s, 0, mode, avgMph))
+        invalidateRoute()
+    }
+
+    /** One planned stop with the clock: when we get there and when we leave. */
+    data class TimelineEntry(val index: Int, val arriveMillis: Long, val leaveMillis: Long, val legMinutes: Int, val legMiles: Double)
+
+    /**
+     * A schedule for the chain from a start time, using straight-line distance with a road
+     * factor and each leg's own speed — good enough to read the day as a timetable while
+     * building it (the real routing happens at Start).
+     */
+    fun timeline(startMillis: Long = System.currentTimeMillis()): List<TimelineEntry> {
+        var from = tripStart() ?: stops.firstOrNull()?.point ?: return emptyList()
+        var t = startMillis
+        val out = mutableListOf<TimelineEntry>()
+        stops.forEachIndexed { i, st ->
+            val straight = Geo.haversine(from, st.point)
+            val (meters, secs) = when (st.mode) {
+                TravelMode.FLY -> straight to straight / 245.0 + 40 * 60.0             // taxi, climb, descent
+                TravelMode.TRANSIT -> straight * 1.3 to straight * 1.3 / (12 * 0.44704) + 8 * 60.0   // incl. a wait
+                else -> straight * 1.3 to straight * 1.3 / (st.avgMph.coerceAtLeast(1f) * 0.44704)
+            }
+            val arrive = t + (secs * 1000).toLong()
+            val leave = arrive + st.dwellMinutes * 60_000L
+            out += TimelineEntry(i, arrive, leave, (secs / 60).toInt(), meters / 1609.344)
+            t = leave; from = st.point
+        }
+        return out
     }
 
     /** Index of the stop whose stay time is being edited (UI dialog), or null. */

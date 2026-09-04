@@ -155,7 +155,7 @@ class MockLocationService : Service() {
                 it.copy(
                     mockAppSelected = true, blocked = false, starting = true, running = false,
                     health = Health.GREEN, message = "Starting…", stepLabel = "", label = PlaybackSource.label,
-                    progress = -1f, remainingSec = -1,
+                    progress = -1f, remainingSec = -1, legIndex = -1,
                 )
             }
             true

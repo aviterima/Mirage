@@ -27,8 +27,9 @@ object ItineraryModel {
     fun play(legs: List<Pair<Flow<Fix>, ItineraryStop>>, updateHz: Int = 5, timeScale: Double = 1.0): Flow<Fix> = flow {
         val rnd = Random()
         val dtMillis = (1000 / updateHz).toLong()
-        for ((leg, stop) in legs) {
-            MockState.update { it.copy(stepLabel = "Traveling to ${stop.name}") }
+        for ((idx, pair) in legs.withIndex()) {
+            val (leg, stop) = pair
+            MockState.update { it.copy(stepLabel = "Traveling to ${stop.name}", legIndex = idx) }
             // Dwell exactly where the leg ended (the road-snapped endpoint), never at the raw
             // searched point, so nothing teleports.
             var arrived: Fix? = null
@@ -56,6 +57,6 @@ object ItineraryModel {
                 simElapsed += dtMillis * ts
             }
         }
-        MockState.update { it.copy(stepLabel = "Itinerary complete \u2014 holding last stop") }
+        MockState.update { it.copy(stepLabel = "Itinerary complete \u2014 holding last stop", legIndex = legs.size) }
     }
 }

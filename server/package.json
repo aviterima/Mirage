@@ -1,0 +1,15 @@
+{
+  "name": "mirage-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mirage API gateway: holds the Google Maps key server-side, meters credits per install, serves the same JSON the app expects.",
+  "main": "index.js",
+  "type": "module",
+  "scripts": { "start": "node index.js" },
+  "dependencies": {
+    "@google-cloud/firestore": "^7.9.0",
+    "express": "^4.19.2",
+    "googleapis": "^144.0.0"
+  },
+  "engines": { "node": ">=20" }
+}

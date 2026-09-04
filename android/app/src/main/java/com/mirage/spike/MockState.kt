@@ -41,6 +41,8 @@ data class MockStatus(
     val message: String = "Idle",
     /** What is playing: Route / Flight / Itinerary / Static. */
     val label: String = "",
+    /** Itinerary: index of the stop being travelled to / stayed at; -1 when not an itinerary. */
+    val legIndex: Int = -1,
     val stepLabel: String = "",
 )
 

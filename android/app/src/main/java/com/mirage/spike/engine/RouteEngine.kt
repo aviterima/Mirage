@@ -20,12 +20,12 @@ class RouteException(message: String) : Exception(message)
  * (one-way streets, turn restrictions, highway ramps are all baked into the polyline).
  */
 class GoogleDirectionsRouteEngine(
-    private val apiKey: String,
+    private val cfg: ApiConfig,
     private val client: OkHttpClient = OkHttpClient(),
 ) : RouteEngine {
 
     override suspend fun route(spec: RouteSpec): RouteResult = withContext(Dispatchers.IO) {
-        if (apiKey.isBlank()) throw RouteException("No Google Maps API key configured")
+        if (!cfg.enabled) throw RouteException("No Google Maps API key configured")
 
         val origin = "${spec.origin.lat},${spec.origin.lng}"
         val dest = "${spec.destination.lat},${spec.destination.lng}"
@@ -35,13 +35,15 @@ class GoogleDirectionsRouteEngine(
         val transitExtra = if (spec.mode == TravelMode.TRANSIT)
             "&departure_time=now" + (spec.transitPreference?.let { "&transit_mode=$it" } ?: "") else ""
 
-        val url = "https://maps.googleapis.com/maps/api/directions/json" +
-            "?origin=${enc(origin)}&destination=${enc(dest)}$waypoints" +
-            "&mode=${spec.mode.apiValue}$transitExtra&key=$apiKey"
+        val url = cfg.directionsUrl(
+            "origin=${enc(origin)}&destination=${enc(dest)}$waypoints&mode=${spec.mode.apiValue}$transitExtra"
+        )
 
-        val request = Request.Builder().url(url).build()
+        val request = Request.Builder().url(url).apply { cfg.headers().forEach { (k, v) -> addHeader(k, v) } }.build()
         client.newCall(request).execute().use { resp ->
+            CreditsState.report(resp.header(ApiConfig.CREDITS_HEADER))
             val body = resp.body?.string() ?: throw RouteException("Empty Directions response")
+            if (resp.code == 402) throw RouteException("Out of Mirage credits — top up in Setup")
             if (!resp.isSuccessful) throw RouteException("Directions HTTP ${resp.code}")
             parseDirections(body, transit = spec.mode == TravelMode.TRANSIT)
         }

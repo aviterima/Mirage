@@ -51,9 +51,11 @@ import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Flight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
@@ -129,6 +131,8 @@ import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.Polyline
 import com.google.maps.android.compose.rememberCameraPositionState
 import com.google.maps.android.compose.rememberMarkerState
+import com.mirage.spike.engine.ApiConfig
+import com.mirage.spike.engine.CreditsState
 import com.mirage.spike.engine.Geo
 import com.mirage.spike.engine.ItineraryStop
 import com.mirage.spike.engine.LatLng
@@ -138,6 +142,7 @@ import com.mirage.spike.engine.Realism
 import com.mirage.spike.engine.RouteSegment
 import com.mirage.spike.engine.TransitVehicle
 import com.mirage.spike.engine.TravelMode
+import com.mirage.spike.store.PrefsKeyStore
 import com.mirage.spike.store.PrefsScenarioStore
 import com.mirage.spike.store.SavedScenario
 import kotlinx.coroutines.delay
@@ -185,8 +190,17 @@ fun MapScreen(
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = LocalFocusManager.current
     val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    // Saved plans live on the device.
-    LaunchedEffect(Unit) { vm.attachStore(PrefsScenarioStore(context)) }
+    // Saved plans and the user's own key live on the device.
+    val keyStore = remember { PrefsKeyStore(context) }
+    LaunchedEffect(Unit) {
+        vm.attachStore(PrefsScenarioStore(context))
+        vm.configureApi(ApiConfig(BuildConfig.MIRAGE_API_BASE, keyStore.userKey.ifBlank { BuildConfig.MAPS_API_KEY }, keyStore.installId))
+    }
+    val saveKey: (String) -> Unit = { k ->
+        keyStore.userKey = k
+        vm.configureApi(ApiConfig(BuildConfig.MIRAGE_API_BASE, k.ifBlank { BuildConfig.MAPS_API_KEY }, keyStore.installId))
+        if (vm.hasKey) vm.testKey()
+    }
 
     val camera = rememberCameraPositionState {
         // Continental view until the real fix arrives — never pretend to know where you are.
@@ -419,6 +433,29 @@ fun MapScreen(
                             )
                             HorizontalDivider(color = MUTED.copy(alpha = 0.15f), modifier = Modifier.padding(horizontal = 8.dp))
                         }
+                        // THE CHAIN (Itinerary): every stop, editable in place, with the clock.
+                        if (vm.planMode == PlanMode.ITINERARY && vm.stops.isNotEmpty()) {
+                            val stopsNow = vm.stops.toList()
+                            val tl = remember(stopsNow, vm.start, status.running) { vm.timeline() }
+                            Column(
+                                Modifier.heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.30f).dp)
+                                    .verticalScroll(rememberScrollState()).padding(horizontal = 4.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                stopsNow.forEachIndexed { i, stop ->
+                                    ChainRow(
+                                        index = i, stop = stop, entry = tl.getOrNull(i),
+                                        current = status.running && status.legIndex == i,
+                                        done = status.running && status.legIndex > i,
+                                        onMode = { m -> vm.setStopMode(i, m) },
+                                        onStay = { vm.dwellEditIndex = i },
+                                        onMove = { d -> vm.moveStop(i, d) },
+                                        onRemove = { vm.removeStop(i) },
+                                    )
+                                }
+                            }
+                            HorizontalDivider(color = MUTED.copy(alpha = 0.15f), modifier = Modifier.padding(horizontal = 8.dp))
+                        }
                         // END / PLACE / NEXT STOP
                         LocationBox(
                             value = endQuery,
@@ -426,7 +463,7 @@ fun MapScreen(
                             placeholder = when (vm.planMode) {
                                 PlanMode.SNAP -> "Place · search, tap the map, or ⌖"
                                 PlanMode.ROUTE -> "End · search, tap the map, or ⌖"
-                                PlanMode.ITINERARY -> "Next stop · search, tap the map, or ⌖"
+                                PlanMode.ITINERARY -> if (vm.stops.isEmpty()) "First stop · search, tap the map, or ⌖" else "Add a stop · search, tap the map, or ⌖"
                             },
                             dot = if (vm.planMode == PlanMode.SNAP) ACCENT else VIOLET,
                             onFocus = { f ->
@@ -535,9 +572,12 @@ fun MapScreen(
     if (showSetup) {
         val checks = remember { setupChecks() }
         SetupDialog(
+            vm = vm,
             status = status,
             checks = checks,
             hasKey = vm.hasKey,
+            initialKey = keyStore.userKey,
+            onSaveKey = saveKey,
             onDismiss = { showSetup = false },
             onDev = onOpenDevSettings,
             onPerms = onRequestPermissions,
@@ -688,7 +728,7 @@ private fun Controls(
         } else {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
                 Text(
-                    if (itin) "Next leg speed · ${vm.mode.label()}" else "Average speed · ${vm.mode.label()}",
+                    if (itin) "New stops · ${vm.mode.label()} speed" else "Average speed · ${vm.mode.label()}",
                     fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                 )
                 Text("${vm.avgMph.toInt()} mph", color = ACCENT, fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -703,30 +743,24 @@ private fun Controls(
     }
 
     if (itin) {
-        // The chain: Start, then every stop in order.
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(10.dp).background(GREEN, CircleShape))
-            Spacer(Modifier.width(10.dp))
+        if (vm.stops.isNotEmpty()) {
+            val tl = vm.timeline()
             Text(
-                if (running && vm.useSimulatedStart) "Current simulated position" else vm.startName,
+                "${vm.stops.size} ${if (vm.stops.size == 1) "stop" else "stops"} · ${fmtStay(vm.dwellTotalMinutes)} on site" +
+                    (tl.lastOrNull()?.let { " · ends about ${fmtClock(it.leaveMillis)}" } ?: ""),
                 fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
             )
         }
-        vm.stops.forEachIndexed { i, stop ->
-            StopRow(
-                index = i, stop = stop,
-                onMode = { vm.cycleStopMode(i) },
-                onDwell = { vm.adjustDwell(i, it) },
-                onEditDwell = { vm.dwellEditIndex = i },
-                onRemove = { vm.removeStop(i) },
-            )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = { vm.addReturnToStart() }, enabled = vm.start != null && vm.stops.isNotEmpty(),
+                modifier = Modifier.weight(1f),
+            ) { Text("＋ Return to start at the end") }
         }
-        if (vm.stops.isNotEmpty()) {
-            Text(
-                "${vm.stops.size} ${if (vm.stops.size == 1) "stop" else "stops"} · ${fmtDuration(vm.dwellTotalMinutes * 60.0)} on site in total · tap a stop's icon to change how you travel to it, tap its time to set how long you stay",
-                fontSize = 12.sp, color = MUTED,
-            )
-        }
+        Text(
+            "Stops are edited in the card above: tap a stop's time to set how long you stay, its icon to change how you get there, ⋮ to reorder or remove.",
+            fontSize = 12.sp, color = MUTED,
+        )
     }
 
     PrimaryAction(vm, running, a)
@@ -749,7 +783,7 @@ private fun Controls(
 
     // Notices
     if (!vm.hasKey) {
-        Text("Map, search and routing need a Google Maps key — tap ⚙ for details. Snap works without it.", fontSize = 12.sp, color = AMBER)
+        Text("Search and routing need a Google Maps key — tap ⚙ to paste yours and test it. Snap works without one.", fontSize = 12.sp, color = AMBER)
     }
     if (mockBlocked) {
         Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = RED.copy(alpha = 0.08f))) {
@@ -769,31 +803,6 @@ private fun Controls(
             Spacer(Modifier.width(6.dp))
             Text(it, fontSize = 12.sp, color = RED, modifier = Modifier.weight(1f))
             TextButton(onClick = { vm.clearError() }) { Text("Dismiss", fontSize = 12.sp) }
-        }
-    }
-}
-
-@Composable
-private fun StopRow(index: Int, stop: ItineraryStop, onMode: () -> Unit, onDwell: (Int) -> Unit, onEditDwell: () -> Unit, onRemove: () -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(22.dp).background(ACCENT, CircleShape), contentAlignment = Alignment.Center) {
-            Text("${index + 1}", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-        }
-        IconButton(onClick = onMode, modifier = Modifier.size(36.dp)) {
-            Icon(stop.mode.icon(), contentDescription = "Travel mode: ${stop.mode.label()} (tap to change)", tint = ACCENT)
-        }
-        Column(Modifier.weight(1f)) {
-            Text(stop.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(if (stop.mode == TravelMode.TRANSIT) "Transit · timetable" else "${stop.mode.label()} · ${stop.avgMph.toInt()} mph", fontSize = 11.sp, color = MUTED)
-        }
-        IconButton(onClick = { onDwell(-15) }, modifier = Modifier.size(32.dp)) { Text("−", fontSize = 18.sp) }
-        Text(
-            fmtStay(stop.dwellMinutes), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = ACCENT,
-            modifier = Modifier.clickable { onEditDwell() }.padding(horizontal = 4.dp, vertical = 6.dp),
-        )
-        IconButton(onClick = { onDwell(15) }, modifier = Modifier.size(32.dp)) { Text("+", fontSize = 18.sp) }
-        IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
-            Icon(Icons.Filled.Delete, contentDescription = "Remove stop", tint = RED)
         }
     }
 }
@@ -928,9 +937,12 @@ private fun MiniHud(status: MockStatus, onExpand: () -> Unit, onStop: () -> Unit
 
 @Composable
 private fun SetupDialog(
+    vm: MirageViewModel,
     status: MockStatus,
     checks: SetupChecks,
     hasKey: Boolean,
+    initialKey: String,
+    onSaveKey: (String) -> Unit,
     onDismiss: () -> Unit,
     onDev: () -> Unit,
     onPerms: () -> Unit,
@@ -964,12 +976,35 @@ private fun SetupDialog(
                     action = "Allow", onAction = onBattery,
                 )
                 HorizontalDivider()
-                Text(
-                    if (hasKey) "Google Maps key: set ✓"
-                    else "Google Maps key: not set — map, search and routing stay off until MAPS_API_KEY is provided (see README).",
-                    fontSize = 12.sp,
-                    color = if (hasKey) GREEN else AMBER,
-                )
+                Text("Google Maps access", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                val credits by CreditsState.credits.collectAsState()
+                if (vm.api.mode == ApiConfig.Mode.HOSTED) {
+                    Text(
+                        "Mirage hosted · " + (if (credits >= 0) "$credits credits left" else "credits shown after the first search"),
+                        fontSize = 12.sp, color = GREEN,
+                    )
+                } else {
+                    var keyText by remember { mutableStateOf(initialKey) }
+                    Text(
+                        if (hasKey) "Key configured ✓ — tap Test to verify every API" else "No key yet — paste one below, then Save & test",
+                        fontSize = 12.sp, color = if (hasKey) GREEN else AMBER,
+                    )
+                    OutlinedTextField(
+                        value = keyText, onValueChange = { keyText = it.trim() }, singleLine = true,
+                        label = { Text("Your Google Maps API key") }, placeholder = { Text("AIza…") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { onSaveKey(keyText) }, enabled = keyText.isNotBlank() && !vm.keyTesting) { Text("Save & test") }
+                        TextButton(onClick = { vm.testKey() }, enabled = hasKey && !vm.keyTesting) { Text("Test") }
+                    }
+                    if (vm.keyTesting) BusyRow("Testing every API…")
+                    vm.keyTest?.forEach { c -> SetupRow(ok = c.ok, title = c.api, detail = c.detail, action = "", onAction = {}) }
+                    Text(
+                        "Get a key at console.cloud.google.com → APIs & Services → Credentials. Enable Directions API, Geocoding API and Places API (New). Leave Application restrictions at None.",
+                        fontSize = 11.sp, color = MUTED,
+                    )
+                }
                 Text("Mirage ${BuildConfig.VERSION_NAME}", fontSize = 11.sp, color = MUTED)
             }
         },
@@ -990,7 +1025,77 @@ private fun SetupRow(ok: Boolean, title: String, detail: String, action: String,
             Text(title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             Text(detail, fontSize = 12.sp, color = MUTED)
         }
-        if (!ok) TextButton(onClick = onAction) { Text(action, fontSize = 12.sp) }
+        if (!ok && action.isNotBlank()) TextButton(onClick = onAction) { Text(action, fontSize = 12.sp) }
+    }
+}
+
+// ---- Itinerary chain rows (in the top card) ---------------------------------------------
+
+private fun fmtClock(millis: Long): String =
+    java.text.SimpleDateFormat("h:mm a", java.util.Locale.US).format(java.util.Date(millis)).lowercase()
+
+@Composable
+private fun ChainRow(
+    index: Int, stop: ItineraryStop, entry: MirageViewModel.TimelineEntry?,
+    current: Boolean, done: Boolean,
+    onMode: (TravelMode) -> Unit, onStay: () -> Unit, onMove: (Int) -> Unit, onRemove: () -> Unit,
+) {
+    var modeMenu by remember { mutableStateOf(false) }
+    var moreMenu by remember { mutableStateOf(false) }
+    val bg = if (current) ACCENT.copy(alpha = 0.10f) else Color.Transparent
+    val textColor = if (done) MUTED else MaterialTheme.colorScheme.onSurface
+    Column(Modifier.fillMaxWidth().background(bg, RoundedCornerShape(10.dp)).padding(horizontal = 4.dp, vertical = 2.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(22.dp).background(if (done) MUTED else ACCENT, CircleShape), contentAlignment = Alignment.Center) {
+                Text("${index + 1}", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+            Box {
+                IconButton(onClick = { modeMenu = true }, modifier = Modifier.size(34.dp)) {
+                    Icon(stop.mode.icon(), contentDescription = "How to get there: ${stop.mode.label()}", tint = if (done) MUTED else ACCENT)
+                }
+                DropdownMenu(expanded = modeMenu, onDismissRequest = { modeMenu = false }) {
+                    TravelMode.entries.forEach { m ->
+                        DropdownMenuItem(
+                            text = { Text(m.label()) },
+                            leadingIcon = { Icon(m.icon(), contentDescription = null) },
+                            onClick = { modeMenu = false; onMode(m) },
+                        )
+                    }
+                }
+            }
+            Text(
+                stop.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = textColor,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+            )
+            Surface(
+                shape = RoundedCornerShape(12.dp), color = ACCENT.copy(alpha = 0.12f),
+                modifier = Modifier.clickable { onStay() },
+            ) {
+                Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Schedule, contentDescription = "Stay time", tint = ACCENT, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(fmtStay(stop.dwellMinutes), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = ACCENT)
+                }
+            }
+            Box {
+                IconButton(onClick = { moreMenu = true }, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = "More", tint = MUTED)
+                }
+                DropdownMenu(expanded = moreMenu, onDismissRequest = { moreMenu = false }) {
+                    DropdownMenuItem(text = { Text("Move up") }, onClick = { moreMenu = false; onMove(-1) })
+                    DropdownMenuItem(text = { Text("Move down") }, onClick = { moreMenu = false; onMove(1) })
+                    DropdownMenuItem(text = { Text("Remove", color = RED) }, onClick = { moreMenu = false; onRemove() })
+                }
+            }
+        }
+        if (entry != null) {
+            Text(
+                "arrive ${fmtClock(entry.arriveMillis)}" +
+                    (if (stop.dwellMinutes > 0) " · leave ${fmtClock(entry.leaveMillis)}" else "") +
+                    " · ${fmtMiles(entry.legMiles * 1609.344)} by ${stop.mode.label().lowercase()}",
+                fontSize = 11.sp, color = MUTED, modifier = Modifier.padding(start = 30.dp, bottom = 2.dp),
+            )
+        }
     }
 }
 

@@ -17,7 +17,7 @@ class PlacesException(message: String) : Exception(message)
  * (not just addresses), biased toward the user's current area.
  */
 class GooglePlaces(
-    private val apiKey: String,
+    private val cfg: ApiConfig,
     private val client: OkHttpClient = OkHttpClient(),
 ) {
     private val jsonType = "application/json".toMediaType()
@@ -30,7 +30,7 @@ class GooglePlaces(
      * feeds the type-ahead list so "Pomo" shows every Pomo nearby, not just the closest.
      */
     suspend fun searchMany(query: String, bias: LatLng?, max: Int = 8): List<PlaceHit> = withContext(Dispatchers.IO) {
-        if (apiKey.isBlank() || query.isBlank()) return@withContext emptyList()
+        if (!cfg.enabled || query.isBlank()) return@withContext emptyList()
 
         val payload = JSONObject().put("textQuery", query).put("maxResultCount", max.coerceIn(1, 20))
         if (bias != null) {
@@ -46,14 +46,16 @@ class GooglePlaces(
         }
 
         val req = Request.Builder()
-            .url("https://places.googleapis.com/v1/places:searchText")
-            .addHeader("X-Goog-Api-Key", apiKey)
+            .url(cfg.placesSearchUrl())
+            .apply { cfg.headers(places = true).forEach { (k, v) -> addHeader(k, v) } }
             .addHeader("X-Goog-FieldMask", "places.location,places.displayName,places.formattedAddress")
             .post(payload.toString().toRequestBody(jsonType))
             .build()
 
         client.newCall(req).execute().use { resp ->
+            CreditsState.report(resp.header(ApiConfig.CREDITS_HEADER))
             val body = resp.body?.string().orEmpty()
+            if (resp.code == 402) throw PlacesException("Out of Mirage credits — top up in Setup")
             if (!resp.isSuccessful) {
                 val msg = runCatching { JSONObject(body).getJSONObject("error").getString("message") }.getOrNull()
                 throw PlacesException(msg ?: "Places error ${resp.code}")
