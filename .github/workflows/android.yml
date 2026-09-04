@@ -38,6 +38,9 @@ jobs:
       - name: Build debug APK
         env:
           MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+          # Flip to hosted keys later by setting this repository VARIABLE (Settings →
+          # Secrets and variables → Actions → Variables) to the Cloud Run URL. Empty = direct keys.
+          MIRAGE_API_BASE: ${{ vars.MIRAGE_API_BASE }}
         run: ./gradlew --no-daemon assembleDebug
 
       - name: Unit tests (blocking — a red test never ships)
