@@ -21,6 +21,8 @@ import androidx.core.app.NotificationCompat
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.Tasks
+import java.util.concurrent.TimeUnit
 import com.mirage.spike.engine.DwellModel
 import com.mirage.spike.engine.Fix
 import com.mirage.spike.engine.LatLng
@@ -137,6 +139,19 @@ class MockLocationService : Service() {
     // --- playback -----------------------------------------------------------
 
     private suspend fun runPlayback() {
+        // setMockMode is asynchronous: make sure the fused provider has actually switched to
+        // mock mode before the first fix, and surface a refusal instead of feeding a void.
+        val mockOk = runCatching { Tasks.await(flp.setMockMode(true), 5, TimeUnit.SECONDS); true }
+            .getOrElse { e ->
+                val denied = e is SecurityException || (e.cause is SecurityException) ||
+                    (e.message?.contains("SecurityException") == true)
+                if (denied) {
+                    MockState.update { it.copy(mockAppSelected = false, health = Health.RED, message = "Not the selected mock-location app") }
+                    false
+                } else true // timeout or transient: carry on, the provider path still works
+            }
+        if (!mockOk) { revertToReal("Not the selected mock-location app"); return }
+
         val src = PlaybackSource.current
         var last: Fix? = null
         if (src != null) {
@@ -201,7 +216,7 @@ class MockLocationService : Service() {
                 running = true, mockAppSelected = true, health = health,
                 lat = fix.lat, lng = fix.lng, speedMps = fix.speedMps, bearingDeg = fix.bearingDeg,
                 progress = fix.progress, remainingSec = fix.remainingSec,
-                emittedCount = count, reassertCount = reasserts, leakSeen = leakEver,
+                emittedCount = count, lastFixMillis = System.currentTimeMillis(), reassertCount = reasserts, leakSeen = leakEver,
                 message = if (leakEver) "Re-asserting (leak seen)" else "Simulating",
                 label = PlaybackSource.label,
             )
@@ -339,7 +354,8 @@ class MockLocationService : Service() {
         runCatching {
             flp.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null).addOnSuccessListener { loc ->
                 if (loc != null && !isMock(loc)) {
-                    MockState.update { it.copy(lat = loc.latitude, lng = loc.longitude, message = "Stopped — real location restored") }
+                    // Only if no new simulation has started in the meantime.
+                    MockState.update { if (it.running) it else it.copy(lat = loc.latitude, lng = loc.longitude, message = "Stopped — real location restored") }
                 }
             }
         }

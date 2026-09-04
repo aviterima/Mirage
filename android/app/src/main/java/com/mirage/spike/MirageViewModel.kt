@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.mirage.spike.engine.Fix
 import com.mirage.spike.engine.FlightModel
 import com.mirage.spike.engine.FlightParams
+import com.mirage.spike.engine.Geo
 import com.mirage.spike.engine.GoogleDirectionsRouteEngine
 import com.mirage.spike.engine.GoogleGeocoder
 import com.mirage.spike.engine.GooglePlaces
@@ -121,6 +122,19 @@ class MirageViewModel : ViewModel() {
         return if (st.running && useSimulatedStart) LatLng(st.lat, st.lng) else start
     }
     fun useMyLocation(p: LatLng) { lastReal = p; setStartPoint(p, "My location") }
+
+    /**
+     * A better real fix arrived a little later. Never throw away work the user did in the
+     * meantime: only adopt it if the start is still "My location", and only invalidate a
+     * built route if the position actually moved (more than 100 m).
+     */
+    fun refineMyLocation(p: LatLng) {
+        lastReal = p
+        if (startName != "My location") return
+        val cur = start
+        if (cur != null && Geo.haversine(cur, p) < 100.0) { start = p; return }
+        setStartPoint(p, "My location")
+    }
     /**
      * The End box / map tap. In Itinerary mode a chosen place is appended to the chain
      * as the next stop (with the mode and speed currently set), so building a day is
@@ -257,12 +271,12 @@ class MirageViewModel : ViewModel() {
     fun startSim(onStart: () -> Unit) {
         val ts = timeScale.toDouble()
         if (isFlight) {
-            val s = flightOrigin ?: return
-            val d = dest ?: return
+            val s = flightOrigin ?: run { error = "Flight was reset — tap Plot flight again"; return }
+            val d = dest ?: run { error = "Set an End"; return }
             PlaybackSource.current = FlightModel(s, d, FlightParams(timeScale = ts)).fixes()
             PlaybackSource.label = "Flight"
         } else {
-            val r = lastRoute ?: return
+            val r = lastRoute ?: run { error = "Route was reset — tap Get route again"; return }
             val params = MotionParams(avgSpeedMps = avgMph * 0.44704, realism = realism, mode = mode, timeScale = ts)
             PlaybackSource.current = MotionModel(r, params).fixes()
             PlaybackSource.label = "Route"

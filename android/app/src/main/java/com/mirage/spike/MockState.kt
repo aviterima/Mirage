@@ -29,6 +29,8 @@ data class MockStatus(
     /** Seconds left in the current leg, or -1 when unknown. */
     val remainingSec: Int = -1,
     val emittedCount: Long = 0,
+    /** Wall-clock time of the most recent fix pushed to the OS. */
+    val lastFixMillis: Long = 0L,
     val reassertCount: Long = 0,
     val leakSeen: Boolean = false,
     val message: String = "Idle",

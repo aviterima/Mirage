@@ -199,11 +199,13 @@ fun MapScreen(
                     runCatching { camera.animate(CameraUpdateFactory.newLatLngZoom(q.toG(), 14f)) }
                 }
             }
-            // …then a fresh fix refines it (and is the only thing trusted right after a Stop).
+            // …then a fresh fix refines it (and is the only thing trusted right after a Stop),
+            // without discarding a route the user may have built while we waited.
             val p = realLocation(context)
             if (p != null) {
-                vm.useMyLocation(p)
-                runCatching { camera.animate(CameraUpdateFactory.newLatLngZoom(p.toG(), 14f)) }
+                val hadStart = vm.start != null
+                vm.refineMyLocation(p)
+                if (!hadStart) runCatching { camera.animate(CameraUpdateFactory.newLatLngZoom(p.toG(), 14f)) }
             } else {
                 vm.error = "Could not get a real fix — is Location turned on?"
             }
@@ -222,11 +224,14 @@ fun MapScreen(
     val goTo: (LatLng) -> Unit = { p ->
         scope.launch { runCatching { camera.animate(CameraUpdateFactory.newLatLngZoom(p.toG(), 15f)) } }
     }
+    // Only prompt for permissions when something is actually missing; re-prompting on
+    // every Start pauses the activity and gets in the way.
+    val ensurePerms = { if (!hasLocPerm) onRequestPermissions() }
     val actions = SimActions(
         getRoute = { vm.buildRoute() },
-        start = { onRequestPermissions(); vm.startSim(onStartService) },
-        startItinerary = { onRequestPermissions(); vm.startItinerary(onStartService) },
-        holdAt = { at -> onRequestPermissions(); armStatic(at); onStartService() },
+        start = { ensurePerms(); vm.startSim(onStartService) },
+        startItinerary = { ensurePerms(); vm.startItinerary(onStartService) },
+        holdAt = { at -> ensurePerms(); armStatic(at); onStartService() },
     )
     val onStop = { onStopService(); vm.onStopped() }
 
@@ -801,7 +806,7 @@ private fun LiveHud(status: MockStatus, onCollapse: () -> Unit, onStop: () -> Un
         if (status.label.isNotEmpty()) Text(status.label, fontSize = 12.sp, color = MUTED)
     }
     Text(
-        "Fixes ${status.emittedCount} · re-asserts ${status.reassertCount} · leak ${if (status.leakSeen) "YES ⚠" else "no"}",
+        "Live · last fix ${lastFixClock(status.lastFixMillis)} · ${status.emittedCount} fixes · re-asserts ${status.reassertCount} · leak ${if (status.leakSeen) "YES ⚠" else "no"}",
         fontSize = 11.sp, color = MUTED,
     )
     Button(
@@ -1003,6 +1008,9 @@ private suspend fun realLocation(context: Context): LatLng? {
     }
     return null
 }
+
+private fun lastFixClock(millis: Long): String =
+    if (millis <= 0L) "—" else java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date(millis))
 
 private fun ageSec(l: Location): Long =
     (android.os.SystemClock.elapsedRealtimeNanos() - l.elapsedRealtimeNanos) / 1_000_000_000L

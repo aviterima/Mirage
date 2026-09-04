@@ -27,6 +27,9 @@ class DwellModel(
     private var walkSpeed = 0.0
     private var walkBearing = 0.0
     private var remainingS = 30.0 + rnd.nextDouble() * 90.0   // settle on arrival before the first trip
+    // Slow GPS "breathing": indoor fixes wander a few metres over tens of seconds.
+    private var driftN = 0.0
+    private var driftE = 0.0
 
     fun next(dtSec: Double): Fix = when (state) {
         State.AT_DESK, State.AWAY -> {
@@ -35,10 +38,14 @@ class DwellModel(
                 if (state == State.AT_DESK) startWalk(pickNearbySpot(), State.WALK_OUT)
                 else startWalk(desk, State.WALK_BACK)
             }
-            // Sitting: tiny GPS wobble only, no reported speed.
-            val n = Geo.offset(spot, rnd.nextGaussian() * 0.35, rnd.nextGaussian() * 0.35)
+            // Sitting: realistic indoor GPS noise — a slow drift of up to ~3 m plus per-fix
+            // jitter — so the position is genuinely fresh every fix (location sharing and
+            // other consumers treat a perfectly frozen point as "not updating").
+            driftN = (driftN * 0.995 + rnd.nextGaussian() * 0.08).coerceIn(-3.0, 3.0)
+            driftE = (driftE * 0.995 + rnd.nextGaussian() * 0.08).coerceIn(-3.0, 3.0)
+            val n = Geo.offset(spot, driftN + rnd.nextGaussian() * 0.6, driftE + rnd.nextGaussian() * 0.6)
             anchor.copy(lat = n.lat, lng = n.lng, speedMps = 0f, bearingDeg = walkBearing.toFloat(),
-                accuracyM = 4f + rnd.nextFloat() * 2f)
+                accuracyM = 6f + rnd.nextFloat() * 6f)
         }
         State.WALK_OUT, State.WALK_BACK -> {
             val remaining = Geo.haversine(spot, target)
