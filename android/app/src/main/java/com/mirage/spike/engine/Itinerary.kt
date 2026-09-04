@@ -37,20 +37,23 @@ object ItineraryModel {
             val anchor = if (end != null) Fix(end.lat, end.lng, 0f, end.bearingDeg, 4f, altitudeM = end.altitudeM)
                 else Fix(stop.point.lat, stop.point.lng, 0f, 0f, 4f)
             val dwell = DwellModel(anchor, 12.0, rnd)
-            // Wall-clock dwell; in fast-forward the same simulated stay passes sooner.
-            val totalMs = (stop.dwellMinutes * 60_000L / timeScale).toLong()
-            var elapsed = 0L
+            // Simulated-clock dwell: each real tick advances the stay by dt × the LIVE
+            // fast-forward factor, so changing it mid-stay takes effect at once.
+            val totalSimMs = stop.dwellMinutes * 60_000.0
+            var simElapsed = 0.0
             var shownMin = -1L
-            while (elapsed < totalMs) {
-                val remainMin = (((totalMs - elapsed) * timeScale).toLong() + 59_999L) / 60_000L
+            while (simElapsed < totalSimMs) {
+                val ts = timeScale * PlaybackSource.timeScale
+                val remainMin = (((totalSimMs - simElapsed).toLong()) + 59_999L) / 60_000L
                 if (remainMin != shownMin) {
                     shownMin = remainMin
                     MockState.update { it.copy(stepLabel = "At ${stop.name} \u2014 $remainMin min left") }
                 }
-                val prog = if (totalMs > 0) (elapsed.toDouble() / totalMs).toFloat() else 1f
-                emit(dwell.next(dtMillis / 1000.0).copy(progress = prog, remainingSec = ((totalMs - elapsed) / 1000).toInt()))
+                val prog = if (totalSimMs > 0) (simElapsed / totalSimMs).toFloat() else 1f
+                val remainingRealSec = ((totalSimMs - simElapsed) / 1000.0 / ts).toInt()
+                emit(dwell.next(dtMillis / 1000.0 * ts).copy(progress = prog, remainingSec = remainingRealSec))
                 delay(dtMillis)
-                elapsed += dtMillis
+                simElapsed += dtMillis * ts
             }
         }
         MockState.update { it.copy(stepLabel = "Itinerary complete \u2014 holding last stop") }

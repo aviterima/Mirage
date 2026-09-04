@@ -38,9 +38,10 @@ class FlightModel(
             val p = Geo.gcInterp(origin, dest, f)
             val ahead = Geo.gcInterp(origin, dest, (f + 0.002).coerceAtMost(1.0))
             val brg = Geo.bearing(p, ahead)
-            val eta = ((totalMeters - dist) / (params.cruiseSpeedMps * params.timeScale) * 1.12).toInt()
+            val ts = params.timeScale * PlaybackSource.timeScale
+            val eta = ((totalMeters - dist) / (params.cruiseSpeedMps * ts) * 1.12).toInt()
             emit(Fix(p.lat, p.lng, speed.toFloat(), brg.toFloat(), 5f, alt, progress = f.toFloat(), remainingSec = eta))
-            dist += speed * dt * params.timeScale
+            dist += speed * dt * ts
             delay(dtMs)
         }
         val finalBrg = Geo.bearing(pathPoints[pathPoints.size - 2], dest)

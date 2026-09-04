@@ -9,7 +9,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mirage.spike.engine.Fix
 import com.mirage.spike.engine.FlightModel
-import com.mirage.spike.engine.FlightParams
 import com.mirage.spike.engine.Geo
 import com.mirage.spike.engine.GoogleDirectionsRouteEngine
 import com.mirage.spike.engine.GoogleGeocoder
@@ -88,8 +87,12 @@ class MirageViewModel : ViewModel() {
         set(v) { modeSpeeds[mode] = v }
     var realism by mutableStateOf(Realism.REALISTIC)
     var mode by mutableStateOf(TravelMode.DRIVE)
-    /** Fast-forward for testing: positions advance N× faster than real time. */
-    var timeScale by mutableStateOf(1f)
+    /** Fast-forward for testing: positions advance N× faster than real time. Live: applies
+     *  to whatever is playing the moment it changes. */
+    private var timeScaleState by mutableStateOf(1f)
+    var timeScale: Float
+        get() = timeScaleState
+        set(v) { timeScaleState = v; PlaybackSource.timeScale = v.toDouble() }
 
     var phase by mutableStateOf(Phase.IDLE)
         private set
@@ -311,15 +314,15 @@ class MirageViewModel : ViewModel() {
     }
 
     fun startSim(onStart: () -> Unit) {
-        val ts = timeScale.toDouble()
+        PlaybackSource.timeScale = timeScale.toDouble()
         if (isFlight) {
             val s = flightOrigin ?: run { error = "Flight was reset — tap Plot flight again"; return }
             val d = dest ?: run { error = "Set an End"; return }
-            PlaybackSource.current = FlightModel(s, d, FlightParams(timeScale = ts)).fixes()
+            PlaybackSource.current = FlightModel(s, d).fixes()
             PlaybackSource.label = "Flight"
         } else {
             val r = lastRoute ?: run { error = "Route was reset — tap Get route again"; return }
-            val params = MotionParams(avgSpeedMps = avgMph * 0.44704, realism = realism, mode = mode, timeScale = ts)
+            val params = MotionParams(avgSpeedMps = avgMph * 0.44704, realism = realism, mode = mode)
             PlaybackSource.current = MotionModel(r, params).fixes()
             PlaybackSource.label = "Route"
         }
@@ -351,7 +354,7 @@ class MirageViewModel : ViewModel() {
         val s = tripStart() ?: run { error = "Set a start point"; return }
         if (stops.isEmpty()) { error = "Add at least one stop"; return }
         if (stops.any { it.mode != TravelMode.FLY } && !hasKey) { error = "Add MAPS_API_KEY to route"; return }
-        val ts = timeScale.toDouble()
+        PlaybackSource.timeScale = timeScale.toDouble()
         viewModelScope.launch {
             error = null; itineraryBusy = true
             try {
@@ -363,10 +366,10 @@ class MirageViewModel : ViewModel() {
                     // exactly where this one ended (road-snapped), so nothing teleports.
                     var legEnd: LatLng = stop.point
                     val legFlow: Flow<Fix> = if (stop.mode == TravelMode.FLY) {
-                        val fm = FlightModel(from, stop.point, FlightParams(timeScale = ts)); allPts += fm.pathPoints; fm.fixes()
+                        val fm = FlightModel(from, stop.point); allPts += fm.pathPoints; fm.fixes()
                     } else {
                         val r = routeEngine.route(RouteSpec(from, stop.point, mode = stop.mode)); allPts += r.points
-                        val params = MotionParams(avgSpeedMps = stop.avgMph * 0.44704, realism = realism, mode = stop.mode, timeScale = ts)
+                        val params = MotionParams(avgSpeedMps = stop.avgMph * 0.44704, realism = realism, mode = stop.mode)
                         legEnd = r.points.lastOrNull() ?: stop.point
                         MotionModel(r, params).fixes()
                     }
@@ -375,7 +378,7 @@ class MirageViewModel : ViewModel() {
                 }
                 if (planMode != PlanMode.ITINERARY || !isActive) return@launch  // user moved on meanwhile
                 routePts = allPts
-                PlaybackSource.current = ItineraryModel.play(legs, timeScale = ts)
+                PlaybackSource.current = ItineraryModel.play(legs)
                 PlaybackSource.routePoints = allPts
                 PlaybackSource.label = "Itinerary"
                 useSimulatedStart = true

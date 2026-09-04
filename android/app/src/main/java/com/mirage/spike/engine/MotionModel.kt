@@ -116,16 +116,17 @@ class MotionModel(
             speed += clamp(target - speed, -profile.accelMax, profile.accelMax) * dt * 3.0
             speed = clamp(speed, 0.0, avg * profile.maxFactor)
 
-            dist += speed * dt * params.timeScale
+            val ts = params.timeScale * PlaybackSource.timeScale
+            dist += speed * dt * ts
             val at = clamp(dist, 0.0, totalMeters)
             val (p, brg) = interpolate(at)
             val prog = (at / totalMeters).toFloat()
-            val eta = ((totalMeters - at) / (avg * params.timeScale)).toInt()
+            val eta = ((totalMeters - at) / (avg * ts)).toInt()
             emit(Fix(p.lat, p.lng, speed.toFloat(), brg.toFloat(), params.accuracyMeters, progress = prog, remainingSec = eta))
 
             // occasional realistic stop (traffic light / congestion)
             if (rnd.nextDouble() < stopProbPerTick) {
-                val dwellMs = ((profile.dwellMinMs + rnd.nextInt(profile.dwellSpanMs)) / params.timeScale).toInt()
+                val dwellMs = ((profile.dwellMinMs + rnd.nextInt(profile.dwellSpanMs)) / ts).toInt()
                 var elapsed = 0
                 while (elapsed < dwellMs) {
                     emit(Fix(p.lat, p.lng, 0f, brg.toFloat(), params.accuracyMeters, progress = prog, remainingSec = eta))
@@ -165,6 +166,8 @@ class MotionModel(
  */
 object PlaybackSource {
     @Volatile var current: Flow<Fix>? = null
+    /** Live fast-forward factor, read every tick by every model, so it applies immediately. */
+    @Volatile var timeScale: Double = 1.0
     @Volatile var routePoints: List<LatLng> = emptyList()
     @Volatile var label: String = ""
 }

@@ -217,7 +217,7 @@ class MockLocationService : Service() {
         refreshNotification()
         val dwell = DwellModel(hold, 12.0, ditherRnd)
         while (currentCoroutineContext().isActive && gen == generation) {
-            pushFix(dwell.next(INTERVAL_MS / 1000.0), gen)
+            pushFix(dwell.next(INTERVAL_MS / 1000.0 * PlaybackSource.timeScale), gen)
             delay(INTERVAL_MS)
         }
     }

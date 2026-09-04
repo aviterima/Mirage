@@ -463,7 +463,7 @@ fun MapScreen(
                 when {
                     status.running && sheetCollapsed -> MiniHud(status, onExpand = { sheetCollapsed = false }, onStop = onStop)
                     status.running -> {
-                        LiveHud(status, onCollapse = { sheetCollapsed = true }, onStop = onStop)
+                        LiveHud(status, vm.timeScale, onCollapse = { sheetCollapsed = true }, onStop = onStop)
                         HorizontalDivider(color = MUTED.copy(alpha = 0.2f))
                         Text("Plan the next leg · ${vm.planMode.label()}", fontSize = 15.sp, fontWeight = FontWeight.Bold)
                         Text("Use the boxes above; starting replaces what is playing.", fontSize = 12.sp, color = MUTED)
@@ -791,7 +791,7 @@ private fun healthColor(h: Health) = when (h) {
 }
 
 @Composable
-private fun LiveHud(status: MockStatus, onCollapse: () -> Unit, onStop: () -> Unit) {
+private fun LiveHud(status: MockStatus, timeScale: Float, onCollapse: () -> Unit, onStop: () -> Unit) {
     val mph = (status.speedMps / 0.44704f).toInt()
     val hc = healthColor(status.health)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -826,7 +826,10 @@ private fun LiveHud(status: MockStatus, onCollapse: () -> Unit, onStop: () -> Un
             "${"%.5f".format(status.lat)}, ${"%.5f".format(status.lng)}",
             fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = MUTED,
         )
-        if (status.label.isNotEmpty()) Text(status.label, fontSize = 12.sp, color = MUTED)
+        if (status.label.isNotEmpty()) Text(
+            if (timeScale > 1f) "${status.label} · ${timeScale.toInt()}× fast-forward" else status.label,
+            fontSize = 12.sp, color = if (timeScale > 1f) AMBER else MUTED,
+        )
     }
     Text(
         "Live · last fix ${lastFixClock(status.lastFixMillis)} · ${status.emittedCount} fixes · re-asserts ${status.reassertCount} · leak ${if (status.leakSeen) "YES ⚠" else "no"}",
