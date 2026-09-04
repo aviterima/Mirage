@@ -26,6 +26,10 @@ import com.mirage.spike.engine.RouteSegment
 import com.mirage.spike.engine.RouteSpec
 import com.mirage.spike.engine.TransitModel
 import com.mirage.spike.engine.TravelMode
+import com.mirage.spike.store.InMemoryScenarioStore
+import com.mirage.spike.store.SavedScenario
+import com.mirage.spike.store.SavedStop
+import com.mirage.spike.store.ScenarioStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
@@ -368,6 +372,81 @@ class MirageViewModel : ViewModel() {
         if (index !in stops.indices) return
         val st = stops[index]
         stops[index] = st.copy(dwellMinutes = (st.dwellMinutes + deltaMinutes).coerceIn(0, 24 * 60))
+    }
+
+    /** Index of the stop whose stay time is being edited (UI dialog), or null. */
+    var dwellEditIndex by mutableStateOf<Int?>(null)
+
+    /** Set exactly how long to stay at a stop (0 – 24 h). */
+    fun setDwell(index: Int, minutes: Int) {
+        if (index !in stops.indices) return
+        stops[index] = stops[index].copy(dwellMinutes = minutes.coerceIn(0, 24 * 60))
+    }
+
+    // ---- Saved plans (Snap / Route / Itinerary by name) --------------------------
+
+    private var store: ScenarioStore = InMemoryScenarioStore()
+    val savedScenarios = mutableStateListOf<SavedScenario>()
+
+    /** Give the ViewModel its persistent store (the screen does this once). */
+    fun attachStore(s: ScenarioStore) {
+        store = s
+        savedScenarios.clear(); savedScenarios.addAll(s.load().sortedByDescending { it.createdAt })
+    }
+
+    /** Is there anything on screen worth saving in the current mode? */
+    val canSaveScenario: Boolean
+        get() = when (planMode) {
+            PlanMode.SNAP, PlanMode.ROUTE -> dest != null
+            PlanMode.ITINERARY -> stops.isNotEmpty()
+        }
+
+    fun saveScenario(name: String): Boolean {
+        val n = name.trim()
+        if (n.isBlank() || !canSaveScenario) return false
+        val sc = SavedScenario(
+            id = "${System.currentTimeMillis()}-${(Math.random() * 1_000_000).toInt()}",
+            name = n, kind = planMode.name, createdAt = System.currentTimeMillis(),
+            startIsReal = startFromReal || start == null,
+            start = if (startFromReal) null else start, startName = if (startFromReal) "" else startName,
+            dest = dest, destName = destName,
+            travelMode = mode, speeds = modeSpeeds.toMap(), realism = realism, transitPref = transitPref,
+            stops = stops.map { SavedStop(it.name, it.point.lat, it.point.lng, it.dwellMinutes, it.mode, it.avgMph) },
+        )
+        // Same name replaces the older copy.
+        savedScenarios.removeAll { it.name.equals(n, ignoreCase = true) }
+        savedScenarios.add(0, sc)
+        store.save(savedScenarios.toList())
+        return true
+    }
+
+    fun deleteScenario(id: String) {
+        savedScenarios.removeAll { it.id == id }
+        store.save(savedScenarios.toList())
+    }
+
+    /** Put a saved plan back on screen. A "real location" start uses today's real position. */
+    fun loadScenario(sc: SavedScenario) {
+        clearSuggestions()
+        planMode = runCatching { PlanMode.valueOf(sc.kind) }.getOrDefault(PlanMode.ROUTE)
+        mode = sc.travelMode
+        sc.speeds.forEach { (m, v) -> modeSpeeds[m] = v }
+        realism = sc.realism
+        transitPref = sc.transitPref
+        stops.clear()
+        stops.addAll(sc.stops.map { ItineraryStop(it.name, LatLng(it.lat, it.lng), it.dwellMinutes, it.mode, it.avgMph) })
+        if (sc.startIsReal || sc.start == null) {
+            val real = lastReal
+            if (real != null) { start = real; startName = "My location"; startFromReal = true }
+            useSimulatedStart = true
+        } else {
+            start = sc.start; startName = sc.startName; startFromReal = false; useSimulatedStart = false
+        }
+        dest = sc.dest; destName = sc.destName
+        invalidateRoute()
+        error = null
+        // Routes can be prepared straight away; the user then just taps Start.
+        if (planMode == PlanMode.ROUTE && dest != null && tripStart() != null && (mode == TravelMode.FLY || hasKey)) buildRoute()
     }
 
     /** Route every leg up front, then arm ONE continuous stream: travel, dwell, travel, dwell... */

@@ -38,6 +38,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -106,6 +107,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -136,6 +138,8 @@ import com.mirage.spike.engine.Realism
 import com.mirage.spike.engine.RouteSegment
 import com.mirage.spike.engine.TransitVehicle
 import com.mirage.spike.engine.TravelMode
+import com.mirage.spike.store.PrefsScenarioStore
+import com.mirage.spike.store.SavedScenario
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -172,6 +176,7 @@ fun MapScreen(
     val vm: MirageViewModel = viewModel()
     val status by MockState.status.collectAsState()
     var showSetup by remember { mutableStateOf(false) }
+    var showSaved by remember { mutableStateOf(false) }
     var sheetCollapsed by remember { mutableStateOf(false) }
     // The control sheet may never take more than half the screen; the map keeps the rest.
     val maxSheet = (LocalConfiguration.current.screenHeightDp * 0.5f).dp
@@ -180,6 +185,8 @@ fun MapScreen(
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = LocalFocusManager.current
     val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    // Saved plans live on the device.
+    LaunchedEffect(Unit) { vm.attachStore(PrefsScenarioStore(context)) }
 
     val camera = rememberCameraPositionState {
         // Continental view until the real fix arrives — never pretend to know where you are.
@@ -432,9 +439,16 @@ fun MapScreen(
                         )
                     }
                 }
-                Surface(shape = CircleShape, shadowElevation = 3.dp, modifier = Modifier.size(48.dp)) {
-                    IconButton(onClick = { showSetup = true }) {
-                        Icon(Icons.Filled.Settings, contentDescription = "Setup", tint = ACCENT)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Surface(shape = CircleShape, shadowElevation = 3.dp, modifier = Modifier.size(48.dp)) {
+                        IconButton(onClick = { showSetup = true }) {
+                            Icon(Icons.Filled.Settings, contentDescription = "Setup", tint = ACCENT)
+                        }
+                    }
+                    Surface(shape = CircleShape, shadowElevation = 3.dp, modifier = Modifier.size(48.dp)) {
+                        IconButton(onClick = { showSaved = true }) {
+                            Icon(Icons.Filled.Bookmark, contentDescription = "Saved plans", tint = ACCENT)
+                        }
                     }
                 }
             }
@@ -497,6 +511,27 @@ fun MapScreen(
         }
     }
 
+    if (showSaved) {
+        SavedPlansDialog(
+            vm = vm,
+            onDismiss = { showSaved = false },
+            onLoaded = { sc ->
+                showSaved = false
+                sheetCollapsed = false
+                val focusPt = sc.dest ?: sc.stops.firstOrNull()?.let { LatLng(it.lat, it.lng) }
+                if (focusPt != null) goTo(focusPt)
+            },
+        )
+    }
+    vm.dwellEditIndex?.let { i ->
+        val stop = vm.stops.getOrNull(i)
+        if (stop == null) vm.dwellEditIndex = null
+        else DwellDialog(
+            stopName = stop.name, minutes = stop.dwellMinutes,
+            onSet = { m -> vm.setDwell(i, m); vm.dwellEditIndex = null },
+            onDismiss = { vm.dwellEditIndex = null },
+        )
+    }
     if (showSetup) {
         val checks = remember { setupChecks() }
         SetupDialog(
@@ -682,12 +717,13 @@ private fun Controls(
                 index = i, stop = stop,
                 onMode = { vm.cycleStopMode(i) },
                 onDwell = { vm.adjustDwell(i, it) },
+                onEditDwell = { vm.dwellEditIndex = i },
                 onRemove = { vm.removeStop(i) },
             )
         }
         if (vm.stops.isNotEmpty()) {
             Text(
-                "${vm.stops.size} ${if (vm.stops.size == 1) "stop" else "stops"} · ${fmtDuration(vm.dwellTotalMinutes * 60.0)} on site in total · tap a stop's icon to change how you travel to it",
+                "${vm.stops.size} ${if (vm.stops.size == 1) "stop" else "stops"} · ${fmtDuration(vm.dwellTotalMinutes * 60.0)} on site in total · tap a stop's icon to change how you travel to it, tap its time to set how long you stay",
                 fontSize = 12.sp, color = MUTED,
             )
         }
@@ -738,7 +774,7 @@ private fun Controls(
 }
 
 @Composable
-private fun StopRow(index: Int, stop: ItineraryStop, onMode: () -> Unit, onDwell: (Int) -> Unit, onRemove: () -> Unit) {
+private fun StopRow(index: Int, stop: ItineraryStop, onMode: () -> Unit, onDwell: (Int) -> Unit, onEditDwell: () -> Unit, onRemove: () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(22.dp).background(ACCENT, CircleShape), contentAlignment = Alignment.Center) {
             Text("${index + 1}", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -751,7 +787,10 @@ private fun StopRow(index: Int, stop: ItineraryStop, onMode: () -> Unit, onDwell
             Text(if (stop.mode == TravelMode.TRANSIT) "Transit · timetable" else "${stop.mode.label()} · ${stop.avgMph.toInt()} mph", fontSize = 11.sp, color = MUTED)
         }
         IconButton(onClick = { onDwell(-15) }, modifier = Modifier.size(32.dp)) { Text("−", fontSize = 18.sp) }
-        Text("${stop.dwellMinutes} min", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            fmtStay(stop.dwellMinutes), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = ACCENT,
+            modifier = Modifier.clickable { onEditDwell() }.padding(horizontal = 4.dp, vertical = 6.dp),
+        )
         IconButton(onClick = { onDwell(15) }, modifier = Modifier.size(32.dp)) { Text("+", fontSize = 18.sp) }
         IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
             Icon(Icons.Filled.Delete, contentDescription = "Remove stop", tint = RED)
@@ -952,6 +991,105 @@ private fun SetupRow(ok: Boolean, title: String, detail: String, action: String,
             Text(detail, fontSize = 12.sp, color = MUTED)
         }
         if (!ok) TextButton(onClick = onAction) { Text(action, fontSize = 12.sp) }
+    }
+}
+
+// ---- Stay time editor -----------------------------------------------------------------
+
+private fun fmtStay(minutes: Int): String {
+    if (minutes < 60) return "$minutes min"
+    val h = minutes / 60; val m = minutes % 60
+    return if (m == 0) "$h h" else "$h h $m min"
+}
+
+@Composable
+private fun DwellDialog(stopName: String, minutes: Int, onSet: (Int) -> Unit, onDismiss: () -> Unit) {
+    var text by remember { mutableStateOf(minutes.toString()) }
+    val value = text.trim().toIntOrNull()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Stay at $stopName") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("How long to stay before continuing the itinerary.", fontSize = 12.sp, color = MUTED)
+                OutlinedTextField(
+                    value = text, onValueChange = { text = it.filter { c -> c.isDigit() }.take(4) },
+                    label = { Text("Minutes") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(15, 30, 45, 60, 90, 120, 180, 240).forEach { m ->
+                        FilterChip(selected = value == m, onClick = { text = m.toString() }, label = { Text(fmtStay(m)) })
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { value?.let(onSet) }, enabled = value != null) { Text("Set") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+// ---- Saved plans ------------------------------------------------------------------------
+
+@Composable
+private fun SavedPlansDialog(vm: MirageViewModel, onDismiss: () -> Unit, onLoaded: (SavedScenario) -> Unit) {
+    var name by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Saved plans") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    if (vm.canSaveScenario) "Save the current ${vm.planMode.label().lowercase()} under a name to reuse it later."
+                    else "Set up a Snap, Route or Itinerary first to save it.",
+                    fontSize = 12.sp, color = MUTED,
+                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = name, onValueChange = { name = it }, singleLine = true,
+                        placeholder = { Text("Name, e.g. Lunch run") }, modifier = Modifier.weight(1f),
+                        enabled = vm.canSaveScenario,
+                    )
+                    Button(onClick = { if (vm.saveScenario(name)) name = "" }, enabled = vm.canSaveScenario && name.isNotBlank()) { Text("Save") }
+                }
+                HorizontalDivider()
+                if (vm.savedScenarios.isEmpty()) {
+                    Text("Nothing saved yet.", fontSize = 12.sp, color = MUTED)
+                }
+                Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    vm.savedScenarios.forEach { sc ->
+                        Row(Modifier.fillMaxWidth().clickable { vm.loadScenario(sc); onLoaded(sc) }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            val kind = runCatching { PlanMode.valueOf(sc.kind) }.getOrDefault(PlanMode.ROUTE)
+                            Icon(
+                                when (kind) { PlanMode.SNAP -> Icons.Filled.Place; PlanMode.ROUTE -> sc.travelMode.icon(); PlanMode.ITINERARY -> Icons.Filled.Bookmark },
+                                contentDescription = null, tint = ACCENT, modifier = Modifier.size(20.dp),
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(sc.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(scenarioSummary(sc, kind), fontSize = 12.sp, color = MUTED, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                            TextButton(onClick = { vm.loadScenario(sc); onLoaded(sc) }) { Text("Load", fontSize = 12.sp) }
+                            IconButton(onClick = { vm.deleteScenario(sc.id) }, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = RED)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+    )
+}
+
+private fun scenarioSummary(sc: SavedScenario, kind: PlanMode): String = when (kind) {
+    PlanMode.SNAP -> "Snap · ${sc.destName}"
+    PlanMode.ROUTE -> "${if (sc.startIsReal) "My location" else sc.startName} → ${sc.destName} · ${sc.travelMode.label()}"
+    PlanMode.ITINERARY -> {
+        val total = sc.stops.sumOf { it.dwellMinutes }
+        "${sc.stops.size} ${if (sc.stops.size == 1) "stop" else "stops"} · ${fmtStay(total)} on site · " +
+            sc.stops.joinToString(" → ") { it.name }
     }
 }
 
