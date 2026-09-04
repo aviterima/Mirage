@@ -8,9 +8,50 @@ enum class TravelMode(val apiValue: String) {
     DRIVE("driving"),
     BIKE("bicycling"),
     WALK("walking"),
+    /** Real public transport from Google Directions: walk, wait, ride on the actual schedule. */
+    TRANSIT("transit"),
     /** Emulated point-to-point flight (great circle); no routing API involved. */
     FLY("flight"),
 }
+
+enum class TransitVehicle(val label: String) {
+    BUS("Bus"), SUBWAY("Subway"), TRAIN("Train"), TRAM("Tram"), RAIL("Rail"), FERRY("Ferry"), OTHER("Transit");
+
+    companion object {
+        /** Map Google's vehicle type strings onto our families. */
+        fun from(type: String?): TransitVehicle = when (type?.uppercase()) {
+            "BUS", "INTERCITY_BUS", "TROLLEYBUS", "SHARE_TAXI" -> BUS
+            "SUBWAY", "METRO_RAIL" -> SUBWAY
+            "HEAVY_RAIL", "COMMUTER_TRAIN", "HIGH_SPEED_TRAIN", "LONG_DISTANCE_TRAIN" -> TRAIN
+            "RAIL" -> RAIL
+            "TRAM", "MONORAIL", "CABLE_CAR", "FUNICULAR", "GONDOLA_LIFT" -> TRAM
+            "FERRY" -> FERRY
+            else -> OTHER
+        }
+    }
+}
+
+/** One scheduled ride: which line, between which stops, when. */
+data class TransitDetails(
+    val vehicle: TransitVehicle,
+    val line: String,
+    val headsign: String,
+    val fromStop: String,
+    val toStop: String,
+    val departureEpoch: Long,
+    val arrivalEpoch: Long,
+    val departureText: String,
+    val arrivalText: String,
+    val numStops: Int,
+)
+
+/** A piece of a transit trip: a walk (transit == null) or a ride. */
+data class RouteSegment(
+    val points: List<LatLng>,
+    val distanceMeters: Double,
+    val durationSeconds: Double,
+    val transit: TransitDetails? = null,
+)
 
 enum class Realism { CONSTANT, REALISTIC, BUSY }
 
@@ -19,6 +60,8 @@ data class RouteSpec(
     val destination: LatLng,
     val waypoints: List<LatLng> = emptyList(),
     val mode: TravelMode = TravelMode.DRIVE,
+    /** Transit only: Directions transit_mode filter (bus, subway, train, tram, rail) or null for any. */
+    val transitPreference: String? = null,
 )
 
 /** Road-snapped result from a routing provider. */
@@ -26,6 +69,8 @@ data class RouteResult(
     val points: List<LatLng>,
     val distanceMeters: Double,
     val durationSeconds: Double,
+    /** Transit only: the walk/ride segments with their schedule. */
+    val segments: List<RouteSegment> = emptyList(),
 )
 
 data class MotionParams(

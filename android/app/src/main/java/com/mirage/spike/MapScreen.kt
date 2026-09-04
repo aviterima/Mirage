@@ -42,6 +42,9 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DirectionsBike
+import androidx.compose.material.icons.filled.DirectionsBoat
+import androidx.compose.material.icons.filled.DirectionsBus
+import androidx.compose.material.icons.filled.DirectionsTransit
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Flight
@@ -53,6 +56,9 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Subway
+import androidx.compose.material.icons.filled.Train
+import androidx.compose.material.icons.filled.Tram
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -127,6 +133,8 @@ import com.mirage.spike.engine.LatLng
 import com.mirage.spike.engine.PlaceHit
 import com.mirage.spike.engine.PlaybackSource
 import com.mirage.spike.engine.Realism
+import com.mirage.spike.engine.RouteSegment
+import com.mirage.spike.engine.TransitVehicle
 import com.mirage.spike.engine.TravelMode
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -590,6 +598,7 @@ private fun Controls(
     a: SimActions,
 ) {
     val fly = vm.mode == TravelMode.FLY
+    val transit = vm.mode == TravelMode.TRANSIT
     val running = status.running
     val snap = vm.planMode == PlanMode.SNAP
     val itin = vm.planMode == PlanMode.ITINERARY
@@ -630,6 +639,17 @@ private fun Controls(
 
         if (fly) {
             Text("Emulated flight: taxi, climb to 35,000 ft, cruise at about 550 mph, descent, landing.", fontSize = 12.sp, color = MUTED)
+        } else if (transit) {
+            Text(
+                "Real public transport from the timetable: walk to the stop, wait for the scheduled departure, ride with station stops, walk to the end.",
+                fontSize = 12.sp, color = MUTED,
+            )
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(null to "Any", "rail" to "Rail", "subway" to "Subway", "train" to "Train", "tram" to "Tram", "bus" to "Bus").forEach { (key, label) ->
+                    FilterChip(selected = vm.transitPref == key, onClick = { vm.chooseTransitPref(key) }, label = { Text(label) })
+                }
+            }
+            if (vm.transitSegments.isNotEmpty()) TransitLegs(vm.transitSegments)
         } else {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
                 Text(
@@ -728,7 +748,7 @@ private fun StopRow(index: Int, stop: ItineraryStop, onMode: () -> Unit, onDwell
         }
         Column(Modifier.weight(1f)) {
             Text(stop.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("${stop.mode.label()} · ${stop.avgMph.toInt()} mph", fontSize = 11.sp, color = MUTED)
+            Text(if (stop.mode == TravelMode.TRANSIT) "Transit · timetable" else "${stop.mode.label()} · ${stop.avgMph.toInt()} mph", fontSize = 11.sp, color = MUTED)
         }
         IconButton(onClick = { onDwell(-15) }, modifier = Modifier.size(32.dp)) { Text("−", fontSize = 18.sp) }
         Text("${stop.dwellMinutes} min", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
@@ -941,6 +961,7 @@ private fun TravelMode.label(): String = when (this) {
     TravelMode.DRIVE -> "Drive"
     TravelMode.BIKE -> "Bike"
     TravelMode.WALK -> "Walk"
+    TravelMode.TRANSIT -> "Transit"
     TravelMode.FLY -> "Fly"
 }
 
@@ -948,7 +969,41 @@ private fun TravelMode.icon(): ImageVector = when (this) {
     TravelMode.DRIVE -> Icons.Filled.DirectionsCar
     TravelMode.BIKE -> Icons.Filled.DirectionsBike
     TravelMode.WALK -> Icons.Filled.DirectionsWalk
+    TravelMode.TRANSIT -> Icons.Filled.DirectionsTransit
     TravelMode.FLY -> Icons.Filled.Flight
+}
+
+private fun TransitVehicle.icon(): ImageVector = when (this) {
+    TransitVehicle.BUS -> Icons.Filled.DirectionsBus
+    TransitVehicle.SUBWAY -> Icons.Filled.Subway
+    TransitVehicle.TRAIN, TransitVehicle.RAIL -> Icons.Filled.Train
+    TransitVehicle.TRAM -> Icons.Filled.Tram
+    TransitVehicle.FERRY -> Icons.Filled.DirectionsBoat
+    TransitVehicle.OTHER -> Icons.Filled.DirectionsTransit
+}
+
+/** The scheduled legs of a transit trip: walk · line from → to · times. */
+@Composable
+private fun TransitLegs(segments: List<RouteSegment>) {
+    Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            segments.forEach { seg ->
+                val td = seg.transit
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(td?.vehicle?.icon() ?: Icons.Filled.DirectionsWalk, contentDescription = null, tint = ACCENT, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(10.dp))
+                    if (td == null) {
+                        Text("Walk ${fmtMiles(seg.distanceMeters)} · ${fmtDuration(seg.durationSeconds)}", fontSize = 12.sp, color = MUTED)
+                    } else {
+                        Column {
+                            Text("${td.line} ${td.vehicle.label.lowercase()} → ${td.headsign.ifBlank { td.toStop }}", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text("${td.fromStop} ${td.departureText} → ${td.toStop} ${td.arrivalText} · ${td.numStops} ${if (td.numStops == 1) "stop" else "stops"}", fontSize = 12.sp, color = MUTED)
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 private fun PlanMode.label(): String = when (this) {

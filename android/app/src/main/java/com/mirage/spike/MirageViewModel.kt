@@ -22,7 +22,9 @@ import com.mirage.spike.engine.PlaceHit
 import com.mirage.spike.engine.PlaybackSource
 import com.mirage.spike.engine.Realism
 import com.mirage.spike.engine.RouteResult
+import com.mirage.spike.engine.RouteSegment
 import com.mirage.spike.engine.RouteSpec
+import com.mirage.spike.engine.TransitModel
 import com.mirage.spike.engine.TravelMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -87,6 +89,12 @@ class MirageViewModel : ViewModel() {
         set(v) { modeSpeeds[mode] = v }
     var realism by mutableStateOf(Realism.REALISTIC)
     var mode by mutableStateOf(TravelMode.DRIVE)
+    /** Transit vehicle filter for Directions (null = any): bus, subway, train, tram, rail. */
+    var transitPref by mutableStateOf<String?>(null)
+        private set
+    fun chooseTransitPref(p: String?) { transitPref = p; invalidateRoute() }
+    /** The scheduled walk/ride legs of a plotted transit route (empty otherwise). */
+    val transitSegments: List<RouteSegment> get() = lastRoute?.segments.orEmpty()
     /** Fast-forward for testing: positions advance N× faster than real time. Live: applies
      *  to whatever is playing the moment it changes. */
     private var timeScaleState by mutableStateOf(1f)
@@ -214,6 +222,14 @@ class MirageViewModel : ViewModel() {
     val routeSummary: String?
         get() {
             if (planMode != PlanMode.ROUTE || routePts.isEmpty() || routeDistanceM <= 0.0) return null
+            val r = lastRoute
+            if (mode == TravelMode.TRANSIT && r != null) {
+                val rides = r.segments.count { it.transit != null }
+                val arrive = r.segments.lastOrNull { it.transit != null }?.transit?.arrivalText
+                val ff = if (timeScale > 1f) " · ${timeScale.toInt()}× fast-forward" else ""
+                return "${fmtMiles(routeDistanceM)} · ${fmtDuration(r.durationSeconds / timeScale)} · $rides ${if (rides == 1) "ride" else "rides"}" +
+                    (arrive?.let { " · arrive $it" } ?: "") + ff
+            }
             val secs = if (isFlight) {
                 routeDistanceM / 245.0 * 1.12
             } else {
@@ -303,7 +319,7 @@ class MirageViewModel : ViewModel() {
         routeJob = viewModelScope.launch {
             error = null; phase = Phase.ROUTING
             try {
-                val r = routeEngine.route(RouteSpec(s, d, mode = mode))
+                val r = routeEngine.route(RouteSpec(s, d, mode = mode, transitPreference = transitPref))
                 if (!isActive) return@launch
                 lastRoute = r; routePts = r.points; routeDistanceM = r.distanceMeters; isFlight = false
                 phase = Phase.READY
@@ -322,9 +338,14 @@ class MirageViewModel : ViewModel() {
             PlaybackSource.label = "Flight"
         } else {
             val r = lastRoute ?: run { error = "Route was reset — tap Get route again"; return }
-            val params = MotionParams(avgSpeedMps = avgMph * 0.44704, realism = realism, mode = mode)
-            PlaybackSource.current = MotionModel(r, params).fixes()
-            PlaybackSource.label = "Route"
+            if (mode == TravelMode.TRANSIT) {
+                PlaybackSource.current = TransitModel(r).fixes()
+                PlaybackSource.label = "Transit"
+            } else {
+                val params = MotionParams(avgSpeedMps = avgMph * 0.44704, realism = realism, mode = mode)
+                PlaybackSource.current = MotionModel(r, params).fixes()
+                PlaybackSource.label = "Route"
+            }
         }
         PlaybackSource.routePoints = routePts
         useSimulatedStart = true
@@ -368,10 +389,12 @@ class MirageViewModel : ViewModel() {
                     val legFlow: Flow<Fix> = if (stop.mode == TravelMode.FLY) {
                         val fm = FlightModel(from, stop.point); allPts += fm.pathPoints; fm.fixes()
                     } else {
-                        val r = routeEngine.route(RouteSpec(from, stop.point, mode = stop.mode)); allPts += r.points
-                        val params = MotionParams(avgSpeedMps = stop.avgMph * 0.44704, realism = realism, mode = stop.mode)
+                        val r = routeEngine.route(RouteSpec(from, stop.point, mode = stop.mode, transitPreference = transitPref)); allPts += r.points
                         legEnd = r.points.lastOrNull() ?: stop.point
-                        MotionModel(r, params).fixes()
+                        if (stop.mode == TravelMode.TRANSIT) TransitModel(r).fixes() else {
+                            val params = MotionParams(avgSpeedMps = stop.avgMph * 0.44704, realism = realism, mode = stop.mode)
+                            MotionModel(r, params).fixes()
+                        }
                     }
                     legs += legFlow to stop
                     from = legEnd
@@ -405,6 +428,7 @@ fun defaultSpeed(m: TravelMode): Float = when (m) {
     TravelMode.DRIVE -> 45f
     TravelMode.BIKE -> 12f
     TravelMode.WALK -> 3f
+    TravelMode.TRANSIT -> 20f   // informational only: transit follows the timetable
     TravelMode.FLY -> 550f
 }
 
@@ -413,6 +437,7 @@ fun speedRange(m: TravelMode): ClosedFloatingPointRange<Float> = when (m) {
     TravelMode.DRIVE -> 5f..80f
     TravelMode.BIKE -> 3f..25f
     TravelMode.WALK -> 1f..6f
+    TravelMode.TRANSIT -> 5f..60f
     TravelMode.FLY -> 400f..600f
 }
 
