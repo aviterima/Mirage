@@ -25,7 +25,9 @@ import com.mirage.spike.engine.Realism
 import com.mirage.spike.engine.RouteResult
 import com.mirage.spike.engine.RouteSpec
 import com.mirage.spike.engine.TravelMode
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
@@ -46,7 +48,10 @@ class MirageViewModel : ViewModel() {
     // No made-up default: until a real fix (or a pick) arrives the start is simply unset.
     var start by mutableStateOf<LatLng?>(null)
         private set
-    var startName by mutableStateOf("Not set — use ⌖ or search")
+    var startName by mutableStateOf("")
+        private set
+    /** True when the start came from the phone's real position (not a pick/pin). */
+    var startFromReal by mutableStateOf(false)
         private set
     var dest by mutableStateOf<LatLng?>(null)
         private set
@@ -108,8 +113,15 @@ class MirageViewModel : ViewModel() {
     private val geocoder by lazy { GoogleGeocoder(BuildConfig.MAPS_API_KEY) }
     private val places by lazy { GooglePlaces(BuildConfig.MAPS_API_KEY) }
 
+    /** An explicit user choice of start (pin, search pick, ⌖ menu). */
     fun setStartPoint(p: LatLng, name: String = "Dropped pin") {
-        start = p; startName = name; useSimulatedStart = false; invalidateRoute()
+        start = p; startName = name; startFromReal = false; useSimulatedStart = false; invalidateRoute()
+    }
+
+    /** ⌖ → "My real location" chosen by the user for the Start box. */
+    fun pickRealStart(p: LatLng) {
+        lastReal = p
+        start = p; startName = "My location"; startFromReal = true; useSimulatedStart = false; invalidateRoute()
     }
 
     /** Back to "begin where the simulation is now" (only meaningful while running). */
@@ -121,20 +133,35 @@ class MirageViewModel : ViewModel() {
         val st = MockState.status.value
         return if (st.running && useSimulatedStart) LatLng(st.lat, st.lng) else start
     }
-    fun useMyLocation(p: LatLng) { lastReal = p; setStartPoint(p, "My location") }
+    /**
+     * AUTOMATIC real fix (launch, after Stop). Adopts it as the start only when that does
+     * not destroy the user's work: no start yet, a start that already came from a real fix,
+     * or no route built. Never touches [useSimulatedStart] — that is the user's choice.
+     */
+    fun useMyLocation(p: LatLng) {
+        lastReal = p
+        if (start != null && !startFromReal && routePts.isNotEmpty()) return
+        val moved = start?.let { Geo.haversine(it, p) >= 100.0 } ?: true
+        start = p; startName = "My location"; startFromReal = true
+        if (moved) invalidateRoute()
+    }
 
     /**
-     * A better real fix arrived a little later. Never throw away work the user did in the
-     * meantime: only adopt it if the start is still "My location", and only invalidate a
-     * built route if the position actually moved (more than 100 m).
+     * A better real fix arrived a little later. Only refine a start that came from a real
+     * fix, and only invalidate a built route if the position actually moved (> 100 m) and
+     * nothing is playing.
      */
     fun refineMyLocation(p: LatLng) {
         lastReal = p
-        if (startName != "My location") return
+        if (!startFromReal) return
         val cur = start
-        if (cur != null && Geo.haversine(cur, p) < 100.0) { start = p; return }
-        setStartPoint(p, "My location")
+        if (cur != null && (Geo.haversine(cur, p) < 100.0 || MockState.status.value.running)) { start = p; return }
+        start = p; startName = "My location"; startFromReal = true
+        invalidateRoute()
     }
+
+    /** A Snap started: the next plan begins from where the simulation now is. */
+    fun onSnapStarted() { useSimulatedStart = true }
     /**
      * The End box / map tap. In Itinerary mode a chosen place is appended to the chain
      * as the next stop (with the mode and speed currently set), so building a day is
@@ -152,23 +179,30 @@ class MirageViewModel : ViewModel() {
 
     fun choosePlanMode(m: PlanMode) {
         if (m == planMode) return
-        // Carry a chosen End into the itinerary as its first stop, and back out again.
+        // Carry a chosen End into the itinerary as a stop, and a single stop back out as the End.
         if (m == PlanMode.ITINERARY) {
             val d = dest
-            if (d != null && stops.isEmpty()) stops.add(ItineraryStop(destName, d, 30, mode, avgMph))
+            if (d != null && stops.lastOrNull()?.point != d) stops.add(ItineraryStop(destName, d, 30, mode, avgMph))
             dest = null; destName = ""
         } else if (planMode == PlanMode.ITINERARY && stops.size == 1) {
             val st = stops[0]; dest = st.point; destName = st.name
+            stops.clear()
         }
         planMode = m
         invalidateRoute()
     }
     fun clearError() { error = null }
 
+    private var routeJob: Job? = null
+
     private fun invalidateRoute() {
-        routePts = emptyList(); lastRoute = null; isFlight = false; routeDistanceM = 0.0
-        if (phase == Phase.READY) phase = Phase.IDLE
+        routeJob?.cancel(); routeJob = null
+        routePts = emptyList(); lastRoute = null; isFlight = false; flightOrigin = null; routeDistanceM = 0.0
+        if (phase == Phase.READY || phase == Phase.ROUTING) phase = Phase.IDLE
     }
+
+    /** True when Start can actually play something (a routed drive or a plotted flight). */
+    val canStart: Boolean get() = lastRoute != null || (isFlight && flightOrigin != null)
 
     fun chooseMode(m: TravelMode) { mode = m; invalidateRoute() }
 
@@ -202,11 +236,14 @@ class MirageViewModel : ViewModel() {
             suggestBusy = true
             try {
                 val hits = places.searchMany(q, bias ?: start, 8)
+                if (!isActive) return@launch
                 suggestions.clear(); suggestions.addAll(hits)
                 error = null
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 error = e.message ?: "Places search failed"
-            } finally { suggestBusy = false }
+            } finally { if (isActive) suggestBusy = false }
         }
     }
 
@@ -234,14 +271,14 @@ class MirageViewModel : ViewModel() {
                 val hit = places.searchText(query, start)
                 if (hit != null) { applySearchResult(hit.latLng, hit.name); onFound(hit.latLng); return@launch }
             } catch (e: Exception) {
-                error = e.message ?: "Places search failed"
+                error = describe(e, "Places search failed")
                 return@launch
             }
             // Places found nothing — try a plain-address geocode.
             try {
                 val p = geocoder.geocode(query)
                 if (p != null) { applySearchResult(p, query); onFound(p) } else error = "No match for “$query”"
-            } catch (e: Exception) { error = e.message ?: "Search failed" }
+            } catch (e: Exception) { error = describe(e, "Search failed") }
         }
     }
 
@@ -258,13 +295,17 @@ class MirageViewModel : ViewModel() {
             return
         }
         if (!hasKey) { error = "Add MAPS_API_KEY to route"; return }
-        viewModelScope.launch {
+        routeJob?.cancel()
+        routeJob = viewModelScope.launch {
             error = null; phase = Phase.ROUTING
             try {
                 val r = routeEngine.route(RouteSpec(s, d, mode = mode))
+                if (!isActive) return@launch
                 lastRoute = r; routePts = r.points; routeDistanceM = r.distanceMeters; isFlight = false
                 phase = Phase.READY
-            } catch (e: Exception) { error = e.message; phase = Phase.IDLE }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) { error = describe(e, "Routing failed"); phase = Phase.IDLE }
         }
     }
 
@@ -317,25 +358,31 @@ class MirageViewModel : ViewModel() {
                 val legs = mutableListOf<Pair<Flow<Fix>, ItineraryStop>>()
                 val allPts = mutableListOf<LatLng>()
                 for (stop in stops) {
-                    // Every leg travels with ITS OWN mode and speed.
+                    // Every leg travels with ITS OWN mode and speed, and the next one starts
+                    // exactly where this one ended (road-snapped), so nothing teleports.
+                    var legEnd: LatLng = stop.point
                     val legFlow: Flow<Fix> = if (stop.mode == TravelMode.FLY) {
                         val fm = FlightModel(from, stop.point, FlightParams(timeScale = ts)); allPts += fm.pathPoints; fm.fixes()
                     } else {
                         val r = routeEngine.route(RouteSpec(from, stop.point, mode = stop.mode)); allPts += r.points
                         val params = MotionParams(avgSpeedMps = stop.avgMph * 0.44704, realism = realism, mode = stop.mode, timeScale = ts)
+                        legEnd = r.points.lastOrNull() ?: stop.point
                         MotionModel(r, params).fixes()
                     }
                     legs += legFlow to stop
-                    from = stop.point
+                    from = legEnd
                 }
+                if (planMode != PlanMode.ITINERARY || !isActive) return@launch  // user moved on meanwhile
                 routePts = allPts
                 PlaybackSource.current = ItineraryModel.play(legs, timeScale = ts)
                 PlaybackSource.routePoints = allPts
                 PlaybackSource.label = "Itinerary"
                 useSimulatedStart = true
                 onStart()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                error = e.message ?: "Itinerary routing failed"
+                error = describe(e, "Itinerary routing failed")
             } finally { itineraryBusy = false }
         }
     }
@@ -344,6 +391,10 @@ class MirageViewModel : ViewModel() {
         phase = if (routePts.isEmpty()) Phase.IDLE else Phase.READY
     }
 }
+
+/** A user-readable reason, never a blank one. */
+private fun describe(e: Exception, fallback: String): String =
+    e.message?.takeIf { it.isNotBlank() } ?: (e::class.simpleName?.let { "$fallback ($it)" } ?: fallback)
 
 /** Sensible default speed (mph) for each way of getting around. */
 fun defaultSpeed(m: TravelMode): Float = when (m) {

@@ -39,7 +39,8 @@ class GoogleDirectionsRouteEngine(
         val request = Request.Builder().url(url).build()
         client.newCall(request).execute().use { resp ->
             val body = resp.body?.string() ?: throw RouteException("Empty Directions response")
-            val json = JSONObject(body)
+            if (!resp.isSuccessful) throw RouteException("Directions HTTP ${resp.code}")
+            val json = runCatching { JSONObject(body) }.getOrElse { throw RouteException("Directions returned an unreadable response") }
             when (val status = json.optString("status")) {
                 "OK" -> Unit
                 else -> throw RouteException("Directions: $status ${json.optString("error_message")}")

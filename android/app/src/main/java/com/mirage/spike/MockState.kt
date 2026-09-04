@@ -3,6 +3,7 @@ package com.mirage.spike
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 /** Fallback map centre until the device's real location is known (SF Ferry Building). */
 const val START_LAT = 37.7955
@@ -18,7 +19,11 @@ enum class Health { GREEN, AMBER, RED }
  */
 data class MockStatus(
     val running: Boolean = false,
+    /** A Start is in progress (providers being set up) but no fix has been pushed yet. */
+    val starting: Boolean = false,
     val mockAppSelected: Boolean = false,
+    /** The last Start was refused because Mirage is not the selected mock-location app. */
+    val blocked: Boolean = false,
     val health: Health = Health.RED,
     val lat: Double = START_LAT,
     val lng: Double = START_LNG,
@@ -44,8 +49,9 @@ object MockState {
     private val _status = MutableStateFlow(MockStatus())
     val status: StateFlow<MockStatus> = _status.asStateFlow()
 
+    /** Atomic read-modify-write (CAS loop): safe from the service, its loop and callbacks. */
     fun update(block: (MockStatus) -> MockStatus) {
-        _status.value = block(_status.value)
+        _status.update(block)
     }
 
     fun reset() {

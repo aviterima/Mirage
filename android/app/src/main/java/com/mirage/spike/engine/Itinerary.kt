@@ -3,7 +3,6 @@ package com.mirage.spike.engine
 import com.mirage.spike.MockState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import java.util.Random
 
@@ -30,8 +29,13 @@ object ItineraryModel {
         val dtMillis = (1000 / updateHz).toLong()
         for ((leg, stop) in legs) {
             MockState.update { it.copy(stepLabel = "Traveling to ${stop.name}") }
-            emitAll(leg)
-            val anchor = Fix(stop.point.lat, stop.point.lng, 0f, 0f, 4f)
+            // Dwell exactly where the leg ended (the road-snapped endpoint), never at the raw
+            // searched point, so nothing teleports.
+            var arrived: Fix? = null
+            leg.collect { f -> arrived = f; emit(f) }
+            val end = arrived
+            val anchor = if (end != null) Fix(end.lat, end.lng, 0f, end.bearingDeg, 4f, altitudeM = end.altitudeM)
+                else Fix(stop.point.lat, stop.point.lng, 0f, 0f, 4f)
             val dwell = DwellModel(anchor, 12.0, rnd)
             // Wall-clock dwell; in fast-forward the same simulated stay passes sooner.
             val totalMs = (stop.dwellMinutes * 60_000L / timeScale).toLong()

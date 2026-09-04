@@ -95,6 +95,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -169,6 +170,7 @@ fun MapScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val keyboard = LocalSoftwareKeyboardController.current
+    val focus = LocalFocusManager.current
     val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
     val camera = rememberCameraPositionState {
@@ -190,13 +192,16 @@ fun MapScreen(
 
     // Move the start pin and the camera to the device's REAL location: a fresh fix,
     // never the fused provider's cached last point (which is the mock after a Stop).
-    val recentreOnReal: () -> Unit = {
+    // explicit = the user asked (⌖ menu): always adopt, and complain if it fails.
+    // automatic = launch / after Stop: adopt only when it does not destroy the user's work.
+    val recentreOnReal: (Boolean) -> Unit = { explicit ->
         if (hasLocPerm) scope.launch {
             // Instantly: any real last-known fix puts the map on your location right away…
             quickLastReal(context)?.let { q ->
                 if (!MockState.status.value.running) {
-                    vm.useMyLocation(q)
-                    runCatching { camera.animate(CameraUpdateFactory.newLatLngZoom(q.toG(), 14f)) }
+                    val hadStart = vm.start != null
+                    if (explicit) vm.pickRealStart(q) else vm.useMyLocation(q)
+                    if (explicit || !hadStart) runCatching { camera.animate(CameraUpdateFactory.newLatLngZoom(q.toG(), 14f)) }
                 }
             }
             // …then a fresh fix refines it (and is the only thing trusted right after a Stop),
@@ -204,34 +209,44 @@ fun MapScreen(
             val p = realLocation(context)
             if (p != null) {
                 val hadStart = vm.start != null
-                vm.refineMyLocation(p)
-                if (!hadStart) runCatching { camera.animate(CameraUpdateFactory.newLatLngZoom(p.toG(), 14f)) }
-            } else {
+                if (explicit) vm.pickRealStart(p) else vm.refineMyLocation(p)
+                if (explicit || !hadStart) runCatching { camera.animate(CameraUpdateFactory.newLatLngZoom(p.toG(), 14f)) }
+            } else if (explicit || vm.start == null) {
                 vm.error = "Could not get a real fix — is Location turned on?"
             }
-        } else vm.error = "Location permission is needed — tap ⚙ to grant it"
+        } else if (explicit) {
+            vm.error = "Location permission is needed — tap ⚙ to grant it"
+        }
     }
     // On first load (and once permission is granted), start from where the phone really is.
-    LaunchedEffect(hasLocPerm) { if (!status.running) recentreOnReal() }
+    LaunchedEffect(hasLocPerm) {
+        if (hasLocPerm && vm.error?.contains("permission") == true) vm.clearError()
+        if (!status.running) recentreOnReal(false)
+    }
     // After a Stop, hand the app back to reality too: the old route is from a place we
     // no longer are, so the start pin and camera return to the real location.
     var wasRunning by remember { mutableStateOf(false) }
     LaunchedEffect(status.running) {
-        if (wasRunning && !status.running) recentreOnReal()
+        if (wasRunning && !status.running) recentreOnReal(false)
         wasRunning = status.running
     }
 
     val goTo: (LatLng) -> Unit = { p ->
         scope.launch { runCatching { camera.animate(CameraUpdateFactory.newLatLngZoom(p.toG(), 15f)) } }
     }
-    // Only prompt for permissions when something is actually missing; re-prompting on
-    // every Start pauses the activity and gets in the way.
-    val ensurePerms = { if (!hasLocPerm) onRequestPermissions() }
+    // A location-type foreground service cannot be started without location permission
+    // (SecurityException on Android 14), so ask first and let the user tap again.
+    val withPerms: (() -> Unit) -> Unit = { action ->
+        if (hasLocPerm) action() else {
+            onRequestPermissions()
+            vm.error = "Grant location permission, then tap Start again"
+        }
+    }
     val actions = SimActions(
         getRoute = { vm.buildRoute() },
-        start = { ensurePerms(); vm.startSim(onStartService) },
-        startItinerary = { ensurePerms(); vm.startItinerary(onStartService) },
-        holdAt = { at -> ensurePerms(); armStatic(at); onStartService() },
+        start = { withPerms { vm.startSim(onStartService) } },
+        startItinerary = { withPerms { vm.startItinerary(onStartService) } },
+        holdAt = { at -> withPerms { armStatic(at); vm.onSnapStarted(); onStartService() } },
     )
     val onStop = { onStopService(); vm.onStopped() }
 
@@ -286,23 +301,28 @@ fun MapScreen(
         }
 
         // ---- Start / End boxes + setup, with the type-ahead pick list underneath -----
-        val startLabel = if (status.running && vm.useSimulatedStart) "Current simulated position" else vm.startName
+        val startLabel = when {
+            status.running && vm.useSimulatedStart -> "Current simulated position"
+            vm.start == null -> ""
+            else -> vm.startName
+        }
         val endLabel = vm.dest?.let { vm.destName } ?: ""
         var startQuery by remember { mutableStateOf("") }
         var endQuery by remember { mutableStateOf("") }
         var startFocused by remember { mutableStateOf(false) }
         var endFocused by remember { mutableStateOf(false) }
         var snapMenu by remember { mutableStateOf<Field?>(null) }
-        // The boxes show the chosen place; typing replaces it, picking/snapping refills it.
-        LaunchedEffect(startLabel) { if (!startFocused) startQuery = startLabel }
-        LaunchedEffect(endLabel) { if (!endFocused) endQuery = endLabel }
-        // After a pick the boxes must show what was chosen (or empty again for the next stop).
+        // The boxes always show the chosen place: a pick, a map tap or a snap wins over
+        // whatever was being typed.
+        LaunchedEffect(startLabel) { startQuery = startLabel }
+        LaunchedEffect(endLabel) { endQuery = endLabel }
         val syncBoxes = {
-            startQuery = if (status.running && vm.useSimulatedStart) "Current simulated position" else vm.startName
-            endQuery = vm.dest?.let { vm.destName } ?: ""
+            startQuery = startLabel
+            endQuery = endLabel
         }
+        val done = { keyboard?.hide(); focus.clearFocus() }
         val onEnter: (String) -> Unit = { q ->
-            keyboard?.hide()
+            done()
             val top = vm.suggestions.firstOrNull()
             if (top != null) { vm.pickSuggestion(top); syncBoxes(); goTo(top.latLng) }
             else if (q.isNotBlank()) vm.search(q) { p -> syncBoxes(); goTo(p) }
@@ -314,11 +334,13 @@ fun MapScreen(
             if (status.running) {
                 val r = vm.lastReal
                 if (r == null) vm.error = "Real location unknown — it is captured before a simulation starts"
-                else if (field == Field.START) { vm.useMyLocation(r); goTo(r) }
+                else if (field == Field.START) { vm.pickRealStart(r); goTo(r) }
                 else { vm.setDestPoint(r, "My location"); goTo(r) }
             } else if (field == Field.START) {
-                recentreOnReal()
-            } else if (hasLocPerm) scope.launch {
+                recentreOnReal(true)
+            } else if (!hasLocPerm) {
+                vm.error = "Location permission is needed — tap ⚙ to grant it"
+            } else scope.launch {
                 val p = realLocation(context)
                 if (p != null) { vm.setDestPoint(p, "My location"); goTo(p) } else vm.error = "Could not get a real fix right now"
             }
@@ -420,12 +442,12 @@ fun MapScreen(
                         vm.planMode == PlanMode.SNAP -> "the place"
                         else -> "End"
                     },
-                    onPick = { hit -> keyboard?.hide(); vm.pickSuggestion(hit); syncBoxes(); goTo(hit.latLng) },
+                    onPick = { hit -> done(); vm.pickSuggestion(hit); syncBoxes(); goTo(hit.latLng) },
                 )
             }
         }
 
-        val mockBlocked = !status.running && !status.mockAppSelected && status.message.contains("Not the selected")
+        val mockBlocked = !status.running && status.blocked
 
         // ---- Bottom sheet: capped at half the screen, scrolls inside, collapsible -----
         Card(
@@ -720,6 +742,7 @@ private fun StopRow(index: Int, stop: ItineraryStop, onMode: () -> Unit, onDwell
 @Composable
 private fun PrimaryAction(vm: MirageViewModel, running: Boolean, a: SimActions) {
     val fly = vm.mode == TravelMode.FLY
+    if (MockState.status.collectAsState().value.starting) { BusyRow("Starting…"); return }
     when (vm.planMode) {
         PlanMode.SNAP -> BigButton(
             if (vm.dest != null) "Snap to “${vm.destName}”" else "Pick a place to snap to",
@@ -730,7 +753,7 @@ private fun PrimaryAction(vm: MirageViewModel, running: Boolean, a: SimActions) 
             else BigButton(if (running) "Start new itinerary" else "Start itinerary", enabled = vm.stops.isNotEmpty(), onClick = a.startItinerary)
         PlanMode.ROUTE -> when {
             vm.phase == Phase.ROUTING -> BusyRow("Routing…")
-            vm.routePts.isNotEmpty() -> BigButton(
+            vm.canStart -> BigButton(
                 when {
                     running -> if (fly) "Start new flight" else "Start new route"
                     fly -> "Start flight"

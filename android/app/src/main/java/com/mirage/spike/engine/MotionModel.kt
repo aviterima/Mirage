@@ -86,6 +86,7 @@ class MotionModel(
     }
 
     init {
+        require(params.updateHz > 0) { "updateHz must be positive" }
         for (i in 1 until pts.size) cum[i] = cum[i - 1] + Geo.haversine(pts[i - 1], pts[i])
         totalMeters = if (pts.isEmpty()) 0.0 else cum[cum.size - 1]
     }
@@ -101,23 +102,25 @@ class MotionModel(
             Realism.BUSY -> profile.busyStopProb
         }
 
+        // A zero/negative average would never advance: floor it at a slow walk.
+        val avg = params.avgSpeedMps.coerceAtLeast(0.3)
         var dist = 0.0
-        var speed = params.avgSpeedMps
+        var speed = avg
         while (dist < totalMeters) {
             val target = when (params.realism) {
-                Realism.CONSTANT -> params.avgSpeedMps
-                Realism.REALISTIC -> params.avgSpeedMps * clamp(1.0 + rnd.nextGaussian() * profile.variance, 0.55, 1.4)
-                Realism.BUSY -> params.avgSpeedMps * clamp(1.0 + rnd.nextGaussian() * profile.busyVariance, 0.2, 1.4)
+                Realism.CONSTANT -> avg
+                Realism.REALISTIC -> avg * clamp(1.0 + rnd.nextGaussian() * profile.variance, 0.55, 1.4)
+                Realism.BUSY -> avg * clamp(1.0 + rnd.nextGaussian() * profile.busyVariance, 0.2, 1.4)
             }
             // smooth accel/brake toward target, bounded per mode
             speed += clamp(target - speed, -profile.accelMax, profile.accelMax) * dt * 3.0
-            speed = clamp(speed, 0.0, params.avgSpeedMps * profile.maxFactor)
+            speed = clamp(speed, 0.0, avg * profile.maxFactor)
 
             dist += speed * dt * params.timeScale
             val at = clamp(dist, 0.0, totalMeters)
             val (p, brg) = interpolate(at)
             val prog = (at / totalMeters).toFloat()
-            val eta = ((totalMeters - at) / (params.avgSpeedMps * params.timeScale)).toInt()
+            val eta = ((totalMeters - at) / (avg * params.timeScale)).toInt()
             emit(Fix(p.lat, p.lng, speed.toFloat(), brg.toFloat(), params.accuracyMeters, progress = prog, remainingSec = eta))
 
             // occasional realistic stop (traffic light / congestion)

@@ -62,8 +62,10 @@ class GooglePlaces(
             (0 until places.length()).mapNotNull { i ->
                 val pl = places.getJSONObject(i)
                 val loc = pl.optJSONObject("location") ?: return@mapNotNull null
+                val lat = loc.optDouble("latitude", Double.NaN); val lng = loc.optDouble("longitude", Double.NaN)
+                if (lat.isNaN() || lng.isNaN()) return@mapNotNull null
                 val name = pl.optJSONObject("displayName")?.optString("text").takeUnless { it.isNullOrBlank() } ?: query
-                PlaceHit(LatLng(loc.getDouble("latitude"), loc.getDouble("longitude")), name, pl.optString("formattedAddress"))
+                PlaceHit(LatLng(lat, lng), name, pl.optString("formattedAddress"))
             }
         }
     }

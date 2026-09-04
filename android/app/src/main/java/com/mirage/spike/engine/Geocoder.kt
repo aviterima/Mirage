@@ -18,7 +18,7 @@ class GoogleGeocoder(
             "?address=${URLEncoder.encode(query, "UTF-8")}&key=$apiKey"
         client.newCall(Request.Builder().url(url).build()).execute().use { resp ->
             val body = resp.body?.string() ?: return@withContext null
-            val json = JSONObject(body)
+            val json = runCatching { JSONObject(body) }.getOrNull() ?: return@withContext null
             if (json.optString("status") != "OK") return@withContext null
             val results = json.getJSONArray("results")
             if (results.length() == 0) return@withContext null
