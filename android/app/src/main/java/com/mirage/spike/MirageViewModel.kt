@@ -35,6 +35,9 @@ enum class Phase { IDLE, ROUTING, READY, RUNNING }
 /** Which of the two location boxes a search result / pick applies to. */
 enum class Field { START, END }
 
+/** The three things Mirage does: be somewhere, travel A to B, or chain a day of stops. */
+enum class PlanMode { SNAP, ROUTE, ITINERARY }
+
 /** Drives the map screen: endpoints, routing, average speed, itinerary, and simulation control. */
 class MirageViewModel : ViewModel() {
 
@@ -86,7 +89,8 @@ class MirageViewModel : ViewModel() {
 
     // ---- Itinerary: an ordered list of stops with a dwell time at each ------
     val stops = mutableStateListOf<ItineraryStop>()
-    var itineraryMode by mutableStateOf(false)
+    var planMode by mutableStateOf(PlanMode.ROUTE)
+        private set
     var itineraryBusy by mutableStateOf(false)
         private set
     val dwellTotalMinutes: Int get() = stops.sumOf { it.dwellMinutes }
@@ -116,7 +120,34 @@ class MirageViewModel : ViewModel() {
         return if (st.running && useSimulatedStart) LatLng(st.lat, st.lng) else start
     }
     fun useMyLocation(p: LatLng) { lastReal = p; setStartPoint(p, "My location") }
-    fun setDestPoint(p: LatLng) { dest = p; destName = "Dropped pin"; invalidateRoute() }
+    /**
+     * The End box / map tap. In Itinerary mode a chosen place is appended to the chain
+     * as the next stop (with the mode and speed currently set), so building a day is
+     * simply: pick, pick, pick.
+     */
+    fun setDestPoint(p: LatLng, name: String = "Dropped pin") {
+        if (planMode == PlanMode.ITINERARY) {
+            stops.add(ItineraryStop(name, p, 30, mode, avgMph))
+            dest = null; destName = ""; error = null
+            invalidateRoute()
+        } else {
+            dest = p; destName = name; invalidateRoute()
+        }
+    }
+
+    fun choosePlanMode(m: PlanMode) {
+        if (m == planMode) return
+        // Carry a chosen End into the itinerary as its first stop, and back out again.
+        if (m == PlanMode.ITINERARY) {
+            val d = dest
+            if (d != null && stops.isEmpty()) stops.add(ItineraryStop(destName, d, 30, mode, avgMph))
+            dest = null; destName = ""
+        } else if (planMode == PlanMode.ITINERARY && stops.size == 1) {
+            val st = stops[0]; dest = st.point; destName = st.name
+        }
+        planMode = m
+        invalidateRoute()
+    }
     fun clearError() { error = null }
 
     private fun invalidateRoute() {
@@ -129,7 +160,7 @@ class MirageViewModel : ViewModel() {
     /** Distance and a time estimate at the chosen speed, once a route/flight is plotted. */
     val routeSummary: String?
         get() {
-            if (routePts.isEmpty() || routeDistanceM <= 0.0) return null
+            if (planMode != PlanMode.ROUTE || routePts.isEmpty() || routeDistanceM <= 0.0) return null
             val secs = if (isFlight) {
                 routeDistanceM / 245.0 * 1.12
             } else {
@@ -174,7 +205,7 @@ class MirageViewModel : ViewModel() {
     }
 
     private fun applySearchResult(p: LatLng, name: String) {
-        if (activeField == Field.START) setStartPoint(p, name) else { setDestPoint(p); destName = name }
+        if (activeField == Field.START) setStartPoint(p, name) else setDestPoint(p, name)
     }
 
     /** Search by place/business/landmark name (Places), biased to the current start;
@@ -241,12 +272,6 @@ class MirageViewModel : ViewModel() {
     }
 
     // ---- Itinerary ----------------------------------------------------------------
-
-    fun addStop(dwellMinutes: Int = 30) {
-        val d = dest ?: run { error = "Search or tap a destination first"; return }
-        stops.add(ItineraryStop(destName, d, dwellMinutes, mode, avgMph))
-        error = null
-    }
 
     fun removeStop(index: Int) { if (index in stops.indices) stops.removeAt(index) }
 

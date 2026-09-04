@@ -229,7 +229,7 @@ fun MapScreen(
             properties = MapProperties(isMyLocationEnabled = hasLocPerm),
             uiSettings = MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = hasLocPerm, compassEnabled = true),
             contentPadding = PaddingValues(
-                top = topInset + 84.dp,
+                top = topInset + if (vm.planMode == PlanMode.SNAP) 116.dp else 172.dp,
                 bottom = when {
                     sheetCollapsed -> 100.dp
                     status.running -> 300.dp
@@ -278,15 +278,60 @@ fun MapScreen(
         var endQuery by remember { mutableStateOf("") }
         var startFocused by remember { mutableStateOf(false) }
         var endFocused by remember { mutableStateOf(false) }
-        var snapMenu by remember { mutableStateOf(false) }
+        var snapMenu by remember { mutableStateOf<Field?>(null) }
         // The boxes show the chosen place; typing replaces it, picking/snapping refills it.
         LaunchedEffect(startLabel) { if (!startFocused) startQuery = startLabel }
         LaunchedEffect(endLabel) { if (!endFocused) endQuery = endLabel }
+        // After a pick the boxes must show what was chosen (or empty again for the next stop).
+        val syncBoxes = {
+            startQuery = if (status.running && vm.useSimulatedStart) "Current simulated position" else vm.startName
+            endQuery = vm.dest?.let { vm.destName } ?: ""
+        }
         val onEnter: (String) -> Unit = { q ->
             keyboard?.hide()
             val top = vm.suggestions.firstOrNull()
-            if (top != null) { vm.pickSuggestion(top); goTo(top.latLng) }
-            else if (q.isNotBlank()) vm.search(q, goTo)
+            if (top != null) { vm.pickSuggestion(top); syncBoxes(); goTo(top.latLng) }
+            else if (q.isNotBlank()) vm.search(q) { p -> syncBoxes(); goTo(p) }
+        }
+        val snapReal: (Field) -> Unit = { field ->
+            // "My real location" for a box: a fresh fix when idle; while spoofing the phone's own
+            // GPS is masked by our mock, so use the last real fix captured before the simulation.
+            snapMenu = null
+            if (status.running) {
+                val r = vm.lastReal
+                if (r == null) vm.error = "Real location unknown — it is captured before a simulation starts"
+                else if (field == Field.START) { vm.useMyLocation(r); goTo(r) }
+                else { vm.setDestPoint(r, "My location"); goTo(r) }
+            } else if (field == Field.START) {
+                recentreOnReal()
+            } else if (hasLocPerm) scope.launch {
+                val p = realLocation(context)
+                if (p != null) { vm.setDestPoint(p, "My location"); goTo(p) } else vm.error = "Could not get a real fix right now"
+            }
+        }
+        val snapButton: @Composable (Field, Boolean) -> Unit = { field, allowSimulated ->
+            Box {
+                IconButton(onClick = { snapMenu = field }) {
+                    Icon(Icons.Filled.MyLocation, contentDescription = "Snap this box", tint = ACCENT)
+                }
+                DropdownMenu(expanded = snapMenu == field, onDismissRequest = { snapMenu = null }) {
+                    DropdownMenuItem(
+                        text = { Text(if (status.running) "My real location (last known)" else "My real location") },
+                        onClick = { snapReal(field) },
+                    )
+                    if (allowSimulated && status.running) DropdownMenuItem(
+                        text = { Text("Current simulated position") },
+                        onClick = { snapMenu = null; vm.useSimulatedPosition() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Clear") },
+                        onClick = {
+                            snapMenu = null; vm.clearSuggestions()
+                            if (field == Field.START) startQuery = "" else endQuery = ""
+                        },
+                    )
+                }
+            }
         }
         Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding().padding(12.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
@@ -295,64 +340,51 @@ fun MapScreen(
                     color = MaterialTheme.colorScheme.surface, modifier = Modifier.weight(1f),
                 ) {
                     Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
-                        // START
-                        LocationBox(
-                            value = startQuery,
-                            onValueChange = { startQuery = it; vm.activeField = Field.START; vm.suggest(it, camera.position.target.toE()) },
-                            placeholder = "Start · search, or long-press the map",
-                            dot = GREEN,
-                            onFocus = { f ->
-                                startFocused = f
-                                if (f) { vm.activeField = Field.START; if (startQuery == startLabel) startQuery = "" }
-                                else if (startQuery.isBlank()) { startQuery = startLabel; vm.clearSuggestions() }
-                            },
-                            onEnter = { onEnter(startQuery) },
-                            trailing = {
-                                Box {
-                                    IconButton(onClick = { snapMenu = true }) {
-                                        Icon(Icons.Filled.MyLocation, contentDescription = "Snap the start", tint = ACCENT)
-                                    }
-                                    DropdownMenu(expanded = snapMenu, onDismissRequest = { snapMenu = false }) {
-                                        DropdownMenuItem(
-                                            text = { Text(if (status.running) "My real location (last known)" else "My real location") },
-                                            onClick = {
-                                                snapMenu = false
-                                                if (status.running) {
-                                                    val r = vm.lastReal
-                                                    if (r != null) { vm.useMyLocation(r); goTo(r) } else vm.error = "Real location unknown — it is captured before a simulation starts"
-                                                } else recentreOnReal()
-                                            },
-                                        )
-                                        if (status.running) DropdownMenuItem(
-                                            text = { Text("Current simulated position") },
-                                            onClick = { snapMenu = false; vm.useSimulatedPosition() },
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Clear") },
-                                            onClick = { snapMenu = false; startQuery = ""; vm.clearSuggestions() },
-                                        )
-                                    }
-                                }
-                            },
-                        )
-                        HorizontalDivider(color = MUTED.copy(alpha = 0.15f), modifier = Modifier.padding(horizontal = 8.dp))
-                        // END
+                        // What are we doing?
+                        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp)) {
+                            PlanMode.entries.forEachIndexed { i, m ->
+                                SegmentedButton(
+                                    selected = vm.planMode == m,
+                                    onClick = { vm.choosePlanMode(m) },
+                                    shape = SegmentedButtonDefaults.itemShape(index = i, count = PlanMode.entries.size),
+                                    label = { Text(m.label(), fontSize = 13.sp) },
+                                )
+                            }
+                        }
+                        // START (Route and Itinerary)
+                        if (vm.planMode != PlanMode.SNAP) {
+                            LocationBox(
+                                value = startQuery,
+                                onValueChange = { startQuery = it; vm.activeField = Field.START; vm.suggest(it, camera.position.target.toE()) },
+                                placeholder = "Start · search, long-press the map, or ⌖",
+                                dot = GREEN,
+                                onFocus = { f ->
+                                    startFocused = f
+                                    if (f) { vm.activeField = Field.START; if (startQuery == startLabel) startQuery = "" }
+                                    else if (startQuery.isBlank()) { startQuery = startLabel; vm.clearSuggestions() }
+                                },
+                                onEnter = { onEnter(startQuery) },
+                                trailing = { snapButton(Field.START, true) },
+                            )
+                            HorizontalDivider(color = MUTED.copy(alpha = 0.15f), modifier = Modifier.padding(horizontal = 8.dp))
+                        }
+                        // END / PLACE / NEXT STOP
                         LocationBox(
                             value = endQuery,
                             onValueChange = { endQuery = it; vm.activeField = Field.END; vm.suggest(it, camera.position.target.toE()) },
-                            placeholder = "End · search, or tap the map",
-                            dot = VIOLET,
+                            placeholder = when (vm.planMode) {
+                                PlanMode.SNAP -> "Place · search, tap the map, or ⌖"
+                                PlanMode.ROUTE -> "End · search, tap the map, or ⌖"
+                                PlanMode.ITINERARY -> "Next stop · search, tap the map, or ⌖"
+                            },
+                            dot = if (vm.planMode == PlanMode.SNAP) ACCENT else VIOLET,
                             onFocus = { f ->
                                 endFocused = f
                                 if (f) { vm.activeField = Field.END; if (endQuery == endLabel) endQuery = "" }
                                 else if (endQuery.isBlank()) { endQuery = endLabel; vm.clearSuggestions() }
                             },
                             onEnter = { onEnter(endQuery) },
-                            trailing = {
-                                if (endQuery.isNotEmpty()) IconButton(onClick = { endQuery = ""; vm.clearSuggestions() }) {
-                                    Icon(Icons.Filled.Close, contentDescription = "Clear", tint = MUTED)
-                                }
-                            },
+                            trailing = { snapButton(Field.END, false) },
                         )
                     }
                 }
@@ -368,8 +400,13 @@ fun MapScreen(
                     hits = vm.suggestions,
                     busy = vm.suggestBusy,
                     from = vm.start,
-                    heading = if (vm.activeField == Field.START) "Start" else "End",
-                    onPick = { hit -> keyboard?.hide(); vm.pickSuggestion(hit); goTo(hit.latLng) },
+                    heading = when {
+                        vm.activeField == Field.START -> "Start"
+                        vm.planMode == PlanMode.ITINERARY -> "next stop"
+                        vm.planMode == PlanMode.SNAP -> "the place"
+                        else -> "End"
+                    },
+                    onPick = { hit -> keyboard?.hide(); vm.pickSuggestion(hit); syncBoxes(); goTo(hit.latLng) },
                 )
             }
         }
@@ -392,8 +429,8 @@ fun MapScreen(
                     status.running -> {
                         LiveHud(status, onCollapse = { sheetCollapsed = true }, onStop = onStop)
                         HorizontalDivider(color = MUTED.copy(alpha = 0.2f))
-                        Text("Plan the next leg", fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                        Text("Fill the Start and End boxes above; starting replaces what is playing.", fontSize = 12.sp, color = MUTED)
+                        Text("Plan the next leg · ${vm.planMode.label()}", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        Text("Use the boxes above; starting replaces what is playing.", fontSize = 12.sp, color = MUTED)
                         Controls(vm = vm, status = status, mockBlocked = mockBlocked, onOpenSetup = { showSetup = true }, a = actions)
                     }
                     sheetCollapsed -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -404,7 +441,7 @@ fun MapScreen(
                     }
                     else -> {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text("Plan", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            Text(vm.planMode.label(), fontSize = 16.sp, fontWeight = FontWeight.Bold)
                             IconButton(onClick = { sheetCollapsed = true }) {
                                 Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Collapse to see the map", tint = ACCENT)
                             }
@@ -518,70 +555,72 @@ private fun Controls(
 ) {
     val fly = vm.mode == TravelMode.FLY
     val running = status.running
-
-    // Trip type
-    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-        SegmentedButton(
-            selected = !vm.itineraryMode, onClick = { vm.itineraryMode = false },
-            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2), label = { Text("Single trip") },
-        )
-        SegmentedButton(
-            selected = vm.itineraryMode, onClick = { vm.itineraryMode = true },
-            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2), label = { Text("Itinerary") },
-        )
-    }
+    val snap = vm.planMode == PlanMode.SNAP
+    val itin = vm.planMode == PlanMode.ITINERARY
 
     // Where we stand
-    vm.routeSummary?.let {
-        Text(it, fontSize = 13.sp, color = ACCENT, fontWeight = FontWeight.SemiBold)
-    } ?: Text(
-        when {
-            vm.dest == null -> "Type in the End box or tap the map. Long-press the map to move the Start."
-            running && vm.useSimulatedStart -> "Next leg starts from the current simulated position; use ⌖ on the Start box to change that."
-            else -> "Start and End set — get the route."
-        },
-        fontSize = 12.sp, color = MUTED,
-    )
-
-    // Travel mode
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        TravelMode.entries.forEach { m ->
-            FilterChip(
-                selected = vm.mode == m,
-                onClick = { vm.chooseMode(m) },
-                label = { Text(m.label()) },
-                leadingIcon = { Icon(m.icon(), contentDescription = null, modifier = Modifier.size(18.dp)) },
-            )
-        }
+    val summary = vm.routeSummary
+    if (summary != null) {
+        Text(summary, fontSize = 13.sp, color = ACCENT, fontWeight = FontWeight.SemiBold)
+    } else {
+        Text(
+            when (vm.planMode) {
+                PlanMode.SNAP -> if (vm.dest == null) "Pick a place above (or tap the map). Snap puts you there instantly and holds until Stop."
+                    else "Ready — you will be at “${vm.destName}” instantly and stay there until Stop."
+                PlanMode.ROUTE -> when {
+                    vm.dest == null -> "Fill Start and End above, or tap the map for the End and long-press for the Start."
+                    running && vm.useSimulatedStart -> "Next leg starts from the current simulated position; ⌖ on the Start box changes that."
+                    else -> "Start and End set — get the route."
+                }
+                PlanMode.ITINERARY -> if (vm.stops.isEmpty()) "Each place you pick above (or tap on the map) is added as the next stop."
+                    else "Pick the next stop above, or start the day."
+            },
+            fontSize = 12.sp, color = MUTED,
+        )
     }
 
-    if (fly) {
-        Text("Emulated flight: taxi, climb to 35,000 ft, cruise at about 550 mph, descent, landing.", fontSize = 12.sp, color = MUTED)
-    } else {
-        // Average speed — the hero control
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
-            Text(
-                if (vm.itineraryMode) "Next leg speed · ${vm.mode.label()}" else "Average speed · ${vm.mode.label()}",
-                fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-            )
-            Text("${vm.avgMph.toInt()} mph", color = ACCENT, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+    if (!snap) {
+        // Travel mode
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TravelMode.entries.forEach { m ->
+                FilterChip(
+                    selected = vm.mode == m,
+                    onClick = { vm.chooseMode(m) },
+                    label = { Text(m.label()) },
+                    leadingIcon = { Icon(m.icon(), contentDescription = null, modifier = Modifier.size(18.dp)) },
+                )
+            }
         }
-        Slider(value = vm.avgMph, onValueChange = { vm.avgMph = it }, valueRange = speedRange(vm.mode))
 
-        // Realism
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Realism.entries.forEach { r ->
-                FilterChip(selected = vm.realism == r, onClick = { vm.realism = r }, label = { Text(r.label()) })
+        if (fly) {
+            Text("Emulated flight: taxi, climb to 35,000 ft, cruise at about 550 mph, descent, landing.", fontSize = 12.sp, color = MUTED)
+        } else {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
+                Text(
+                    if (itin) "Next leg speed · ${vm.mode.label()}" else "Average speed · ${vm.mode.label()}",
+                    fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                )
+                Text("${vm.avgMph.toInt()} mph", color = ACCENT, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            }
+            Slider(value = vm.avgMph, onValueChange = { vm.avgMph = it }, valueRange = speedRange(vm.mode))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Realism.entries.forEach { r ->
+                    FilterChip(selected = vm.realism == r, onClick = { vm.realism = r }, label = { Text(r.label()) })
+                }
             }
         }
     }
 
-    if (vm.itineraryMode) {
-        // ---- Itinerary: ordered stops, each with a dwell time ----
-        Text(
-            "Add stops in order. Each leg travels with the mode and speed set above; tap a stop's icon to change its mode.",
-            fontSize = 12.sp, color = MUTED,
-        )
+    if (itin) {
+        // The chain: Start, then every stop in order.
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(10.dp).background(GREEN, CircleShape))
+            Spacer(Modifier.width(10.dp))
+            Text(
+                if (running && vm.useSimulatedStart) "Current simulated position" else vm.startName,
+                fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+            )
+        }
         vm.stops.forEachIndexed { i, stop ->
             StopRow(
                 index = i, stop = stop,
@@ -592,44 +631,33 @@ private fun Controls(
         }
         if (vm.stops.isNotEmpty()) {
             Text(
-                "${vm.stops.size} ${if (vm.stops.size == 1) "stop" else "stops"} · ${fmtDuration(vm.dwellTotalMinutes * 60.0)} on site in total",
+                "${vm.stops.size} ${if (vm.stops.size == 1) "stop" else "stops"} · ${fmtDuration(vm.dwellTotalMinutes * 60.0)} on site in total · tap a stop's icon to change how you travel to it",
                 fontSize = 12.sp, color = MUTED,
             )
         }
-        OutlinedButton(onClick = { vm.addStop() }, enabled = vm.dest != null, modifier = Modifier.fillMaxWidth()) {
-            Text(if (vm.dest != null) "Add “${vm.destName}” as a stop" else "Search or tap a place to add a stop")
-        }
-        PrimaryAction(vm, running, a)
-    } else {
-        PrimaryAction(vm, running, a)
-        // Find a place and simply BE there — no route, instant, holds until Stop.
-        if (vm.dest != null) {
-            OutlinedButton(onClick = { a.holdAt(vm.dest) }, modifier = Modifier.fillMaxWidth()) {
-                Text("Jump to “${vm.destName}” — no route")
-            }
-        }
-        if (vm.routePts.isNotEmpty() && !running) {
-            TextButton(onClick = { a.holdAt(vm.start) }, modifier = Modifier.fillMaxWidth()) { Text("Hold the start point instead") }
-        }
     }
 
-    // Fast-forward (testing)
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("Fast-forward", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-        listOf(1f, 2f, 5f, 10f).forEach { s ->
-            FilterChip(selected = vm.timeScale == s, onClick = { vm.timeScale = s }, label = { Text("${s.toInt()}×") })
+    PrimaryAction(vm, running, a)
+
+    if (!snap) {
+        // Fast-forward (testing)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Fast-forward", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            listOf(1f, 2f, 5f, 10f).forEach { sc ->
+                FilterChip(selected = vm.timeScale == sc, onClick = { vm.timeScale = sc }, label = { Text("${sc.toInt()}×") })
+            }
         }
-    }
-    if (vm.timeScale > 1f) {
-        Text(
-            "Positions advance ${vm.timeScale.toInt()}× faster than real time (for testing); reported speed stays realistic.",
-            fontSize = 12.sp, color = AMBER,
-        )
+        if (vm.timeScale > 1f) {
+            Text(
+                "Positions advance ${vm.timeScale.toInt()}× faster than real time (for testing); reported speed stays realistic.",
+                fontSize = 12.sp, color = AMBER,
+            )
+        }
     }
 
     // Notices
     if (!vm.hasKey) {
-        Text("Map, search and routing need a Google Maps key — tap ⚙ for details. Holding a point works without it.", fontSize = 12.sp, color = AMBER)
+        Text("Map, search and routing need a Google Maps key — tap ⚙ for details. Snap works without it.", fontSize = 12.sp, color = AMBER)
     }
     if (mockBlocked) {
         Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = RED.copy(alpha = 0.08f))) {
@@ -678,24 +706,27 @@ private fun StopRow(index: Int, stop: ItineraryStop, onMode: () -> Unit, onDwell
 @Composable
 private fun PrimaryAction(vm: MirageViewModel, running: Boolean, a: SimActions) {
     val fly = vm.mode == TravelMode.FLY
-    if (vm.itineraryMode) {
-        if (vm.itineraryBusy) BusyRow("Routing legs…")
-        else BigButton(if (running) "Start new itinerary" else "Start itinerary", enabled = vm.stops.isNotEmpty(), onClick = a.startItinerary)
-        return
-    }
-    when {
-        vm.phase == Phase.ROUTING -> BusyRow("Routing…")
-        vm.routePts.isNotEmpty() -> BigButton(
-            when {
-                running -> if (fly) "Start new flight" else "Start new route"
-                fly -> "Start flight"
-                else -> "Start simulation"
-            },
-            onClick = a.start,
+    when (vm.planMode) {
+        PlanMode.SNAP -> BigButton(
+            if (vm.dest != null) "Snap to “${vm.destName}”" else "Pick a place to snap to",
+            enabled = vm.dest != null, onClick = { a.holdAt(vm.dest) },
         )
-        vm.dest != null -> BigButton(if (fly) "Plot flight" else "Get route", icon = null, onClick = a.getRoute)
-        running -> BigButton("Search or tap a destination", enabled = false, icon = null, onClick = {})
-        else -> BigButton("Hold the start point", onClick = { a.holdAt(vm.start) })
+        PlanMode.ITINERARY ->
+            if (vm.itineraryBusy) BusyRow("Routing legs…")
+            else BigButton(if (running) "Start new itinerary" else "Start itinerary", enabled = vm.stops.isNotEmpty(), onClick = a.startItinerary)
+        PlanMode.ROUTE -> when {
+            vm.phase == Phase.ROUTING -> BusyRow("Routing…")
+            vm.routePts.isNotEmpty() -> BigButton(
+                when {
+                    running -> if (fly) "Start new flight" else "Start new route"
+                    fly -> "Start flight"
+                    else -> "Start simulation"
+                },
+                onClick = a.start,
+            )
+            vm.dest != null -> BigButton(if (fly) "Plot flight" else "Get route", icon = null, onClick = a.getRoute)
+            else -> BigButton("Set Start and End above", enabled = false, icon = null, onClick = {})
+        }
     }
 }
 
@@ -878,6 +909,12 @@ private fun TravelMode.icon(): ImageVector = when (this) {
     TravelMode.BIKE -> Icons.Filled.DirectionsBike
     TravelMode.WALK -> Icons.Filled.DirectionsWalk
     TravelMode.FLY -> Icons.Filled.Flight
+}
+
+private fun PlanMode.label(): String = when (this) {
+    PlanMode.SNAP -> "Snap"
+    PlanMode.ROUTE -> "Route"
+    PlanMode.ITINERARY -> "Itinerary"
 }
 
 private fun Realism.label(): String = when (this) {
