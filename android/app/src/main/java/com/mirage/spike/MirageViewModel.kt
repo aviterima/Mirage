@@ -71,9 +71,10 @@ class MirageViewModel : ViewModel() {
         private set
     var routeDistanceM by mutableStateOf(0.0)
         private set
-    private var lastRoute: RouteResult? = null
-    private var isFlight = false
-    private var flightOrigin: LatLng? = null
+    // Observable so the Start button re-evaluates the moment a route lands or is cleared.
+    private var lastRoute by mutableStateOf<RouteResult?>(null)
+    private var isFlight by mutableStateOf(false)
+    private var flightOrigin by mutableStateOf<LatLng?>(null)
 
     // ---- Motion settings -----------------------------------------------------
     /** Each transport mode keeps its OWN speed (mph) — a walker and a car never share a slider. */

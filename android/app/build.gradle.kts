@@ -23,8 +23,8 @@ android {
         applicationId = "com.mirage.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 21
-        versionName = "0.6.5"
+        versionCode = 22
+        versionName = "0.6.6"
         manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
         buildConfigField("String", "MAPS_API_KEY", "\"$mapsApiKey\"")
     }
@@ -38,6 +38,10 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
     }
 
     compileOptions {
@@ -68,4 +72,8 @@ dependencies {
 
     // Networking for Directions / Places REST
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // JVM unit tests: engine models and the ViewModel state machine (run in CI before release)
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
 }

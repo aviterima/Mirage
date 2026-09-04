@@ -40,6 +40,19 @@ jobs:
           MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
         run: ./gradlew --no-daemon assembleDebug
 
+      - name: Unit tests (blocking — a red test never ships)
+        env:
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+        run: ./gradlew --no-daemon testDebugUnitTest
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-report
+          path: android/app/build/reports/tests/testDebugUnitTest
+          if-no-files-found: ignore
+
       - name: Lint (non-blocking)
         continue-on-error: true
         run: ./gradlew --no-daemon lintDebug
