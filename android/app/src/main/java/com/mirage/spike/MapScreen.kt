@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Flight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -57,6 +58,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -83,6 +86,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -188,9 +192,11 @@ fun MapScreen(
     val recentreOnReal: () -> Unit = {
         if (hasLocPerm) scope.launch {
             val p = realLocation(context)
-            if (p != null && !MockState.status.value.running) {
+            if (p != null) {
                 vm.useMyLocation(p)
                 runCatching { camera.animate(CameraUpdateFactory.newLatLngZoom(p.toG(), 14f)) }
+            } else {
+                vm.error = "Could not get a real fix right now"
             }
         }
     }
@@ -230,7 +236,7 @@ fun MapScreen(
                     else -> maxSheet
                 },
             ),
-            onMapClick = { vm.placeTapped(it.toE()) },
+            onMapClick = { vm.setDestPoint(it.toE()) },
             onMapLongClick = { vm.setStartPoint(it.toE()) },
         ) {
             val arrow = remember { runCatching { navigationArrow(ACCENT) }.getOrNull() }
@@ -265,44 +271,92 @@ fun MapScreen(
             }
         }
 
-        // ---- Search + setup, with the type-ahead pick list underneath ----------------
-        var query by remember { mutableStateOf("") }
+        // ---- Start / End boxes + setup, with the type-ahead pick list underneath -----
+        val startLabel = if (status.running && vm.useSimulatedStart) "Current simulated position" else vm.startName
+        val endLabel = vm.dest?.let { vm.destName } ?: ""
+        var startQuery by remember { mutableStateOf("") }
+        var endQuery by remember { mutableStateOf("") }
+        var startFocused by remember { mutableStateOf(false) }
+        var endFocused by remember { mutableStateOf(false) }
+        var snapMenu by remember { mutableStateOf(false) }
+        // The boxes show the chosen place; typing replaces it, picking/snapping refills it.
+        LaunchedEffect(startLabel) { if (!startFocused) startQuery = startLabel }
+        LaunchedEffect(endLabel) { if (!endFocused) endQuery = endLabel }
+        val onEnter: (String) -> Unit = { q ->
+            keyboard?.hide()
+            val top = vm.suggestions.firstOrNull()
+            if (top != null) { vm.pickSuggestion(top); goTo(top.latLng) }
+            else if (q.isNotBlank()) vm.search(q, goTo)
+        }
         Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding().padding(12.dp)) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it; vm.suggest(it, camera.position.target.toE()) },
-                    placeholder = { Text(if (vm.pickingStart) "Search the START point" else "Search a place or address") },
-                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = MUTED) },
-                    trailingIcon = {
-                        if (query.isNotEmpty()) IconButton(onClick = { query = ""; vm.clearSuggestions() }) {
-                            Icon(Icons.Filled.Close, contentDescription = "Clear", tint = MUTED)
-                        }
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(28.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surface,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                    ),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = {
-                        keyboard?.hide()
-                        // Enter with a list showing = take the top row; otherwise run a plain search.
-                        val top = vm.suggestions.firstOrNull()
-                        if (top != null) {
-                            vm.pickSuggestion(top); query = top.name; goTo(top.latLng)
-                        } else if (query.isNotBlank()) {
-                            vm.search(query, goTo)
-                        }
-                    }),
-                    modifier = Modifier.weight(1f),
-                )
-                Surface(shape = CircleShape, shadowElevation = 3.dp, modifier = Modifier.size(52.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+                Surface(
+                    shape = RoundedCornerShape(20.dp), shadowElevation = 4.dp,
+                    color = MaterialTheme.colorScheme.surface, modifier = Modifier.weight(1f),
+                ) {
+                    Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+                        // START
+                        LocationBox(
+                            value = startQuery,
+                            onValueChange = { startQuery = it; vm.activeField = Field.START; vm.suggest(it, camera.position.target.toE()) },
+                            placeholder = "Start · search, or long-press the map",
+                            dot = GREEN,
+                            onFocus = { f ->
+                                startFocused = f
+                                if (f) { vm.activeField = Field.START; if (startQuery == startLabel) startQuery = "" }
+                                else if (startQuery.isBlank()) { startQuery = startLabel; vm.clearSuggestions() }
+                            },
+                            onEnter = { onEnter(startQuery) },
+                            trailing = {
+                                Box {
+                                    IconButton(onClick = { snapMenu = true }) {
+                                        Icon(Icons.Filled.MyLocation, contentDescription = "Snap the start", tint = ACCENT)
+                                    }
+                                    DropdownMenu(expanded = snapMenu, onDismissRequest = { snapMenu = false }) {
+                                        DropdownMenuItem(
+                                            text = { Text(if (status.running) "My real location (last known)" else "My real location") },
+                                            onClick = {
+                                                snapMenu = false
+                                                if (status.running) {
+                                                    val r = vm.lastReal
+                                                    if (r != null) { vm.useMyLocation(r); goTo(r) } else vm.error = "Real location unknown — it is captured before a simulation starts"
+                                                } else recentreOnReal()
+                                            },
+                                        )
+                                        if (status.running) DropdownMenuItem(
+                                            text = { Text("Current simulated position") },
+                                            onClick = { snapMenu = false; vm.useSimulatedPosition() },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Clear") },
+                                            onClick = { snapMenu = false; startQuery = ""; vm.clearSuggestions() },
+                                        )
+                                    }
+                                }
+                            },
+                        )
+                        HorizontalDivider(color = MUTED.copy(alpha = 0.15f), modifier = Modifier.padding(horizontal = 8.dp))
+                        // END
+                        LocationBox(
+                            value = endQuery,
+                            onValueChange = { endQuery = it; vm.activeField = Field.END; vm.suggest(it, camera.position.target.toE()) },
+                            placeholder = "End · search, or tap the map",
+                            dot = VIOLET,
+                            onFocus = { f ->
+                                endFocused = f
+                                if (f) { vm.activeField = Field.END; if (endQuery == endLabel) endQuery = "" }
+                                else if (endQuery.isBlank()) { endQuery = endLabel; vm.clearSuggestions() }
+                            },
+                            onEnter = { onEnter(endQuery) },
+                            trailing = {
+                                if (endQuery.isNotEmpty()) IconButton(onClick = { endQuery = ""; vm.clearSuggestions() }) {
+                                    Icon(Icons.Filled.Close, contentDescription = "Clear", tint = MUTED)
+                                }
+                            },
+                        )
+                    }
+                }
+                Surface(shape = CircleShape, shadowElevation = 3.dp, modifier = Modifier.size(48.dp)) {
                     IconButton(onClick = { showSetup = true }) {
                         Icon(Icons.Filled.Settings, contentDescription = "Setup", tint = ACCENT)
                     }
@@ -314,10 +368,8 @@ fun MapScreen(
                     hits = vm.suggestions,
                     busy = vm.suggestBusy,
                     from = vm.start,
-                    onPick = { hit ->
-                        keyboard?.hide()
-                        vm.pickSuggestion(hit); query = hit.name; goTo(hit.latLng)
-                    },
+                    heading = if (vm.activeField == Field.START) "Start" else "End",
+                    onPick = { hit -> keyboard?.hide(); vm.pickSuggestion(hit); goTo(hit.latLng) },
                 )
             }
         }
@@ -341,8 +393,8 @@ fun MapScreen(
                         LiveHud(status, onCollapse = { sheetCollapsed = true }, onStop = onStop)
                         HorizontalDivider(color = MUTED.copy(alpha = 0.2f))
                         Text("Plan the next leg", fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                        Text("Starts from the current simulated position unless you change the start; it replaces what is playing.", fontSize = 12.sp, color = MUTED)
-                        Controls(vm = vm, status = status, mockBlocked = mockBlocked, onOpenSetup = { showSetup = true }, onResetStart = recentreOnReal, a = actions)
+                        Text("Fill the Start and End boxes above; starting replaces what is playing.", fontSize = 12.sp, color = MUTED)
+                        Controls(vm = vm, status = status, mockBlocked = mockBlocked, onOpenSetup = { showSetup = true }, a = actions)
                     }
                     sheetCollapsed -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { sheetCollapsed = false }) {
@@ -357,7 +409,7 @@ fun MapScreen(
                                 Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Collapse to see the map", tint = ACCENT)
                             }
                         }
-                        Controls(vm = vm, status = status, mockBlocked = mockBlocked, onOpenSetup = { showSetup = true }, onResetStart = recentreOnReal, a = actions)
+                        Controls(vm = vm, status = status, mockBlocked = mockBlocked, onOpenSetup = { showSetup = true }, a = actions)
                     }
                 }
             }
@@ -378,11 +430,42 @@ fun MapScreen(
     }
 }
 
+/** One compact location box: coloured dot, editable text, optional trailing control. */
+@Composable
+private fun LocationBox(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    dot: Color,
+    onFocus: (Boolean) -> Unit,
+    onEnter: () -> Unit,
+    trailing: @Composable () -> Unit,
+) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.padding(start = 8.dp, end = 4.dp).size(10.dp).background(dot, CircleShape))
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            placeholder = { Text(placeholder, fontSize = 14.sp) },
+            singleLine = true,
+            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent,
+                focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
+            ),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { onEnter() }),
+            modifier = Modifier.weight(1f).onFocusChanged { onFocus(it.isFocused) },
+        )
+        trailing()
+    }
+}
+
 // ---- Search results ----------------------------------------------------------------
 
 /** Uber-style pick list: every matching place with its address and distance from the start. */
 @Composable
-private fun SuggestionList(hits: List<PlaceHit>, busy: Boolean, from: LatLng?, onPick: (PlaceHit) -> Unit) {
+private fun SuggestionList(hits: List<PlaceHit>, busy: Boolean, from: LatLng?, heading: String, onPick: (PlaceHit) -> Unit) {
     Surface(
         shape = RoundedCornerShape(20.dp),
         shadowElevation = 6.dp,
@@ -390,6 +473,8 @@ private fun SuggestionList(hits: List<PlaceHit>, busy: Boolean, from: LatLng?, o
         modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp),
     ) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
+            Text("Set as $heading", fontSize = 11.sp, color = MUTED, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(start = 14.dp, top = 8.dp))
             if (busy && hits.isEmpty()) {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
@@ -429,7 +514,6 @@ private fun Controls(
     status: MockStatus,
     mockBlocked: Boolean,
     onOpenSetup: () -> Unit,
-    onResetStart: () -> Unit,
     a: SimActions,
 ) {
     val fly = vm.mode == TravelMode.FLY
@@ -447,29 +531,17 @@ private fun Controls(
         )
     }
 
-    // Endpoints
-    Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            val simStart = running && vm.useSimulatedStart
-            EndpointRow(
-                GREEN, "From",
-                if (simStart) "Current simulated position" else vm.startName,
-                "Long-press the map to move the start",
-                trailing = if (vm.pickingStart) "Cancel" else "Change",
-                onTrailing = { vm.pickingStart = !vm.pickingStart },
-                trailing2 = if (running && !simStart) "Use current position" else null,
-                onTrailing2 = { vm.useSimulatedPosition() },
-            )
-            if (vm.pickingStart) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Choose the start: search above or tap the map.", fontSize = 12.sp, color = ACCENT, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    if (!running) TextButton(onClick = { vm.pickingStart = false; onResetStart() }) { Text("My real location", fontSize = 12.sp) }
-                }
-            }
-            EndpointRow(VIOLET, "To", vm.dest?.let { vm.destName }, if (vm.pickingStart) "Set after the start" else "Search above, or tap the map")
-            vm.routeSummary?.let { Text(it, fontSize = 12.sp, color = ACCENT, fontWeight = FontWeight.SemiBold) }
-        }
-    }
+    // Where we stand
+    vm.routeSummary?.let {
+        Text(it, fontSize = 13.sp, color = ACCENT, fontWeight = FontWeight.SemiBold)
+    } ?: Text(
+        when {
+            vm.dest == null -> "Type in the End box or tap the map. Long-press the map to move the Start."
+            running && vm.useSimulatedStart -> "Next leg starts from the current simulated position; use ⌖ on the Start box to change that."
+            else -> "Start and End set — get the route."
+        },
+        fontSize = 12.sp, color = MUTED,
+    )
 
     // Travel mode
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -578,29 +650,6 @@ private fun Controls(
             Text(it, fontSize = 12.sp, color = RED, modifier = Modifier.weight(1f))
             TextButton(onClick = { vm.clearError() }) { Text("Dismiss", fontSize = 12.sp) }
         }
-    }
-}
-
-@Composable
-private fun EndpointRow(
-    dot: Color, label: String, value: String?, placeholder: String,
-    trailing: String? = null, onTrailing: () -> Unit = {},
-    trailing2: String? = null, onTrailing2: () -> Unit = {},
-) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(10.dp).background(dot, CircleShape))
-        Spacer(Modifier.width(10.dp))
-        Text(label, fontSize = 12.sp, color = MUTED, modifier = Modifier.width(40.dp))
-        Text(
-            value ?: placeholder,
-            fontSize = 14.sp,
-            fontWeight = if (value != null) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (value != null) MaterialTheme.colorScheme.onSurface else MUTED,
-            maxLines = 1, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        if (trailing2 != null) TextButton(onClick = onTrailing2) { Text(trailing2, fontSize = 12.sp) }
-        if (trailing != null) TextButton(onClick = onTrailing) { Text(trailing, fontSize = 12.sp) }
     }
 }
 

@@ -32,6 +32,9 @@ import kotlin.math.roundToInt
 
 enum class Phase { IDLE, ROUTING, READY, RUNNING }
 
+/** Which of the two location boxes a search result / pick applies to. */
+enum class Field { START, END }
+
 /** Drives the map screen: endpoints, routing, average speed, itinerary, and simulation control. */
 class MirageViewModel : ViewModel() {
 
@@ -44,8 +47,11 @@ class MirageViewModel : ViewModel() {
         private set
     var destName by mutableStateOf("Destination")
         private set
-    /** True while the next search pick / map tap should set the START rather than the destination. */
-    var pickingStart by mutableStateOf(false)
+    /** The box the user is editing; search results and picks land there. */
+    var activeField by mutableStateOf(Field.END)
+    /** Last real (non-mock) position we obtained; the only real fix available while spoofing. */
+    var lastReal by mutableStateOf<LatLng?>(null)
+        private set
     /** While simulating, the next trip normally begins where the simulation is right now. */
     var useSimulatedStart by mutableStateOf(true)
         private set
@@ -97,14 +103,11 @@ class MirageViewModel : ViewModel() {
     private val places by lazy { GooglePlaces(BuildConfig.MAPS_API_KEY) }
 
     fun setStartPoint(p: LatLng, name: String = "Dropped pin") {
-        start = p; startName = name; useSimulatedStart = false; pickingStart = false; invalidateRoute()
+        start = p; startName = name; useSimulatedStart = false; invalidateRoute()
     }
 
     /** Back to "begin where the simulation is now" (only meaningful while running). */
-    fun useSimulatedPosition() { useSimulatedStart = true; pickingStart = false; invalidateRoute() }
-
-    /** A map tap sets whichever endpoint the user is currently choosing. */
-    fun placeTapped(p: LatLng) { if (pickingStart) setStartPoint(p) else setDestPoint(p) }
+    fun useSimulatedPosition() { useSimulatedStart = true; invalidateRoute() }
 
     /** Where the next trip begins: the live simulated position while running (unless the
      *  user chose an explicit start), else the start pin. */
@@ -112,7 +115,7 @@ class MirageViewModel : ViewModel() {
         val st = MockState.status.value
         return if (st.running && useSimulatedStart) LatLng(st.lat, st.lng) else start
     }
-    fun useMyLocation(p: LatLng) = setStartPoint(p, "My location")
+    fun useMyLocation(p: LatLng) { lastReal = p; setStartPoint(p, "My location") }
     fun setDestPoint(p: LatLng) { dest = p; destName = "Dropped pin"; invalidateRoute() }
     fun clearError() { error = null }
 
@@ -166,13 +169,12 @@ class MirageViewModel : ViewModel() {
     /** The user picked one row from the list: it becomes the start or the destination. */
     fun pickSuggestion(hit: PlaceHit) {
         clearSuggestions()
-        if (pickingStart) setStartPoint(hit.latLng, hit.name)
-        else { setDestPoint(hit.latLng); destName = hit.name }
+        applySearchResult(hit.latLng, hit.name)
         error = null
     }
 
     private fun applySearchResult(p: LatLng, name: String) {
-        if (pickingStart) setStartPoint(p, name) else { setDestPoint(p); destName = name }
+        if (activeField == Field.START) setStartPoint(p, name) else { setDestPoint(p); destName = name }
     }
 
     /** Search by place/business/landmark name (Places), biased to the current start;
@@ -234,7 +236,7 @@ class MirageViewModel : ViewModel() {
             PlaybackSource.label = "Route"
         }
         PlaybackSource.routePoints = routePts
-        useSimulatedStart = true; pickingStart = false
+        useSimulatedStart = true
         onStart()
     }
 
@@ -290,7 +292,7 @@ class MirageViewModel : ViewModel() {
                 PlaybackSource.current = ItineraryModel.play(legs, timeScale = ts)
                 PlaybackSource.routePoints = allPts
                 PlaybackSource.label = "Itinerary"
-                useSimulatedStart = true; pickingStart = false
+                useSimulatedStart = true
                 onStart()
             } catch (e: Exception) {
                 error = e.message ?: "Itinerary routing failed"
