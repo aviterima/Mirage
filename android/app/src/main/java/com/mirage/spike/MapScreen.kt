@@ -53,11 +53,13 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Subway
 import androidx.compose.material.icons.filled.Train
@@ -140,6 +142,7 @@ import com.mirage.spike.engine.PlaceHit
 import com.mirage.spike.engine.PlaybackSource
 import com.mirage.spike.engine.Realism
 import com.mirage.spike.engine.RouteSegment
+import com.mirage.spike.engine.Signal
 import com.mirage.spike.engine.TransitVehicle
 import com.mirage.spike.engine.TravelMode
 import com.mirage.spike.store.PrefsKeyStore
@@ -195,6 +198,11 @@ fun MapScreen(
     LaunchedEffect(Unit) {
         vm.attachStore(PrefsScenarioStore(context))
         vm.configureApi(ApiConfig(BuildConfig.MIRAGE_API_BASE, keyStore.userKey.ifBlank { BuildConfig.MAPS_API_KEY }, keyStore.installId))
+    }
+    // Automation: commands arrive from adb via MainActivity → CommandBus.
+    LaunchedEffect(Unit) {
+        vm.automationToken = keyStore.installId.take(8)
+        CommandBus.commands.collect { args -> vm.runCommand(args["cmd"] ?: "", args, onStartService, onStopService) }
     }
     val saveKey: (String) -> Unit = { k ->
         keyStore.userKey = k
@@ -331,6 +339,7 @@ fun MapScreen(
 
         // ---- Start / End boxes + setup, with the type-ahead pick list underneath -----
         val startLabel = when {
+            status.running && vm.queueAfterCurrent -> "Where the current trip ends"
             status.running && vm.useSimulatedStart -> "Current simulated position"
             vm.start == null -> ""
             else -> vm.startName
@@ -384,10 +393,26 @@ fun MapScreen(
                         text = { Text(if (status.running) "My real location (last known)" else "My real location") },
                         onClick = { snapReal(field) },
                     )
-                    if (allowSimulated && status.running) DropdownMenuItem(
-                        text = { Text("Current simulated position") },
-                        onClick = { snapMenu = null; vm.useSimulatedPosition() },
-                    )
+                    if (allowSimulated && status.running) {
+                        DropdownMenuItem(
+                            text = { Text("Current simulated position") },
+                            onClick = { snapMenu = null; vm.useSimulatedPosition() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Where the current trip ends (queue after it)") },
+                            onClick = { snapMenu = null; vm.useTripEnd() },
+                        )
+                    }
+                    if (!allowSimulated && status.running && vm.planMode == PlanMode.ITINERARY) {
+                        DropdownMenuItem(
+                            text = { Text("Add a stop here (current position)") },
+                            onClick = { snapMenu = null; vm.addStopAtSimulatedPosition() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Add a stop where the trip ends") },
+                            onClick = { snapMenu = null; vm.addStopAtTripEnd() },
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text("Clear") },
                         onClick = {
@@ -712,8 +737,25 @@ private fun Controls(
             }
         }
 
+        vm.notice?.let { Text(it, fontSize = 12.sp, color = ACCENT, fontWeight = FontWeight.SemiBold) }
         if (fly) {
             Text("Emulated flight: taxi, climb to 35,000 ft, cruise at about 550 mph, descent, landing.", fontSize = 12.sp, color = MUTED)
+        } else if (vm.mode == TravelMode.DRIVE) {
+            val n = vm.speedOverLimit.toInt()
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
+                Text(if (itin) "New stops · driving" else "Driving · cruise at the posted limit", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text("${if (n >= 0) "+" else ""}$n mph", color = ACCENT, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            }
+            Slider(value = vm.speedOverLimit, onValueChange = { vm.speedOverLimit = it }, valueRange = -10f..15f)
+            Text(
+                "Per-road limits are estimated from the road class and Google's timing (limit data itself isn't sold with standard keys). Lights stop you at intersections on surface streets; none on freeways. Changes apply live.",
+                fontSize = 11.sp, color = MUTED,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Realism.entries.forEach { r ->
+                    FilterChip(selected = vm.realism == r, onClick = { vm.realism = r }, label = { Text(when (r) { Realism.CONSTANT -> "No lights"; Realism.REALISTIC -> "Normal lights"; Realism.BUSY -> "Heavy traffic" }) })
+                }
+            }
         } else if (transit) {
             Text(
                 "Real public transport from the timetable: walk to the stop, wait for the scheduled departure, ride with station stops, walk to the end.",
@@ -781,6 +823,19 @@ private fun Controls(
         }
     }
 
+    // GPS signal quality (live, any mode)
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("GPS signal", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.width(4.dp))
+        Signal.PRESETS.forEach { p ->
+            FilterChip(selected = vm.signal.name == p.name, onClick = { vm.setSignalPreset(p) }, label = { Text(p.name) })
+        }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = { vm.dropSignal(15) }, enabled = running) { Text("Drop GPS 15 s") }
+        OutlinedButton(onClick = { vm.dropSignal(60) }, enabled = running) { Text("Drop 60 s") }
+    }
+
     // Notices
     if (!vm.hasKey) {
         Text("Search and routing need a Google Maps key — tap ⚙ to paste yours and test it. Snap works without one.", fontSize = 12.sp, color = AMBER)
@@ -818,12 +873,16 @@ private fun PrimaryAction(vm: MirageViewModel, running: Boolean, a: SimActions) 
         )
         PlanMode.ITINERARY ->
             if (vm.itineraryBusy) BusyRow("Routing legs…")
-            else BigButton(if (running) "Start new itinerary" else "Start itinerary", enabled = vm.stops.isNotEmpty(), onClick = a.startItinerary)
+            else BigButton(
+                when { running && vm.queueAfterCurrent -> "Queue itinerary after arrival"; running -> "Start itinerary now (replaces)"; else -> "Start itinerary" },
+                enabled = vm.stops.isNotEmpty(), onClick = a.startItinerary,
+            )
         PlanMode.ROUTE -> when {
             vm.phase == Phase.ROUTING -> BusyRow("Routing…")
             vm.canStart -> BigButton(
                 when {
-                    running -> if (fly) "Start new flight" else "Start new route"
+                    running && vm.queueAfterCurrent -> "Queue after arrival"
+                    running -> if (fly) "Start flight now (replaces)" else "Start now (replaces)"
                     fly -> "Start flight"
                     else -> "Start simulation"
                 },
@@ -903,6 +962,17 @@ private fun LiveHud(status: MockStatus, timeScale: Float, onCollapse: () -> Unit
         "Live · last fix ${lastFixClock(status.lastFixMillis)} · ${status.emittedCount} fixes · re-asserts ${status.reassertCount} · leak ${if (status.leakSeen) "YES ⚠" else "no"}",
         fontSize = 11.sp, color = MUTED,
     )
+    if (status.queued > 0) Text("${status.queued} plan${if (status.queued == 1) "" else "s"} queued to start on arrival", fontSize = 12.sp, color = ACCENT)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = { if (status.paused) PlaybackSource.paused = false else PlaybackSource.paused = true }, modifier = Modifier.weight(1f)) {
+            Icon(if (status.paused) Icons.Filled.PlayArrow else Icons.Filled.Pause, contentDescription = null); Spacer(Modifier.width(4.dp))
+            Text(if (status.paused) "Resume" else "Pause here")
+        }
+        OutlinedButton(onClick = { PlaybackSource.requestSkip() }, modifier = Modifier.weight(1f)) {
+            Icon(Icons.Filled.SkipNext, contentDescription = null); Spacer(Modifier.width(4.dp))
+            Text("Skip ahead")
+        }
+    }
     Button(
         onClick = onStop,
         colors = ButtonDefaults.buttonColors(containerColor = RED),
@@ -926,6 +996,9 @@ private fun MiniHud(status: MockStatus, onExpand: () -> Unit, onStop: () -> Unit
         Column(Modifier.weight(1f)) {
             Text("$mph mph", fontSize = 14.sp, fontWeight = FontWeight.Bold)
             Text(status.stepLabel.ifEmpty { status.message }, fontSize = 12.sp, color = MUTED, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        IconButton(onClick = { PlaybackSource.paused = !status.paused }) {
+            Icon(if (status.paused) Icons.Filled.PlayArrow else Icons.Filled.Pause, contentDescription = if (status.paused) "Resume" else "Pause", tint = ACCENT)
         }
         Button(onClick = onStop, colors = ButtonDefaults.buttonColors(containerColor = RED), contentPadding = PaddingValues(horizontal = 14.dp)) {
             Text("Stop")
@@ -1005,6 +1078,13 @@ private fun SetupDialog(
                         fontSize = 11.sp, color = MUTED,
                     )
                 }
+                HorizontalDivider()
+                Text("Automation (adb)", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text("Token: ${vm.automationToken}", fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+                Text(
+                    "adb shell am start -n com.mirage.app/com.mirage.spike.MainActivity --es cmd pause --es token ${vm.automationToken}\nCommands: pause, resume, skip, stop, timescale, speed_over, signal, drop, snap, route, plan — see README.",
+                    fontSize = 11.sp, color = MUTED,
+                )
                 Text("Mirage ${BuildConfig.VERSION_NAME}", fontSize = 11.sp, color = MUTED)
             }
         },

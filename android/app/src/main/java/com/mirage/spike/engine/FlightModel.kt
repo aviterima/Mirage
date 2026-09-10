@@ -33,6 +33,7 @@ class FlightModel(
         val dtMs = (dt * 1000).toLong()
         var dist = 0.0
         while (dist < totalMeters) {
+            if (PlaybackSource.consumeSkip()) break
             val f = (dist / totalMeters).coerceIn(0.0, 1.0)
             val (speed, alt) = profile(f)
             val p = Geo.gcInterp(origin, dest, f)

@@ -107,6 +107,7 @@ class MotionModel(
         var dist = 0.0
         var speed = avg
         while (dist < totalMeters) {
+            if (PlaybackSource.consumeSkip()) { dist = totalMeters; break }
             val target = when (params.realism) {
                 Realism.CONSTANT -> avg
                 Realism.REALISTIC -> avg * clamp(1.0 + rnd.nextGaussian() * profile.variance, 0.55, 1.4)
@@ -170,4 +171,44 @@ object PlaybackSource {
     @Volatile var timeScale: Double = 1.0
     @Volatile var routePoints: List<LatLng> = emptyList()
     @Volatile var label: String = ""
+    /** Where the current plan ends (a queued plan starts here). */
+    @Volatile var endPoint: LatLng? = null
+
+    // ---- Live controls (read every tick) ----
+    /** Paused: the service stops advancing the stream and holds the last position. */
+    @Volatile var paused: Boolean = false
+    /** Skip ahead: the model playing right now jumps to the end of its current leg. */
+    @Volatile private var skipRequested: Boolean = false
+    fun requestSkip() { skipRequested = true }
+    /** Models call this once per tick; true exactly once per request. */
+    fun consumeSkip(): Boolean { val s = skipRequested; if (s) skipRequested = false; return s }
+    /** Driving: how far over the posted limit to cruise (mph, may be negative). Live. */
+    @Volatile var speedOverLimitMph: Double = 5.0
+    /** Simulated GPS quality (accuracy, jitter, dropouts). Live. */
+    @Volatile var signal: Signal = Signal.GOOD
+
+    // ---- Queue: plans that start when the current one arrives ----
+    class Queued(val flow: Flow<Fix>, val points: List<LatLng>, val label: String, val endPoint: LatLng?)
+    private val queue = ArrayDeque<Queued>()
+    @Synchronized fun enqueue(q: Queued) { queue.addLast(q) }
+    @Synchronized fun pollQueue(): Queued? = queue.removeFirstOrNull()
+    @Synchronized fun clearQueue() { queue.clear() }
+    @Synchronized fun queueSize(): Int = queue.size
+}
+
+/**
+ * Simulated GPS quality. [accuracyM] is what the fix reports, [jitterM] is how far each fix
+ * actually wanders from the true position, and a dropout means no fixes at all until
+ * [dropUntilMillis] (wall clock).
+ */
+data class Signal(val name: String, val accuracyM: Float, val jitterM: Double, val dropUntilMillis: Long = 0L) {
+    val dropped: Boolean get() = System.currentTimeMillis() < dropUntilMillis
+    fun withDropout(seconds: Int): Signal = copy(dropUntilMillis = System.currentTimeMillis() + seconds * 1000L)
+    companion object {
+        val GOOD = Signal("Good", 4f, 0.4)
+        val URBAN = Signal("Urban", 12f, 4.0)
+        val POOR = Signal("Poor", 35f, 12.0)
+        val INDOOR = Signal("Indoor", 60f, 20.0)
+        val PRESETS = listOf(GOOD, URBAN, POOR, INDOOR)
+    }
 }

@@ -44,6 +44,7 @@ object ItineraryModel {
             var simElapsed = 0.0
             var shownMin = -1L
             while (simElapsed < totalSimMs) {
+                if (PlaybackSource.consumeSkip()) break
                 val ts = timeScale * PlaybackSource.timeScale
                 val remainMin = (((totalSimMs - simElapsed).toLong()) + 59_999L) / 60_000L
                 if (remainMin != shownMin) {

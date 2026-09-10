@@ -8,6 +8,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mirage.spike.engine.ApiCheck
+import com.mirage.spike.engine.DriveModel
+import com.mirage.spike.engine.Signal
 import com.mirage.spike.engine.ApiConfig
 import com.mirage.spike.engine.Fix
 import com.mirage.spike.engine.KeyTester
@@ -73,6 +75,11 @@ class MirageViewModel : ViewModel() {
     /** While simulating, the next trip normally begins where the simulation is right now. */
     var useSimulatedStart by mutableStateOf(true)
         private set
+    /** While simulating: the next plan starts where the CURRENT one ends, and is queued behind it. */
+    var queueAfterCurrent by mutableStateOf(false)
+        private set
+    /** One-line notice after queuing ("Queued: …"), cleared on the next change. */
+    var notice by mutableStateOf<String?>(null)
 
     // ---- Route ---------------------------------------------------------------
     var routePts by mutableStateOf<List<LatLng>>(emptyList())
@@ -158,23 +165,61 @@ class MirageViewModel : ViewModel() {
 
     /** An explicit user choice of start (pin, search pick, ⌖ menu). */
     fun setStartPoint(p: LatLng, name: String = "Dropped pin") {
-        start = p; startName = name; startFromReal = false; useSimulatedStart = false; invalidateRoute()
+        start = p; startName = name; startFromReal = false; useSimulatedStart = false; queueAfterCurrent = false; invalidateRoute()
     }
 
     /** ⌖ → "My real location" chosen by the user for the Start box. */
     fun pickRealStart(p: LatLng) {
         lastReal = p
-        start = p; startName = "My location"; startFromReal = true; useSimulatedStart = false; invalidateRoute()
+        start = p; startName = "My location"; startFromReal = true; useSimulatedStart = false; queueAfterCurrent = false; invalidateRoute()
     }
 
+    /** ⌖ → "Where the current trip ends": plan from there and queue behind the current plan. */
+    fun useTripEnd() { queueAfterCurrent = true; useSimulatedStart = false; invalidateRoute() }
+
     /** Back to "begin where the simulation is now" (only meaningful while running). */
-    fun useSimulatedPosition() { useSimulatedStart = true; invalidateRoute() }
+    fun useSimulatedPosition() { useSimulatedStart = true; queueAfterCurrent = false; invalidateRoute() }
 
     /** Where the next trip begins: the live simulated position while running (unless the
      *  user chose an explicit start), else the start pin. */
     fun tripStart(): LatLng? {
         val st = MockState.status.value
-        return if (st.running && useSimulatedStart) LatLng(st.lat, st.lng) else start
+        return when {
+            st.running && queueAfterCurrent -> PlaybackSource.endPoint ?: LatLng(st.lat, st.lng)
+            st.running && useSimulatedStart -> LatLng(st.lat, st.lng)
+            else -> start
+        }
+    }
+
+    // ---- Live controls while simulating ----------------------------------------------
+
+    fun pause() { PlaybackSource.paused = true }
+    fun resume() { PlaybackSource.paused = false }
+    /** Jump to the end of the leg / stay that is playing right now. */
+    fun skipAhead() { PlaybackSource.requestSkip() }
+
+    /** Driving: cruise this many mph over the posted limit (live; may be negative). */
+    private var overLimitState by mutableStateOf(5f)
+    var speedOverLimit: Float
+        get() = overLimitState
+        set(v) { overLimitState = v; PlaybackSource.speedOverLimitMph = v.toDouble() }
+
+    /** Simulated GPS quality (live). */
+    var signal by mutableStateOf(Signal.GOOD)
+        private set
+    fun setSignalPreset(s: Signal) { signal = s; PlaybackSource.signal = s.copy(dropUntilMillis = PlaybackSource.signal.dropUntilMillis) }
+    /** Lose the fix entirely for [seconds] (live), then recover. */
+    fun dropSignal(seconds: Int) { PlaybackSource.signal = PlaybackSource.signal.withDropout(seconds) }
+
+    /** Itinerary helpers while simulating: stay here, or continue from where the trip ends. */
+    fun addStopAtSimulatedPosition(dwellMinutes: Int = 30) {
+        val st = MockState.status.value
+        if (!st.running) { error = "Nothing is being simulated right now"; return }
+        stops.add(ItineraryStop("Current position", LatLng(st.lat, st.lng), dwellMinutes, mode, avgMph)); invalidateRoute()
+    }
+    fun addStopAtTripEnd(dwellMinutes: Int = 30) {
+        val e = PlaybackSource.endPoint ?: run { error = "No trip is playing"; return }
+        stops.add(ItineraryStop("Where the trip ends", e, dwellMinutes, mode, avgMph)); invalidateRoute()
     }
     /**
      * AUTOMATIC real fix (launch, after Stop). Adopts it as the start only when that does
@@ -239,6 +284,7 @@ class MirageViewModel : ViewModel() {
     private var routeJob: Job? = null
 
     private fun invalidateRoute() {
+        notice = null
         routeJob?.cancel(); routeJob = null
         routePts = emptyList(); lastRoute = null; isFlight = false; flightOrigin = null; routeDistanceM = 0.0
         if (phase == Phase.READY || phase == Phase.ROUTING) phase = Phase.IDLE
@@ -354,6 +400,7 @@ class MirageViewModel : ViewModel() {
                 if (!isActive) return@launch
                 lastRoute = r; routePts = r.points; routeDistanceM = r.distanceMeters; isFlight = false
                 phase = Phase.READY
+                autoStartAfterRoute?.let { go -> autoStartAfterRoute = null; startSim(go) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) { error = describe(e, "Routing failed"); phase = Phase.IDLE }
@@ -362,24 +409,46 @@ class MirageViewModel : ViewModel() {
 
     fun startSim(onStart: () -> Unit) {
         PlaybackSource.timeScale = timeScale.toDouble()
+        PlaybackSource.speedOverLimitMph = speedOverLimit.toDouble()
+        val flow: Flow<Fix>
+        val label: String
         if (isFlight) {
             val s = flightOrigin ?: run { error = "Flight was reset — tap Plot flight again"; return }
             val d = dest ?: run { error = "Set an End"; return }
-            PlaybackSource.current = FlightModel(s, d).fixes()
-            PlaybackSource.label = "Flight"
+            flow = FlightModel(s, d).fixes(); label = "Flight"
         } else {
             val r = lastRoute ?: run { error = "Route was reset — tap Get route again"; return }
-            if (mode == TravelMode.TRANSIT) {
-                PlaybackSource.current = TransitModel(r).fixes()
-                PlaybackSource.label = "Transit"
-            } else {
-                val params = MotionParams(avgSpeedMps = avgMph * 0.44704, realism = realism, mode = mode)
-                PlaybackSource.current = MotionModel(r, params).fixes()
-                PlaybackSource.label = "Route"
-            }
+            flow = legFlow(r, mode, avgMph)
+            label = when (mode) { TravelMode.TRANSIT -> "Transit"; TravelMode.DRIVE -> "Drive"; else -> "Route" }
         }
-        PlaybackSource.routePoints = routePts
-        useSimulatedStart = true
+        arm(flow, routePts, label, routePts.lastOrNull(), onStart)
+    }
+
+    /** The playback for one routed leg, by mode: real driving, transit timetable, or paced motion. */
+    private fun legFlow(r: RouteResult, m: TravelMode, mph: Float): Flow<Fix> = when {
+        m == TravelMode.TRANSIT -> TransitModel(r).fixes()
+        m == TravelMode.DRIVE && r.segments.isNotEmpty() -> DriveModel(r, realism).fixes()
+        else -> MotionModel(r, MotionParams(avgSpeedMps = mph * 0.44704, realism = realism, mode = m)).fixes()
+    }
+
+    /**
+     * Either replace what is playing (default) or, when the start is "where the current
+     * trip ends", queue behind it so it begins the moment the current plan arrives.
+     */
+    private fun arm(flow: Flow<Fix>, points: List<LatLng>, label: String, end: LatLng?, onStart: () -> Unit) {
+        val running = MockState.status.value.running
+        if (running && queueAfterCurrent) {
+            PlaybackSource.enqueue(PlaybackSource.Queued(flow, points, label, end))
+            notice = "Queued: $label starts when the current trip arrives (${PlaybackSource.queueSize()} waiting)"
+            queueAfterCurrent = false; useSimulatedStart = true
+            return
+        }
+        PlaybackSource.clearQueue()
+        PlaybackSource.current = flow
+        PlaybackSource.routePoints = points
+        PlaybackSource.label = label
+        PlaybackSource.endPoint = end
+        useSimulatedStart = true; queueAfterCurrent = false
         onStart()
     }
 
@@ -544,21 +613,15 @@ class MirageViewModel : ViewModel() {
                     } else {
                         val r = routeEngine.route(RouteSpec(from, stop.point, mode = stop.mode, transitPreference = transitPref)); allPts += r.points
                         legEnd = r.points.lastOrNull() ?: stop.point
-                        if (stop.mode == TravelMode.TRANSIT) TransitModel(r).fixes() else {
-                            val params = MotionParams(avgSpeedMps = stop.avgMph * 0.44704, realism = realism, mode = stop.mode)
-                            MotionModel(r, params).fixes()
-                        }
+                        legFlow(r, stop.mode, stop.avgMph)
                     }
                     legs += legFlow to stop
                     from = legEnd
                 }
                 if (planMode != PlanMode.ITINERARY || !isActive) return@launch  // user moved on meanwhile
                 routePts = allPts
-                PlaybackSource.current = ItineraryModel.play(legs)
-                PlaybackSource.routePoints = allPts
-                PlaybackSource.label = "Itinerary"
-                useSimulatedStart = true
-                onStart()
+                PlaybackSource.speedOverLimitMph = speedOverLimit.toDouble()
+                arm(ItineraryModel.play(legs), allPts, "Itinerary", stops.lastOrNull()?.point, onStart)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -569,6 +632,72 @@ class MirageViewModel : ViewModel() {
 
     fun onStopped() {
         phase = if (routePts.isEmpty()) Phase.IDLE else Phase.READY
+    }
+
+    // ---- Automation (adb / scripts): see README "Automation" ------------------------
+
+    /** Short token scripts must present; shown in Setup. */
+    var automationToken by mutableStateOf("")
+    private var autoStartAfterRoute: (() -> Unit)? = null
+
+    /**
+     * Execute one command. Returns a human-readable result (also shown as the notice).
+     * Commands: pause, resume, skip, stop (handled by the caller), timescale value=N,
+     * speed_over value=N, signal preset=good|urban|poor|indoor, drop seconds=N,
+     * snap lat lng [name], route lat lng lat lng [mode=drive|bike|walk|transit|fly],
+     * plan name=<saved plan> (loads and starts it).
+     */
+    fun runCommand(cmd: String, args: Map<String, String>, onStartService: () -> Unit, onStopService: () -> Unit): String {
+        if (automationToken.isNotBlank() && args["token"] != automationToken) return "Rejected: bad or missing token"
+        val d = { k: String -> args[k]?.toDoubleOrNull() }
+        val result = when (cmd.lowercase()) {
+            "pause" -> { pause(); "Paused" }
+            "resume" -> { resume(); "Resumed" }
+            "skip" -> { skipAhead(); "Skipped ahead" }
+            "stop" -> { onStopService(); onStopped(); "Stopped — real location" }
+            "timescale" -> { timeScale = (d("value") ?: 1.0).toFloat().coerceIn(1f, 100f); "Fast-forward ${timeScale.toInt()}×" }
+            "speed_over" -> { speedOverLimit = (d("value") ?: 5.0).toFloat().coerceIn(-15f, 25f); "Cruise at limit ${if (speedOverLimit >= 0) "+" else ""}${speedOverLimit.toInt()} mph" }
+            "signal" -> {
+                val s = Signal.PRESETS.firstOrNull { it.name.equals(args["preset"] ?: "", ignoreCase = true) }
+                if (s == null) "Unknown preset" else { setSignalPreset(s); "Signal ${s.name}" }
+            }
+            "drop" -> { dropSignal((d("seconds") ?: 30.0).toInt().coerceIn(1, 3600)); "GPS dropped" }
+            "snap" -> {
+                val lat = d("lat"); val lng = d("lng")
+                if (lat == null || lng == null) "snap needs lat and lng" else {
+                    planMode = PlanMode.SNAP
+                    dest = LatLng(lat, lng); destName = args["name"] ?: "Snap"
+                    PlaybackSource.current = null; PlaybackSource.routePoints = listOf(dest!!); PlaybackSource.label = "Static"
+                    PlaybackSource.endPoint = dest; PlaybackSource.clearQueue(); PlaybackSource.paused = false
+                    onSnapStarted(); onStartService(); "Snapped to $lat,$lng"
+                }
+            }
+            "route" -> {
+                val lat = d("lat"); val lng = d("lng"); val lat2 = d("lat2"); val lng2 = d("lng2")
+                if (lat2 == null || lng2 == null) "route needs lat2 and lng2 (and optionally lat, lng for the start)" else {
+                    planMode = PlanMode.ROUTE
+                    args["mode"]?.let { m -> TravelMode.entries.firstOrNull { it.name.equals(m, true) }?.let { mode = it } }
+                    if (lat != null && lng != null) setStartPoint(LatLng(lat, lng), "Script start") else useSimulatedPosition()
+                    dest = LatLng(lat2, lng2); destName = args["name"] ?: "Script end"
+                    autoStartAfterRoute = onStartService
+                    buildRoute(); "Routing, will start on arrival of the route"
+                }
+            }
+            "plan" -> {
+                val sc = savedScenarios.firstOrNull { it.name.equals(args["name"] ?: "", ignoreCase = true) }
+                if (sc == null) "No saved plan named ${args["name"]}" else {
+                    loadScenario(sc)
+                    when (planMode) {
+                        PlanMode.SNAP -> { dest?.let { PlaybackSource.current = null; PlaybackSource.routePoints = listOf(it); PlaybackSource.label = "Static"; PlaybackSource.endPoint = it; onSnapStarted(); onStartService() }; "Snapped: ${sc.name}" }
+                        PlanMode.ITINERARY -> { startItinerary(onStartService); "Starting itinerary: ${sc.name}" }
+                        PlanMode.ROUTE -> { autoStartAfterRoute = onStartService; if (canStart) startSim(onStartService); "Starting route: ${sc.name}" }
+                    }
+                }
+            }
+            else -> "Unknown command: $cmd"
+        }
+        notice = result
+        return result
     }
 }
 

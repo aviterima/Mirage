@@ -83,6 +83,36 @@ The ⚙ button in the app shows each step with a live ✓ / ✗:
 For a day: switch to **Itinerary**, add stops in order (each with its minutes on site;
 tap a stop's icon to change how you travel to it), then **Start itinerary**.
 
+## Live controls while simulating
+
+- **Pause here / Resume**: freeze in place (still spoofing), then continue.
+- **Skip ahead**: jump to the end of the current leg or stay.
+- **Fast-forward**, **cruise over the limit** (driving) and **GPS signal** (Good / Urban /
+  Poor / Indoor, plus 15 s or 60 s dropouts) all apply immediately.
+- The Start box defaults to the **current simulated position**; its ⌖ menu also offers
+  **Where the current trip ends**, which queues the new plan to begin on arrival instead
+  of replacing what is playing. In Itinerary mode the stop box can add **a stop here** or
+  **a stop where the trip ends**.
+
+## Automation (adb)
+
+Every command is an activity start with extras; the token is shown in ⚙ Setup.
+
+```bash
+A="com.mirage.app/com.mirage.spike.MainActivity"; T=<token from Setup>
+adb shell am start -n $A --es cmd pause --es token $T
+adb shell am start -n $A --es cmd resume --es token $T
+adb shell am start -n $A --es cmd skip --es token $T
+adb shell am start -n $A --es cmd stop --es token $T
+adb shell am start -n $A --es cmd timescale --es value 10 --es token $T
+adb shell am start -n $A --es cmd speed_over --es value 5 --es token $T
+adb shell am start -n $A --es cmd signal --es preset urban --es token $T      # good|urban|poor|indoor
+adb shell am start -n $A --es cmd drop --es seconds 30 --es token $T
+adb shell am start -n $A --es cmd snap --es lat 33.4484 --es lng -112.0740 --es name Office --es token $T
+adb shell am start -n $A --es cmd route --es lat2 33.5091 --es lng2 -112.0263 --es mode drive --es token $T   # from the current position
+adb shell am start -n $A --es cmd plan --es name "Lunch run" --es token $T    # a saved plan
+```
+
 ## Reliability test
 
 - Google Maps follows the route with no reversion to real location.

@@ -74,7 +74,6 @@ class GoogleDirectionsRouteEngine(
                 val leg = legs.getJSONObject(i)
                 distance += leg.getJSONObject("distance").getDouble("value")
                 duration += leg.getJSONObject("duration").getDouble("value")
-                if (!transit) continue
                 val steps = leg.optJSONArray("steps") ?: continue
                 for (j in 0 until steps.length()) {
                     val st = steps.getJSONObject(j)
@@ -82,6 +81,12 @@ class GoogleDirectionsRouteEngine(
                         ?.let { PolylineCodec.decode(it) } ?: emptyList()
                     val dist = st.optJSONObject("distance")?.optDouble("value", 0.0) ?: 0.0
                     val dur = st.optJSONObject("duration")?.optDouble("value", 0.0) ?: 0.0
+                    val instruction = st.optString("html_instructions").replace(Regex("<[^>]*>"), " ").replace(Regex("\\s+"), " ").trim()
+                    val maneuver = st.optString("maneuver")
+                    if (!transit) {
+                        segments += RouteSegment(pts, dist, dur, null, instruction, maneuver)
+                        continue
+                    }
                     val td = st.optJSONObject("transit_details")
                     if (st.optString("travel_mode") == "TRANSIT" && td != null) {
                         val line = td.optJSONObject("line")

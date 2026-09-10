@@ -43,6 +43,13 @@ data class MockStatus(
     val label: String = "",
     /** Itinerary: index of the stop being travelled to / stayed at; -1 when not an itinerary. */
     val legIndex: Int = -1,
+    /** Frozen in place by the user (still spoofing). */
+    val paused: Boolean = false,
+    /** Simulated GPS dropout in effect: no fixes are being delivered. */
+    val signalDropped: Boolean = false,
+    val signalName: String = "Good",
+    /** Plans waiting to start when the current one arrives. */
+    val queued: Int = 0,
     val stepLabel: String = "",
 )
 

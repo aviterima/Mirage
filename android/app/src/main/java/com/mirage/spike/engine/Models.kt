@@ -45,12 +45,16 @@ data class TransitDetails(
     val numStops: Int,
 )
 
-/** A piece of a transit trip: a walk (transit == null) or a ride. */
+/** A step of a route: for driving one road/maneuver, for transit a walk (transit == null) or a ride. */
 data class RouteSegment(
     val points: List<LatLng>,
     val distanceMeters: Double,
     val durationSeconds: Double,
     val transit: TransitDetails? = null,
+    /** Google's maneuver text, HTML stripped (e.g. "Turn left onto N 7th St"). */
+    val instruction: String = "",
+    /** Google's maneuver code when present (turn-left, ramp-right, merge, ...). */
+    val maneuver: String = "",
 )
 
 enum class Realism { CONSTANT, REALISTIC, BUSY }

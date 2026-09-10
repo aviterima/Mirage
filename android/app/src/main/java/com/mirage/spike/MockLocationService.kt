@@ -98,6 +98,12 @@ class MockLocationService : Service() {
             stopEverything()
             return START_NOT_STICKY
         }
+        // Live controls (notification actions, automation): no restart of the playback.
+        when (intent.action) {
+            ACTION_PAUSE -> { PlaybackSource.paused = true; refreshNotification(); return START_NOT_STICKY }
+            ACTION_RESUME -> { PlaybackSource.paused = false; refreshNotification(); return START_NOT_STICKY }
+            ACTION_SKIP -> { PlaybackSource.requestSkip(); return START_NOT_STICKY }
+        }
         if (!hasLocationPermission()) {
             // A location-type foreground service cannot even be promoted without it (API 34).
             MockState.update {
@@ -114,6 +120,7 @@ class MockLocationService : Service() {
         acquireWakeLock()
         // A new Start (also while already running) replaces the playback.
         val gen = ++generation
+        PlaybackSource.paused = false
         loop?.cancel()
         loop = null
         if (setupProviders()) {
@@ -189,17 +196,38 @@ class MockLocationService : Service() {
     // --- playback -----------------------------------------------------------
 
     private suspend fun runPlayback(gen: Int) {
-        val src = PlaybackSource.current
+        var src = PlaybackSource.current
         var last: Fix? = null
-        if (src != null) {
-            // Routed drive / flight / itinerary: play it to the end.
+        val holdRnd = ditherRnd
+        while (src != null) {
+            // Routed drive / flight / transit / itinerary: play it to the end. Pause freezes the
+            // stream by simply not collecting further (the producer blocks in emit), holding the
+            // last position like a person standing still.
             try {
-                src.collect { fix -> if (gen == generation) { pushFix(fix, gen); last = fix } }
+                src.collect { fix ->
+                    if (PlaybackSource.paused && gen == generation) {
+                        val hold = DwellModel(fix.copy(speedMps = 0f), 3.0, holdRnd)
+                        while (PlaybackSource.paused && gen == generation && currentCoroutineContext().isActive) {
+                            pushFix(hold.next(INTERVAL_MS / 1000.0).copy(progress = fix.progress, remainingSec = fix.remainingSec), gen)
+                            delay(INTERVAL_MS)
+                        }
+                    }
+                    if (gen == generation) { pushFix(fix, gen); last = fix }
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
                 // stream error — fall through and hold wherever we got to
             }
+            if (gen != generation || !currentCoroutineContext().isActive) return
+            // Anything queued to start when this one arrives?
+            val next = PlaybackSource.pollQueue() ?: break
+            PlaybackSource.routePoints = next.points
+            PlaybackSource.label = next.label
+            PlaybackSource.endPoint = next.endPoint
+            MockState.update { it.copy(label = next.label, legIndex = -1, stepLabel = "Continuing: ${next.label}") }
+            refreshNotification()
+            src = next.flow
         }
         if (gen != generation || !currentCoroutineContext().isActive) return
         // Hold the endpoint (or the chosen static point) like a person at a place until the
@@ -222,8 +250,27 @@ class MockLocationService : Service() {
         }
     }
 
-    private fun pushFix(fix: Fix, gen: Int) {
+    private fun pushFix(fixIn: Fix, gen: Int) {
         if (gen != generation) return
+        // Simulated GPS quality: a dropout delivers nothing at all; otherwise jitter the
+        // position and widen the reported accuracy to match the preset.
+        val sig = PlaybackSource.signal
+        if (sig.dropped) {
+            MockState.update {
+                if (gen != generation) it else it.copy(
+                    running = true, starting = false, health = Health.AMBER, signalDropped = true, signalName = sig.name,
+                    paused = PlaybackSource.paused, message = "No GPS signal (simulated dropout)",
+                    queued = PlaybackSource.queueSize(),
+                )
+            }
+            return
+        }
+        val fix = if (sig.jitterM > 0.0) {
+            val p = com.mirage.spike.engine.Geo.offset(
+                LatLng(fixIn.lat, fixIn.lng), ditherRnd.nextGaussian() * sig.jitterM, ditherRnd.nextGaussian() * sig.jitterM,
+            )
+            fixIn.copy(lat = p.lat, lng = p.lng, accuracyM = maxOf(fixIn.accuracyM, sig.accuracyM * (0.8f + ditherRnd.nextFloat() * 0.4f)))
+        } else fixIn
         for (p in providers) {
             try {
                 lm.setTestProviderLocation(p, toLocation(p, fix))
@@ -279,6 +326,7 @@ class MockLocationService : Service() {
             locationOff -> "Location is turned OFF on the phone"
             flpFailures >= 5 -> "Google feed failing — re-asserting"
             leakEver -> "Re-asserting (leak seen)"
+            PlaybackSource.paused -> "Paused — holding here"
             else -> "Simulating"
         }
         MockState.update {
@@ -289,6 +337,8 @@ class MockLocationService : Service() {
                 emittedCount = count, lastFixMillis = System.currentTimeMillis(),
                 reassertCount = reasserts, leakSeen = leakEver,
                 message = message, label = PlaybackSource.label,
+                paused = PlaybackSource.paused, signalDropped = false, signalName = sig.name,
+                queued = PlaybackSource.queueSize(),
             )
         }
         if (++notifTick >= NOTIFY_EVERY) { notifTick = 0; if (gen == generation) refreshNotification() }
@@ -347,6 +397,12 @@ class MockLocationService : Service() {
             Intent(this, MockLocationService::class.java).setAction(ACTION_STOP),
             flagsPi,
         )
+        val pauseAction = if (PlaybackSource.paused) ACTION_RESUME else ACTION_PAUSE
+        val pause = PendingIntent.getService(
+            this, 2,
+            Intent(this, MockLocationService::class.java).setAction(pauseAction),
+            flagsPi,
+        )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Mirage — simulating location")
             .setContentText(text)
@@ -355,6 +411,7 @@ class MockLocationService : Service() {
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(open)
+            .addAction(0, if (PlaybackSource.paused) "Resume" else "Pause", pause)
             .addAction(0, "Stop — real location", stop)
             .build()
     }
@@ -385,7 +442,11 @@ class MockLocationService : Service() {
         if (!st.running && !st.starting) return
         val mph = (st.speedMps / 0.44704f).toInt()
         val step = st.stepLabel.ifBlank { st.label.ifBlank { "Simulating" } }
-        val text = if (mph > 0) "$step · $mph mph" else step
+        val text = when {
+            PlaybackSource.paused -> "Paused · $step"
+            mph > 0 -> "$step · $mph mph"
+            else -> step
+        }
         runCatching { getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotification(text)) }
     }
 
@@ -402,6 +463,8 @@ class MockLocationService : Service() {
 
     private fun stopEverything() {
         generation++            // every in-flight tick becomes a no-op from here on
+        PlaybackSource.paused = false
+        PlaybackSource.clearQueue()
         loop?.cancel()
         loop = null
         revertToReal("Stopped — real location restored", blocked = false)
@@ -461,6 +524,9 @@ class MockLocationService : Service() {
 
     companion object {
         const val ACTION_STOP = "com.mirage.spike.STOP"
+        const val ACTION_PAUSE = "com.mirage.spike.PAUSE"
+        const val ACTION_RESUME = "com.mirage.spike.RESUME"
+        const val ACTION_SKIP = "com.mirage.spike.SKIP"
         private const val CHANNEL_ID = "mirage_mock"
         private const val NOTIF_ID = 42
         private const val INTERVAL_MS = 200L

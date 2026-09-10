@@ -35,6 +35,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        dispatchCommand(intent)
         setContent {
             MirageTheme {
                 Surface(Modifier.fillMaxSize()) {
@@ -48,6 +49,20 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        dispatchCommand(intent)
+    }
+
+    /** `adb shell am start -n com.mirage.app/.MainActivity --es cmd <command> --es token <token> [--es key value ...]` */
+    private fun dispatchCommand(intent: Intent?) {
+        val cmd = intent?.getStringExtra("cmd") ?: return
+        val args = mutableMapOf("cmd" to cmd)
+        intent.extras?.keySet()?.forEach { k -> intent.extras?.get(k)?.let { args[k] = it.toString() } }
+        CommandBus.commands.tryEmit(args)
+        intent.removeExtra("cmd")
     }
 
     private fun startMockService() {

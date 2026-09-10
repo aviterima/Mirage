@@ -69,6 +69,7 @@ class TransitModel(
                 it.copy(stepLabel = "Waiting at ${td.fromStop} · ${td.line} ${td.vehicle.label.lowercase()} departs ${td.departureText}")
             }
             while (simNow < td.departureEpoch) {
+                if (PlaybackSource.consumeSkip()) { simNow = td.departureEpoch.toDouble(); break }
                 val ts = PlaybackSource.timeScale
                 val remaining = td.departureEpoch - simNow
                 val prog = if (waitTotal > 0) (1.0 - remaining / waitTotal).toFloat() else 1f
@@ -102,6 +103,7 @@ class TransitModel(
             val rideStartSim = simNow
             val rideTotalSim = maxOf(scheduled, 1.0)
             while (dist < total - 0.5) {
+                if (PlaybackSource.consumeSkip()) { dist = total; break }
                 val ts = PlaybackSource.timeScale
                 val hopStart = hop * hopLen
                 val hopEnd = ((hop + 1) * hopLen).coerceAtMost(total)
