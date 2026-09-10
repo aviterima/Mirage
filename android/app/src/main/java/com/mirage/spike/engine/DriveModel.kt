@@ -26,12 +26,13 @@ class DriveModel(
     /** Posted limit (mph) for a step. */
     companion object {
         private val FREEWAY = Regex("\\b(I-\\d|Interstate|Fwy|Freeway|Hwy|Highway|US-\\d|Loop \\d|Expressway|Tollway|Turnpike|Pkwy|Parkway)\\b", RegexOption.IGNORE_CASE)
-        private val RAMP = Regex("\\b(ramp|merge|exit)\\b", RegexOption.IGNORE_CASE)
+        // A ramp/exit step is slow; a "merge" step is already ON the freeway, so it is not a ramp.
+        private val RAMP = Regex("\\b(ramp|exit)\\b", RegexOption.IGNORE_CASE)
 
         fun limitMph(seg: RouteSegment): Int {
             val avgMph = if (seg.durationSeconds > 0) seg.distanceMeters / seg.durationSeconds / 0.44704 else 30.0
             val freewayName = FREEWAY.containsMatchIn(seg.instruction)
-            val ramp = RAMP.containsMatchIn(seg.instruction) || seg.maneuver.contains("ramp") || seg.maneuver.contains("merge")
+            val ramp = RAMP.containsMatchIn(seg.instruction) || seg.maneuver.contains("ramp")
             return when {
                 ramp -> 35
                 freewayName && avgMph >= 40 -> 65
@@ -79,7 +80,8 @@ class DriveModel(
             val endSpeedMph = when {
                 next == null -> 0.0
                 isTurn(next) -> 12.0
-                next.maneuver.contains("ramp") || next.maneuver.contains("merge") -> 35.0
+                next.maneuver.contains("ramp") -> 35.0
+                next.maneuver.contains("merge") -> 45.0
                 else -> min(limit, limitMph(next)).toDouble()
             }
             // A traffic light at the intersection that starts this step (surface streets only).
