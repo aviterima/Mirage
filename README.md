@@ -1,5 +1,7 @@
 # Mirage
 
+> **Engineering handoff:** see [HANDOFF.md](HANDOFF.md) for the current state, architecture, known issues and roadmap.
+
 **Programmable, realistic device location for QA and automated testing.**
 
 Mirage is an **Android** app that simulates GPS location accurately and reliably, so
