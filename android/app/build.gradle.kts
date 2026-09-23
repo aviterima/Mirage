@@ -1,4 +1,6 @@
 import java.util.Properties
+import java.net.URI
+import java.util.zip.ZipInputStream
 
 plugins {
     id("com.android.application")
@@ -95,13 +97,13 @@ val prepareVoiceModel by tasks.registering {
         if (model.resolve("am/final.mdl").exists() && model.resolve("uuid").exists()) return@doLast
         val archive = layout.buildDirectory.file("vosk-model-small-en-us-0.15.zip").get().asFile
         archive.parentFile.mkdirs()
-        val connection = java.net.URI("https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip").toURL().openConnection()
+        val connection = URI("https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip").toURL().openConnection()
         connection.connectTimeout = 30000
         connection.readTimeout = 120000
         connection.getInputStream().use { input -> archive.outputStream().use { input.copyTo(it) } }
         model.deleteRecursively()
         model.mkdirs()
-        java.util.zip.ZipInputStream(archive.inputStream()).use { zip ->
+        ZipInputStream(archive.inputStream()).use { zip ->
             var entry = zip.nextEntry
             while (entry != null) {
                 val name = entry.name.removePrefix("vosk-model-small-en-us-0.15/")
