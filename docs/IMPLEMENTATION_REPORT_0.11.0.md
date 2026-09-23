@@ -1,5 +1,12 @@
 # Mirage — implementation and validation report
 
+## Build validation update — 2026-09-23
+
+GitHub repository access is restored. Candidate commit `842b4bcc2f752242d3c3a39b7ef89cc60101b605` passed the full Android debug APK build, Gradle unit tests, lint, and the packaged offline voice-model check in GitHub Actions run 35804670155. PR: https://github.com/aviterima/Mirage/pull/1 .
+
+The initial CI build exposed Java package names shadowed by the Gradle Java extension in the model-download task; explicit URI and ZipInputStream imports fixed this. The earlier source-only and repository-access blockers below are historical and superseded by this update. The APK is being prepared for user testing. Physical-phone UI, microphone, wake-word, and battery behavior remain unverified. Update compatibility with the currently installed APK's signing certificate has not been verified; do not uninstall the current app or erase its data merely to resolve an installation error.
+
+
 Date: 2026-09-22
 Prepared for: Armando Viteri
 Candidate: 0.11.0 / versionCode 29
