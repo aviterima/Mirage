@@ -43,3 +43,12 @@ evasion. See [`SPEC.md`](./SPEC.md) for the full engineering specification.
 
 Early design. The full spec — architecture, reliability engineering, roadmap — lives
 in [`SPEC.md`](./SPEC.md).
+
+## 0.11.0 source candidate — Live view and Hello Mirage
+
+The working update separates execution from draft planning, adds editable upcoming
+stops, typed commands, and offline voice activation. See the
+[live/voice specification](docs/LIVE_AND_VOICE_SPEC.md) and
+[implementation and validation report](docs/IMPLEMENTATION_REPORT_0.11.0.md).
+The published 0.10.0 APK has not been replaced by this work. A full Android build
+and device acceptance are still required.

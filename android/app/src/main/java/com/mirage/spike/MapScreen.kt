@@ -133,6 +133,8 @@ import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.Polyline
 import com.google.maps.android.compose.rememberCameraPositionState
 import com.google.maps.android.compose.rememberMarkerState
+import com.mirage.spike.engine.LiveSession
+import com.mirage.spike.engine.ActivityKind
 import com.mirage.spike.engine.ApiConfig
 import com.mirage.spike.engine.CreditsState
 import com.mirage.spike.engine.Geo
@@ -183,6 +185,13 @@ fun MapScreen(
 ) {
     val vm: MirageViewModel = viewModel()
     val status by MockState.status.collectAsState()
+    val session by LiveSession.state.collectAsState()
+    var planning by remember { mutableStateOf(false) }
+    var showChat by remember { mutableStateOf(false) }
+    var showUpcoming by remember { mutableStateOf(false) }
+    var showAdvanced by remember { mutableStateOf(false) }
+    var follow by remember { mutableStateOf(true) }
+    val live = status.running && !planning
     var showSetup by remember { mutableStateOf(false) }
     var showSaved by remember { mutableStateOf(false) }
     var sheetCollapsed by remember { mutableStateOf(false) }
@@ -204,6 +213,10 @@ fun MapScreen(
         vm.automationToken = keyStore.installId.take(8)
         CommandBus.commands.collect { args -> vm.runCommand(args["cmd"] ?: "", args, onStartService, onStopService) }
     }
+    LaunchedEffect(vm.api, vm.lastReal, vm.start) { Conversation.configure(context, vm.api, vm.lastReal ?: vm.start) }
+    LaunchedEffect(session.title) {
+        if (session.title.isNotBlank()) planning = false
+    }
     val saveKey: (String) -> Unit = { k ->
         keyStore.userKey = k
         vm.configureApi(ApiConfig(BuildConfig.MIRAGE_API_BASE, k.ifBlank { BuildConfig.MAPS_API_KEY }, keyStore.installId))
@@ -214,11 +227,17 @@ fun MapScreen(
         // Continental view until the real fix arrives — never pretend to know where you are.
         position = CameraPosition.fromLatLngZoom(GLatLng(39.5, -98.35), 3f)
     }
+    LaunchedEffect(status.lat, status.lng, live, follow) {
+        if (live && follow) runCatching { camera.move(CameraUpdateFactory.newLatLng(GLatLng(status.lat, status.lng))) }
+    }
+    LaunchedEffect(camera.isMoving) {
+        if (camera.isMoving && camera.cameraMoveStartedReason == com.google.maps.android.compose.CameraMoveStartedReason.GESTURE) follow = false
+    }
     val carState = rememberMarkerState()
     LaunchedEffect(status.lat, status.lng) { carState.position = GLatLng(status.lat, status.lng) }
     // Frame the whole route (or itinerary) in the visible part of the map.
     LaunchedEffect(vm.routePts) {
-        if (vm.routePts.size >= 2) {
+        if ((!status.running || planning) && vm.routePts.size >= 2) {
             val b = LatLngBounds.Builder()
             vm.routePts.forEach { b.include(it.toG()) }
             runCatching { camera.animate(CameraUpdateFactory.newLatLngBounds(b.build(), 90)) }
@@ -281,11 +300,13 @@ fun MapScreen(
     }
     val actions = SimActions(
         getRoute = { vm.buildRoute() },
-        start = { withPerms { vm.startSim(onStartService) } },
-        startItinerary = { withPerms { vm.startItinerary(onStartService) } },
-        holdAt = { at -> withPerms { armStatic(at); vm.onSnapStarted(); onStartService() } },
+        start = { withPerms { vm.startSim(onStartService); planning = false } },
+        startItinerary = { withPerms { vm.startItinerary(onStartService); planning = false } },
+        holdAt = { at -> withPerms { armStatic(at, vm.destName, vm.api); vm.onSnapStarted(); onStartService(); planning = false } },
     )
-    val onStop = { onStopService(); vm.onStopped() }
+    val onStop = { Conversation.cancelPending(); onStopService(); vm.onStopped(); planning = false }
+    val planNow = { planning = true; follow = false; vm.choosePlanMode(PlanMode.ROUTE); vm.useSimulatedPosition() }
+    val planNext = { planning = true; follow = false; vm.choosePlanMode(PlanMode.ROUTE); vm.useTripEnd() }
 
     Box(Modifier.fillMaxSize()) {
 
@@ -295,18 +316,19 @@ fun MapScreen(
             properties = MapProperties(isMyLocationEnabled = hasLocPerm),
             uiSettings = MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = hasLocPerm, compassEnabled = true),
             contentPadding = PaddingValues(
-                top = topInset + if (vm.planMode == PlanMode.SNAP) 116.dp else 172.dp,
+                top = topInset + if (live) 60.dp else if (vm.planMode == PlanMode.SNAP) 116.dp else 172.dp,
                 bottom = when {
+                    live -> maxSheet
                     sheetCollapsed -> 100.dp
-                    status.running -> 300.dp
+                    status.running -> maxSheet
                     else -> maxSheet
                 },
             ),
-            onMapClick = { vm.setDestPoint(it.toE()) },
-            onMapLongClick = { vm.setStartPoint(it.toE()) },
+            onMapClick = { if (!live) vm.setDestPoint(it.toE()) },
+            onMapLongClick = { if (!live) vm.setStartPoint(it.toE()) },
         ) {
             val arrow = remember { runCatching { navigationArrow(ACCENT) }.getOrNull() }
-            vm.start?.let { s ->
+            if (!live) vm.start?.let { s ->
                 Marker(
                     state = rememberMarkerState(key = "s-${s.lat},${s.lng}", position = s.toG()),
                     icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN),
@@ -314,17 +336,25 @@ fun MapScreen(
                     snippet = vm.startName,
                 )
             }
-            vm.dest?.let { d ->
+            if (!live) vm.dest?.let { d ->
                 Marker(
                     state = rememberMarkerState(key = "d-${d.lat},${d.lng}", position = d.toG()),
                     icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_VIOLET),
                     title = vm.destName,
                 )
             }
-            if (vm.routePts.isNotEmpty()) {
-                Polyline(points = vm.routePts.map { it.toG() }, color = ACCENT, width = 14f)
+            if (status.running && session.points.isNotEmpty()) {
+                Polyline(points = session.points.map { it.toG() }, color = ACCENT, width = 14f)
+            }
+            if (!live && vm.routePts.isNotEmpty()) {
+                Polyline(points = vm.routePts.map { it.toG() }, color = if (status.running) VIOLET else ACCENT, width = if (status.running) 7f else 14f)
             }
             if (status.running) {
+                session.stops.drop((session.index + 1).coerceAtLeast(0)).forEach { entry ->
+                    Marker(state = rememberMarkerState(key = entry.id, position = entry.stop.point.toG()),
+                        title = entry.stop.name, snippet = "Upcoming · ${entry.stop.dwellMinutes} min stay",
+                        icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_VIOLET))
+                }
                 Marker(
                     state = carState,
                     icon = arrow ?: BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE),
@@ -423,7 +453,29 @@ fun MapScreen(
                 }
             }
         }
-        Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding().padding(12.dp)) {
+        if (live) {
+            Surface(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(12.dp), shape = RoundedCornerShape(24.dp), shadowElevation = 3.dp) {
+                Row {
+                    TextButton(onClick = { follow = true; goTo(LatLng(status.lat, status.lng)) }) { Text(if (follow) "Following" else "Follow location") }
+                    TextButton(onClick = {
+                        follow = false
+                        val pts = session.points + session.stops.map { it.stop.point }
+                        if (pts.size >= 2) scope.launch {
+                            val bounds = LatLngBounds.Builder(); pts.forEach { bounds.include(it.toG()) }
+                            runCatching { camera.animate(CameraUpdateFactory.newLatLngBounds(bounds.build(), 90)) }
+                        }
+                    }) { Text("Whole trip") }
+                    IconButton(onClick = { showSetup = true }) { Icon(Icons.Filled.Settings, "Setup") }
+                }
+            }
+        }
+        if (!live) Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding().padding(12.dp)) {
+            if (status.running) Surface(shape = RoundedCornerShape(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (vm.queueAfterCurrent) "Next plan · after the current plan" else "New plan · replaces remaining trip", Modifier.weight(1f).padding(8.dp), fontSize = 12.sp)
+                    TextButton(onClick = { planning = false; follow = true }) { Text("Back to live") }
+                }
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
                 Surface(
                     shape = RoundedCornerShape(20.dp), shadowElevation = 4.dp,
@@ -540,19 +592,15 @@ fun MapScreen(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
         ) {
+            Column {
             Column(
-                Modifier.padding(horizontal = 18.dp, vertical = 10.dp).verticalScroll(rememberScrollState()),
+                Modifier.weight(1f, fill = false).padding(horizontal = 18.dp, vertical = 10.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 when {
-                    status.running && sheetCollapsed -> MiniHud(status, onExpand = { sheetCollapsed = false }, onStop = onStop)
-                    status.running -> {
-                        LiveHud(status, vm.timeScale, onCollapse = { sheetCollapsed = true }, onStop = onStop)
-                        HorizontalDivider(color = MUTED.copy(alpha = 0.2f))
-                        Text("Plan the next leg · ${vm.planMode.label()}", fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                        Text("Use the boxes above; starting replaces what is playing.", fontSize = 12.sp, color = MUTED)
-                        Controls(vm = vm, status = status, mockBlocked = mockBlocked, onOpenSetup = { showSetup = true }, a = actions)
-                    }
+                    live -> LiveControls(status, session, planNow, planNext, onStop,
+                        onChat = { showChat = true }, onStops = { showUpcoming = true }, onAdvanced = { showAdvanced = true })
+                    status.running -> Controls(vm = vm, status = status, mockBlocked = mockBlocked, onOpenSetup = { showSetup = true }, a = actions)
                     sheetCollapsed -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { sheetCollapsed = false }) {
                             Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Expand controls", tint = ACCENT)
@@ -570,15 +618,24 @@ fun MapScreen(
                     }
                 }
             }
+            TextButton(onClick = { showChat = true }, modifier = Modifier.fillMaxWidth()) { Text("🎙 Tell Mirage what to do…") }
+            if (status.running) Button(onClick = onStop, colors = ButtonDefaults.buttonColors(containerColor = RED), modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).height(48.dp)) {
+                Text("Stop simulation · return to real location")
+            }
+            }
         }
     }
 
+    if (showChat) ChatPanel { showChat = false }
+    if (showUpcoming) UpcomingDialog(session, onDismiss = { showUpcoming = false }, onAdd = { showUpcoming = false; planNext() })
+    if (showAdvanced) AdvancedDialog(status) { showAdvanced = false }
     if (showSaved) {
         SavedPlansDialog(
             vm = vm,
             onDismiss = { showSaved = false },
             onLoaded = { sc ->
                 showSaved = false
+                planning = true
                 sheetCollapsed = false
                 val focusPt = sc.dest ?: sc.stops.firstOrNull()?.let { LatLng(it.lat, it.lng) }
                 if (focusPt != null) goTo(focusPt)
@@ -748,7 +805,7 @@ private fun Controls(
             }
             Slider(value = vm.speedOverLimit, onValueChange = { vm.speedOverLimit = it }, valueRange = -10f..15f)
             Text(
-                "Per-road limits are estimated from the road class and Google's timing (limit data itself isn't sold with standard keys). Lights stop you at intersections on surface streets; none on freeways. Changes apply live.",
+                "Estimated road limits. This setting applies to the new plan. Use Advanced in the Live view to change the running trip.",
                 fontSize = 11.sp, color = MUTED,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -823,7 +880,8 @@ private fun Controls(
         }
     }
 
-    // GPS signal quality (live, any mode)
+    // During a run these controls live exclusively in Advanced, not the draft.
+    if (!running) {
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Text("GPS signal", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.width(4.dp))
@@ -834,6 +892,8 @@ private fun Controls(
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(onClick = { vm.dropSignal(15) }, enabled = running) { Text("Drop GPS 15 s") }
         OutlinedButton(onClick = { vm.dropSignal(60) }, enabled = running) { Text("Drop 60 s") }
+    }
+
     }
 
     // Notices
@@ -906,103 +966,6 @@ private fun BigButton(text: String, enabled: Boolean = true, icon: ImageVector? 
 private fun BusyRow(text: String) {
     Row(Modifier.height(48.dp), verticalAlignment = Alignment.CenterVertically) {
         CircularProgressIndicator(Modifier.size(20.dp)); Spacer(Modifier.width(10.dp)); Text(text)
-    }
-}
-
-// ---- Live HUD (running) -------------------------------------------------------------
-
-private fun healthColor(h: Health) = when (h) {
-    Health.GREEN -> GREEN
-    Health.AMBER -> AMBER
-    Health.RED -> RED
-}
-
-@Composable
-private fun LiveHud(status: MockStatus, timeScale: Float, onCollapse: () -> Unit, onStop: () -> Unit) {
-    val mph = (status.speedMps / 0.44704f).toInt()
-    val hc = healthColor(status.health)
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Row(verticalAlignment = Alignment.Bottom) {
-            Text("$mph", fontSize = 34.sp, fontWeight = FontWeight.Bold)
-            Text(" mph", fontSize = 15.sp, color = MUTED)
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Surface(shape = RoundedCornerShape(20.dp), color = hc.copy(alpha = 0.12f)) {
-                Text(
-                    "● ${status.message}", color = hc, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                )
-            }
-            IconButton(onClick = onCollapse) {
-                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Collapse to see the map", tint = ACCENT)
-            }
-        }
-    }
-    if (status.stepLabel.isNotEmpty()) {
-        Text(status.stepLabel, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = ACCENT)
-    }
-    if (status.progress >= 0f) {
-        LinearProgressIndicator(progress = { status.progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("${(status.progress * 100).toInt()}% of this leg", fontSize = 12.sp, color = MUTED)
-            if (status.remainingSec >= 0) Text("about ${fmtDuration(status.remainingSec.toDouble())} left", fontSize = 12.sp, color = MUTED)
-        }
-    }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(
-            "${"%.5f".format(status.lat)}, ${"%.5f".format(status.lng)}",
-            fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = MUTED,
-        )
-        if (status.label.isNotEmpty()) Text(
-            if (timeScale > 1f) "${status.label} · ${timeScale.toInt()}× fast-forward" else status.label,
-            fontSize = 12.sp, color = if (timeScale > 1f) AMBER else MUTED,
-        )
-    }
-    Text(
-        "Live · last fix ${lastFixClock(status.lastFixMillis)} · ${status.emittedCount} fixes · re-asserts ${status.reassertCount} · leak ${if (status.leakSeen) "YES ⚠" else "no"}",
-        fontSize = 11.sp, color = MUTED,
-    )
-    if (status.queued > 0) Text("${status.queued} plan${if (status.queued == 1) "" else "s"} queued to start on arrival", fontSize = 12.sp, color = ACCENT)
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = { if (status.paused) PlaybackSource.paused = false else PlaybackSource.paused = true }, modifier = Modifier.weight(1f)) {
-            Icon(if (status.paused) Icons.Filled.PlayArrow else Icons.Filled.Pause, contentDescription = null); Spacer(Modifier.width(4.dp))
-            Text(if (status.paused) "Resume" else "Pause here")
-        }
-        OutlinedButton(onClick = { PlaybackSource.requestSkip() }, modifier = Modifier.weight(1f)) {
-            Icon(Icons.Filled.SkipNext, contentDescription = null); Spacer(Modifier.width(4.dp))
-            Text("Skip ahead")
-        }
-    }
-    Button(
-        onClick = onStop,
-        colors = ButtonDefaults.buttonColors(containerColor = RED),
-        modifier = Modifier.fillMaxWidth().height(48.dp),
-    ) {
-        Icon(Icons.Filled.Stop, contentDescription = null); Spacer(Modifier.width(6.dp))
-        Text("Stop — return to real location", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-    }
-}
-
-/** One-line HUD when the sheet is collapsed while running: still shows health, and Stop stays reachable. */
-@Composable
-private fun MiniHud(status: MockStatus, onExpand: () -> Unit, onStop: () -> Unit) {
-    val mph = (status.speedMps / 0.44704f).toInt()
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = onExpand) {
-            Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Expand status", tint = ACCENT)
-        }
-        Box(Modifier.size(10.dp).background(healthColor(status.health), CircleShape))
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text("$mph mph", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            Text(status.stepLabel.ifEmpty { status.message }, fontSize = 12.sp, color = MUTED, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        IconButton(onClick = { PlaybackSource.paused = !status.paused }) {
-            Icon(if (status.paused) Icons.Filled.PlayArrow else Icons.Filled.Pause, contentDescription = if (status.paused) "Resume" else "Pause", tint = ACCENT)
-        }
-        Button(onClick = onStop, colors = ButtonDefaults.buttonColors(containerColor = RED), contentPadding = PaddingValues(horizontal = 14.dp)) {
-            Text("Stop")
-        }
     }
 }
 
@@ -1443,10 +1406,15 @@ private fun isMockLocation(l: Location): Boolean =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) l.isMock
     else @Suppress("DEPRECATION") l.isFromMockProvider
 
-private fun armStatic(at: LatLng?) {
-    PlaybackSource.current = null
+private fun armStatic(at: LatLng?, name: String, cfg: ApiConfig) {
+    PlaybackSource.clearQueue()
+    PlaybackSource.consumeSkip()
+    PlaybackSource.endPoint = at
+    PlaybackSource.paused = false
+    LiveSession.clear()
+    PlaybackSource.current = at?.let { com.mirage.spike.engine.holdPlan(it, name, cfg).fixes() }
     PlaybackSource.routePoints = listOfNotNull(at)
-    PlaybackSource.label = "Static"
+    PlaybackSource.label = name
 }
 
 private fun LatLng.toG() = GLatLng(lat, lng)

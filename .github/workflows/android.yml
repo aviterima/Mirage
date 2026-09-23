@@ -17,6 +17,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+      MIRAGE_API_BASE: ${{ vars.MIRAGE_API_BASE }}
     defaults:
       run:
         working-directory: android
@@ -60,6 +63,9 @@ jobs:
         continue-on-error: true
         run: ./gradlew --no-daemon lintDebug
 
+      - name: Verify offline voice model is packaged
+        run: unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'assets/model-en-us/am/final.mdl'
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
@@ -76,7 +82,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Publish rolling APK release (direct download)
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: android-latest

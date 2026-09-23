@@ -1,3 +1,8 @@
+> **2026-09-22 update:** [Live operation and conversational control](docs/LIVE_AND_VOICE_SPEC.md)
+> is the authoritative specification for the 0.11.0 source candidate. It supersedes
+> conflicting live UI/planning behavior below. The candidate is not yet an assembled
+> or device-validated release. See [implementation report](docs/IMPLEMENTATION_REPORT_0.11.0.md).
+
 # Mirage — Location Simulation & Testing Platform
 
 **Status:** Draft v0.2
