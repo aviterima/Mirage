@@ -134,3 +134,23 @@ app/src/main/java/com/mirage/spike/
   Theme.kt                 Mirage colour scheme
   engine/                  routing, Places, motion, flight, dwell, itinerary models
 ```
+
+## Live controls and voice (0.11.0 source candidate)
+
+While running, use **Change destination**, **Go there next**, **Upcoming stops**,
+and **Advanced**. Draft changes do not edit the running trip. Upcoming-stop changes
+do edit the remaining trip. The active route stays visible.
+
+Open **Tell Mirage what to do…** to type, tap **Speak now** for one instruction, or
+choose **Enable Hello Mirage** for hands-free. Grant microphone permission once,
+say Hello Mirage, wait for the two-note chime, and then speak. Disable the microphone
+in the chat panel or notification. Try `help` to see supported language.
+
+Commands are a bounded local English grammar, not an unrestricted LLM. Audio is
+recognized locally; Places/routing use your Maps connection. The system TTS engine
+provides spoken replies. Full background/device reliability is not yet validated.
+
+The APK build downloads the versioned Vosk small English model (~40 MB) from
+alphacephei.com and packages it. Allow access to that host, Google Maven, Maven
+Central and Gradle distributions when building. The runtime/model licenses are
+listed in `../docs/THIRD_PARTY_VOICE.md`.

@@ -23,8 +23,8 @@ android {
         applicationId = "com.mirage.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 28
-        versionName = "0.10.0"
+        versionCode = 29
+        versionName = "0.11.0"
         manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
         buildConfigField("String", "MAPS_API_KEY", "\"$mapsApiKey\"")
         // Optional: Mirage's own API gateway (holds the Google key server-side, meters credits).
@@ -56,6 +56,8 @@ android {
 }
 
 dependencies {
+    implementation("net.java.dev.jna:jna:5.18.1@aar")
+    implementation("com.alphacephei:vosk-android:0.3.75@aar")
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.activity:activity-compose:1.9.2")
     implementation(platform("androidx.compose:compose-bom:2024.09.02"))
@@ -80,4 +82,44 @@ dependencies {
     // Unit tests run against a stub android.jar whose org.json returns nothing; use the real one.
     testImplementation("org.json:json:20240303")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+}
+
+// Versioned upstream model, packaged into the APK. No first-run model download.
+val voiceAssets = layout.buildDirectory.dir("generated/voiceAssets")
+val prepareVoiceModel by tasks.registering {
+    outputs.dir(voiceAssets)
+    inputs.property("modelVersion", "vosk-model-small-en-us-0.15")
+    doLast {
+        val root = voiceAssets.get().asFile
+        val model = root.resolve("model-en-us")
+        if (model.resolve("am/final.mdl").exists() && model.resolve("uuid").exists()) return@doLast
+        val archive = layout.buildDirectory.file("vosk-model-small-en-us-0.15.zip").get().asFile
+        archive.parentFile.mkdirs()
+        val connection = java.net.URI("https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip").toURL().openConnection()
+        connection.connectTimeout = 30000
+        connection.readTimeout = 120000
+        connection.getInputStream().use { input -> archive.outputStream().use { input.copyTo(it) } }
+        model.deleteRecursively()
+        model.mkdirs()
+        java.util.zip.ZipInputStream(archive.inputStream()).use { zip ->
+            var entry = zip.nextEntry
+            while (entry != null) {
+                val name = entry.name.removePrefix("vosk-model-small-en-us-0.15/")
+                val target = model.resolve(name).canonicalFile
+                require(target.toPath().startsWith(model.canonicalFile.toPath())) { "Invalid model archive entry" }
+                if (entry.isDirectory) target.mkdirs() else {
+                    target.parentFile.mkdirs()
+                    target.outputStream().use { zip.copyTo(it) }
+                }
+                zip.closeEntry()
+                entry = zip.nextEntry
+            }
+        }
+        require(model.resolve("am/final.mdl").exists()) { "Voice model archive is incomplete" }
+        model.resolve("uuid").writeText("mirage-vosk-en-us-0.15-v1")
+    }
+}
+android.sourceSets.getByName("main").assets.srcDir(voiceAssets)
+tasks.configureEach {
+    if (name.startsWith("merge") && name.endsWith("Assets")) dependsOn(prepareVoiceModel)
 }

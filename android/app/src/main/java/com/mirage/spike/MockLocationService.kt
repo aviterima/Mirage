@@ -21,6 +21,7 @@ import androidx.core.app.NotificationCompat
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import com.mirage.spike.engine.LiveSession
 import com.mirage.spike.engine.DwellModel
 import com.mirage.spike.engine.Fix
 import com.mirage.spike.engine.LatLng
@@ -121,6 +122,7 @@ class MockLocationService : Service() {
         // A new Start (also while already running) replaces the playback.
         val gen = ++generation
         PlaybackSource.paused = false
+        PlaybackSource.consumeSkip()
         loop?.cancel()
         loop = null
         if (setupProviders()) {
@@ -198,17 +200,14 @@ class MockLocationService : Service() {
     private suspend fun runPlayback(gen: Int) {
         var src = PlaybackSource.current
         var last: Fix? = null
-        val holdRnd = ditherRnd
-        while (src != null) {
-            // Routed drive / flight / transit / itinerary: play it to the end. Pause freezes the
-            // stream by simply not collecting further (the producer blocks in emit), holding the
-            // last position like a person standing still.
+        LiveSession.clear()
+        while (currentCoroutineContext().isActive && gen == generation) {
             try {
-                src.collect { fix ->
+                src?.collect { fix ->
                     if (PlaybackSource.paused && gen == generation) {
-                        val hold = DwellModel(fix.copy(speedMps = 0f), 3.0, holdRnd)
+                        val anchor = (last ?: fix).copy(speedMps = 0f)
                         while (PlaybackSource.paused && gen == generation && currentCoroutineContext().isActive) {
-                            pushFix(hold.next(INTERVAL_MS / 1000.0).copy(progress = fix.progress, remainingSec = fix.remainingSec), gen)
+                            pushFix(anchor, gen)
                             delay(INTERVAL_MS)
                         }
                     }
@@ -216,37 +215,32 @@ class MockLocationService : Service() {
                 }
             } catch (e: CancellationException) {
                 throw e
-            } catch (_: Exception) {
-                // stream error — fall through and hold wherever we got to
+            } catch (e: Exception) {
+                if (gen != generation) return
+                MockState.update { it.copy(stepLabel = "Route failed: ${e.message}. Holding here; choose a new destination.") }
+                Conversation.notice("Route failed: ${e.message}. Holding the last position.")
+                // Never silently continue the queue after an execution failure.
+                PlaybackSource.clearQueue()
             }
             if (gen != generation || !currentCoroutineContext().isActive) return
-            // Anything queued to start when this one arrives?
-            val next = PlaybackSource.pollQueue() ?: break
-            PlaybackSource.routePoints = next.points
-            PlaybackSource.label = next.label
-            PlaybackSource.endPoint = next.endPoint
-            MockState.update { it.copy(label = next.label, legIndex = -1, stepLabel = "Continuing: ${next.label}") }
-            refreshNotification()
-            src = next.flow
-        }
-        if (gen != generation || !currentCoroutineContext().isActive) return
-        // Hold the endpoint (or the chosen static point) like a person at a place until the
-        // user taps Stop. Arriving is not the end of the simulation; Stop is.
-        val anchorPt = last?.let { LatLng(it.lat, it.lng) } ?: PlaybackSource.routePoints.firstOrNull()
-        if (anchorPt == null) {
-            // Nothing to play and nothing to hold: never invent a point — hand back to real GPS.
-            if (gen == generation) revertToReal("Nothing to simulate — real location restored", blocked = false)
-            return
-        }
-        val hold = Fix(anchorPt.lat, anchorPt.lng, 0f, 0f, 4f, altitudeM = last?.altitudeM ?: 12.0)
-        MockState.update {
-            it.copy(stepLabel = if (last != null) "Arrived — holding position until Stop" else "Holding point until Stop")
-        }
-        refreshNotification()
-        val dwell = DwellModel(hold, 12.0, ditherRnd)
-        while (currentCoroutineContext().isActive && gen == generation) {
-            pushFix(dwell.next(INTERVAL_MS / 1000.0 * PlaybackSource.timeScale), gen)
-            delay(INTERVAL_MS)
+            val point = last?.let { LatLng(it.lat, it.lng) } ?: PlaybackSource.routePoints.firstOrNull()
+            if (point == null) { revertToReal("Nothing to simulate — real location restored", false); return }
+            val anchor = Fix(point.lat, point.lng, 0f, 0f, 4f, altitudeM = last?.altitudeM ?: 12.0)
+            LiveSession.holding(PlaybackSource.label, listOf(point))
+            val dwell = DwellModel(anchor)
+            var next = PlaybackSource.pollQueue()
+            while (next == null && gen == generation && currentCoroutineContext().isActive) {
+                pushFix(if (PlaybackSource.paused) anchor else dwell.next(0.2 * PlaybackSource.timeScale), gen)
+                delay(INTERVAL_MS)
+                next = PlaybackSource.pollQueue()
+            }
+            if (gen != generation) return
+            val queued = next ?: return
+            PlaybackSource.routePoints = queued.points
+            PlaybackSource.label = queued.label
+            PlaybackSource.endPoint = queued.endPoint
+            MockState.update { it.copy(label = queued.label, legIndex = -1, stepLabel = "Continuing: ${queued.label}") }
+            src = queued.flow
         }
     }
 
@@ -465,6 +459,9 @@ class MockLocationService : Service() {
         generation++            // every in-flight tick becomes a no-op from here on
         PlaybackSource.paused = false
         PlaybackSource.clearQueue()
+        PlaybackSource.consumeSkip()
+        Conversation.cancelPending()
+        LiveSession.clear()
         loop?.cancel()
         loop = null
         revertToReal("Stopped — real location restored", blocked = false)
@@ -472,6 +469,7 @@ class MockLocationService : Service() {
 
     /** Hand location back to the real GPS: tear down every mock path. Idempotent. */
     private fun revertToReal(message: String, blocked: Boolean) {
+        LiveSession.clear()
         flpMockReady = false
         for (p in providers) {
             runCatching { lm.setTestProviderEnabled(p, false) }
@@ -517,6 +515,7 @@ class MockLocationService : Service() {
         }
         runCatching { flp.setMockMode(false) }
         runCatching { if (wakeLock?.isHeld == true) wakeLock?.release() }
+        LiveSession.clear()
         scope.cancel()
         MockState.update { if (it.running || it.starting) it.copy(running = false, starting = false, health = Health.RED, message = "Stopped — real location restored") else it }
         super.onDestroy()

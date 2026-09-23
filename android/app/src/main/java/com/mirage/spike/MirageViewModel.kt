@@ -10,6 +10,10 @@ import androidx.lifecycle.viewModelScope
 import com.mirage.spike.engine.ApiCheck
 import com.mirage.spike.engine.DriveModel
 import com.mirage.spike.engine.Signal
+import com.mirage.spike.engine.LivePlan
+import com.mirage.spike.engine.LiveSession
+import com.mirage.spike.engine.PreparedLeg
+import com.mirage.spike.engine.prepareLeg
 import com.mirage.spike.engine.ApiConfig
 import com.mirage.spike.engine.Fix
 import com.mirage.spike.engine.KeyTester
@@ -114,7 +118,7 @@ class MirageViewModel : ViewModel() {
     private var timeScaleState by mutableStateOf(1f)
     var timeScale: Float
         get() = timeScaleState
-        set(v) { timeScaleState = v; PlaybackSource.timeScale = v.toDouble() }
+        set(v) { timeScaleState = v; if (!MockState.status.value.running) PlaybackSource.timeScale = v.toDouble() }
 
     var phase by mutableStateOf(Phase.IDLE)
         private set
@@ -185,7 +189,7 @@ class MirageViewModel : ViewModel() {
     fun tripStart(): LatLng? {
         val st = MockState.status.value
         return when {
-            st.running && queueAfterCurrent -> PlaybackSource.endPoint ?: LatLng(st.lat, st.lng)
+            st.running && queueAfterCurrent -> PlaybackSource.queueEnd() ?: LiveSession.state.value.stops.lastOrNull()?.stop?.point ?: PlaybackSource.endPoint ?: LatLng(st.lat, st.lng)
             st.running && useSimulatedStart -> LatLng(st.lat, st.lng)
             else -> start
         }
@@ -202,7 +206,7 @@ class MirageViewModel : ViewModel() {
     private var overLimitState by mutableStateOf(5f)
     var speedOverLimit: Float
         get() = overLimitState
-        set(v) { overLimitState = v; PlaybackSource.speedOverLimitMph = v.toDouble() }
+        set(v) { overLimitState = v; if (!MockState.status.value.running) PlaybackSource.speedOverLimitMph = v.toDouble() }
 
     /** Simulated GPS quality (live). */
     var signal by mutableStateOf(Signal.GOOD)
@@ -408,20 +412,29 @@ class MirageViewModel : ViewModel() {
     }
 
     fun startSim(onStart: () -> Unit) {
-        PlaybackSource.timeScale = timeScale.toDouble()
-        PlaybackSource.speedOverLimitMph = speedOverLimit.toDouble()
-        val flow: Flow<Fix>
-        val label: String
-        if (isFlight) {
-            val s = flightOrigin ?: run { error = "Flight was reset — tap Plot flight again"; return }
-            val d = dest ?: run { error = "Set an End"; return }
-            flow = FlightModel(s, d).fixes(); label = "Flight"
-        } else {
-            val r = lastRoute ?: run { error = "Route was reset — tap Get route again"; return }
-            flow = legFlow(r, mode, avgMph)
-            label = when (mode) { TravelMode.TRANSIT -> "Transit"; TravelMode.DRIVE -> "Drive"; else -> "Route" }
+        val origin = tripStart() ?: run { error = "Set a start point"; return }
+        val destination = dest ?: run { error = "Set a destination"; return }
+        if (!canStart) { error = "Route was reset — tap Get route again"; return }
+        val stop = ItineraryStop(destName, destination, 0, mode, avgMph)
+        if (MockState.status.value.running && queueAfterCurrent && LiveSession.plan != null) {
+            LiveSession.plan?.append(stop)
+            notice = "Added ${stop.name} after the existing stops"
+            queueAfterCurrent = false; useSimulatedStart = true
+            return
         }
-        arm(flow, routePts, label, routePts.lastOrNull(), onStart)
+        if (!queueAfterCurrent) {
+            PlaybackSource.timeScale = timeScale.toDouble()
+            PlaybackSource.speedOverLimitMph = speedOverLimit.toDouble()
+        }
+        // Re-route at execution: a moving start and a transit departure must be fresh.
+        // A queued route is likewise resolved when it actually begins.
+        val cfg = api
+        val realismNow = realism
+        val pref = transitPref
+        val plan = LivePlan(destName, origin, listOf(stop), { from, to ->
+            prepareLeg(cfg, from, to, realismNow, pref)
+        })
+        arm(plan.fixes(), listOf(origin), when (mode) { TravelMode.FLY -> "Flight"; TravelMode.TRANSIT -> "Transit"; TravelMode.DRIVE -> "Drive"; else -> "Route" }, destination, onStart)
     }
 
     /** The playback for one routed leg, by mode: real driving, transit timetable, or paced motion. */
@@ -592,42 +605,25 @@ class MirageViewModel : ViewModel() {
         if (planMode == PlanMode.ROUTE && dest != null && tripStart() != null && (mode == TravelMode.FLY || hasKey)) buildRoute()
     }
 
-    /** Route every leg up front, then arm ONE continuous stream: travel, dwell, travel, dwell... */
+    /** Snapshot the draft; subsequent edits use LiveSession and stable stop IDs. */
     fun startItinerary(onStart: () -> Unit) {
-        val s = tripStart() ?: run { error = "Set a start point"; return }
+        val origin = tripStart() ?: run { error = "Set a start point"; return }
         if (stops.isEmpty()) { error = "Add at least one stop"; return }
-        if (stops.any { it.mode != TravelMode.FLY } && !hasKey) { error = "Add MAPS_API_KEY to route"; return }
-        PlaybackSource.timeScale = timeScale.toDouble()
-        viewModelScope.launch {
-            error = null; itineraryBusy = true
-            try {
-                var from = s
-                val legs = mutableListOf<Pair<Flow<Fix>, ItineraryStop>>()
-                val allPts = mutableListOf<LatLng>()
-                for (stop in stops) {
-                    // Every leg travels with ITS OWN mode and speed, and the next one starts
-                    // exactly where this one ended (road-snapped), so nothing teleports.
-                    var legEnd: LatLng = stop.point
-                    val legFlow: Flow<Fix> = if (stop.mode == TravelMode.FLY) {
-                        val fm = FlightModel(from, stop.point); allPts += fm.pathPoints; fm.fixes()
-                    } else {
-                        val r = routeEngine.route(RouteSpec(from, stop.point, mode = stop.mode, transitPreference = transitPref)); allPts += r.points
-                        legEnd = r.points.lastOrNull() ?: stop.point
-                        legFlow(r, stop.mode, stop.avgMph)
-                    }
-                    legs += legFlow to stop
-                    from = legEnd
-                }
-                if (planMode != PlanMode.ITINERARY || !isActive) return@launch  // user moved on meanwhile
-                routePts = allPts
-                PlaybackSource.speedOverLimitMph = speedOverLimit.toDouble()
-                arm(ItineraryModel.play(legs), allPts, "Itinerary", stops.lastOrNull()?.point, onStart)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                error = describe(e, "Itinerary routing failed")
-            } finally { itineraryBusy = false }
+        if (stops.any { it.mode != TravelMode.FLY } && !hasKey) { error = "Add a Maps key in Setup"; return }
+        val snapshot = stops.toList()
+        if (MockState.status.value.running && queueAfterCurrent && LiveSession.plan != null) {
+            snapshot.forEach { LiveSession.plan?.append(it) }
+            notice = "Added ${snapshot.size} stops after the existing stops"
+            queueAfterCurrent = false; useSimulatedStart = true
+            return
         }
+        if (!queueAfterCurrent) {
+            PlaybackSource.timeScale = timeScale.toDouble()
+            PlaybackSource.speedOverLimitMph = speedOverLimit.toDouble()
+        }
+        val cfg = api; val realismNow = realism; val pref = transitPref
+        val plan = LivePlan("Itinerary", origin, snapshot, { from, to -> prepareLeg(cfg, from, to, realismNow, pref) })
+        arm(plan.fixes(), listOf(origin), "Itinerary", snapshot.last().point, onStart)
     }
 
     fun onStopped() {
@@ -655,8 +651,8 @@ class MirageViewModel : ViewModel() {
             "resume" -> { resume(); "Resumed" }
             "skip" -> { skipAhead(); "Skipped ahead" }
             "stop" -> { onStopService(); onStopped(); "Stopped — real location" }
-            "timescale" -> { timeScale = (d("value") ?: 1.0).toFloat().coerceIn(1f, 100f); "Fast-forward ${timeScale.toInt()}×" }
-            "speed_over" -> { speedOverLimit = (d("value") ?: 5.0).toFloat().coerceIn(-15f, 25f); "Cruise at limit ${if (speedOverLimit >= 0) "+" else ""}${speedOverLimit.toInt()} mph" }
+            "timescale" -> { timeScale = (d("value") ?: 1.0).toFloat().coerceIn(1f, 100f); PlaybackSource.timeScale = timeScale.toDouble(); "Fast-forward ${timeScale.toInt()}×" }
+            "speed_over" -> { speedOverLimit = (d("value") ?: 5.0).toFloat().coerceIn(-15f, 25f); PlaybackSource.speedOverLimitMph = speedOverLimit.toDouble(); "Cruise at limit ${if (speedOverLimit >= 0) "+" else ""}${speedOverLimit.toInt()} mph" }
             "signal" -> {
                 val s = Signal.PRESETS.firstOrNull { it.name.equals(args["preset"] ?: "", ignoreCase = true) }
                 if (s == null) "Unknown preset" else { setSignalPreset(s); "Signal ${s.name}" }

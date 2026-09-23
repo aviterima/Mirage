@@ -1,0 +1,21 @@
+PASS: ambiguous stop
+PASS: explicit stop
+PASS: multi-stop parsing
+PASS: queue intent
+PASS: negative phrase cannot stop
+PASS: spoken extension
+PASS: set stay distinct from extension
+PASS: duration bound
+PASS: place selection ordinal
+PASS: queued snap cannot execute immediately
+PASS: draft isolated
+PASS: fixes continue during routing
+PASS: holds after arrival
+PASS: completed stop protected
+PASS: timed stay from hold
+PASS: live extension
+PASS: future stop waits for active stay
+PASS: leave now resumes appended stop
+PASS: future reorder and mode
+PASS: future stay edit
+20 checks passed

@@ -194,6 +194,7 @@ object PlaybackSource {
     @Synchronized fun pollQueue(): Queued? = queue.removeFirstOrNull()
     @Synchronized fun clearQueue() { queue.clear() }
     @Synchronized fun queueSize(): Int = queue.size
+    @Synchronized fun queueEnd(): LatLng? = queue.lastOrNull()?.endPoint
 }
 
 /**

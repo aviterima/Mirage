@@ -1,3 +1,88 @@
+# Mirage — 0.11.0 implementation handoff
+
+Updated: 2026-09-22 · Candidate version: 0.11.0 (versionCode 29)
+Canonical repository: https://github.com/aviterima/Mirage · baseline main: `3fd315c115f816b07336de2942ba156dd90f6303`
+
+**Status: source implementation prepared; not published or Android-device validated.**
+The connected GitHub integration can read the repository but refused the tree-write
+operation with HTTP 403 `Resource not accessible by integration`. No branch, PR,
+commit on GitHub, or new APK was created. The original published APK remains unchanged.
+
+The original 0.10.0 handoff is preserved below as historical context. Where it
+conflicts with this update, the current spec/report and source take precedence.
+
+## Current documents
+
+- [Live/voice specification](docs/LIVE_AND_VOICE_SPEC.md): behavior and release gates.
+- [Implementation report](docs/IMPLEMENTATION_REPORT_0.11.0.md): code status, evidence,
+  limitations and next actions.
+- [Voice dependencies](docs/THIRD_PARTY_VOICE.md): runtime/model provenance.
+
+## New source map
+
+| File | Responsibility |
+| --- | --- |
+| `engine/LivePlan.kt` | Separate execution snapshot; stable stop IDs; upcoming edits; timed stays; just-in-time routing with holding fixes; append after arrival |
+| `LiveUi.kt` | Live card, upcoming editor, advanced dialog, typed/voice chat panel |
+| `CommandParser.kt` | Bounded offline English commands; explicit vs ambiguous Stop; multi-stop syntax |
+| `Conversation.kt` | Process-scoped shared controller, search/choices, command cancellation, in-memory history, voice replies |
+| `VoiceService.kt` | Offline Hello Mirage recognizer, one-shot speech, acknowledgement tones, TTS, microphone notification and release |
+| `MapScreen.kt` | Switches between Live and draft planning; persistent Stop/chat; active route vs preview |
+| `MockLocationService.kt` | Queue polling while holding; paused last-fix behavior; execution failure reporting |
+
+All app files above live under `android/app/src/main/java/com/mirage/spike/`.
+
+## What changed
+
+1. Running simulations have a dedicated Live view. The draft planner opens only on
+   request. Active geometry is independent of draft edits.
+2. Upcoming-stop edits act on LivePlan; they do not silently edit only the screen.
+3. Timed stays can be set/extended during a run; arrival holds accept new stops.
+4. Future route/transit legs are looked up when they start; fixes continue during
+   lookup. Failed routing holds position and reports the error.
+5. Touch, typed commands, and spoken commands share execution state. The command
+   language is explicitly bounded; no cloud LLM is configured.
+6. Voice is opt-in, local Vosk recognition with Hello Mirage and two-tone acknowledgement.
+   It uses a separate microphone foreground service. No boot/restart listening.
+7. Build config packages a versioned English model. CI checks that asset, preserves
+   Maps/gateway build environment across all Gradle steps, and limits rolling release
+   publication to main-branch pushes.
+
+## Validation truth
+
+A standalone Kotlin JVM harness compiled the actual parser, execution state, motion
+models and LivePlan with only the external Google routing client stubbed. Twenty
+behavior checks passed in the final run.
+Conversation also compiled with explicit Android/network stubs. This is not an
+Android build or a substitute for the full existing JVM suite.
+
+The local Gradle wrapper cannot download Gradle 8.7 (`Network is unreachable`). No
+Android SDK/device/adb is available here. GitHub write denial prevents submitting
+this candidate to Actions. The historical successful main workflows validate only
+the old baseline, not this candidate.
+
+## First actions in a build-capable environment
+
+1. Apply the supplied patch against the exact baseline or copy the updated source.
+2. Create a feature branch; run `cd android && ./gradlew testDebugUnitTest assembleDebug lintDebug`.
+3. Verify `assets/model-en-us/am/final.mdl` and `uuid` are in the APK. Record the model
+   archive SHA-256; pin it for future reproducible builds.
+4. Resolve any Android/Compose/native integration issues; do not infer success from
+   the standalone checks.
+5. Run the device acceptance list in the current specification. Especially test
+   pause, timed stay, arrival append, transit timing, Stop during lookup, voice false
+   wakes, chime readiness, screen-off behavior, and battery consumption.
+6. Only after checks pass, merge/release. The candidate is not a public-release build.
+
+Known follow-ons: unrestricted language interpretation; saved place aliases;
+absolute-time scheduling; conversation persistence; full hardware wake optimization;
+process-death resume. The dormant gateway accounting issues described in the prior
+review were not changed in this UI/voice update.
+
+---
+
+# Historical baseline handoff — 0.10.0
+
 # Mirage — engineering handoff
 
 **Prepared:** 2026-09-22 · **Version:** 0.10.0 (versionCode 28) · **Repo:** https://github.com/aviterima/Mirage (branch `main`)
