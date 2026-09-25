@@ -9,33 +9,47 @@ import kotlin.math.min
 import kotlin.math.sqrt
 
 /**
- * Drives a Google Directions route the way a real car does: each step (road) gets a
- * posted speed limit estimated from its road class and Google's own timing, the car
- * cruises at limit + [PlaybackSource.speedOverLimitMph] (live), slows for turns and ramps,
- * and stops at traffic lights at intersections on surface streets — never on freeways.
- *
- * Google's actual speed-limit data is only sold to enterprise asset-tracking accounts, so
- * limits are inferred: freeway ≥ 55 → 65, arterial → 45, collector → 35, local → 30/25.
+ * Drives a Google Directions route using estimated cruising speeds, NOT posted limits.
+ * Road classification is independent of speed: ramps/freeways never get synthetic lights.
  */
+/** Google timing is the default; manual estimated-speed mode remains available. */
+object DriveTiming {
+    @Volatile var matchGoogleTime: Boolean = true
+    val estimate = kotlinx.coroutines.flow.MutableStateFlow("")
+}
+
 class DriveModel(
     private val route: RouteResult,
     private val realism: Realism = Realism.REALISTIC,
     private val updateHz: Int = 5,
     private val seed: Long? = null,
+    private val matchGoogleTime: Boolean = DriveTiming.matchGoogleTime,
 ) {
-    /** Posted limit (mph) for a step. */
     companion object {
-        private val FREEWAY = Regex("\\b(I-\\d|Interstate|Fwy|Freeway|Hwy|Highway|US-\\d|Loop \\d|Expressway|Tollway|Turnpike|Pkwy|Parkway)\\b", RegexOption.IGNORE_CASE)
-        // A ramp/exit step is slow; a "merge" step is already ON the freeway, so it is not a ramp.
-        private val RAMP = Regex("\\b(ramp|exit)\\b", RegexOption.IGNORE_CASE)
+        enum class RoadKind { FREEWAY, RAMP, SURFACE }
+        // Match full route numbers (I-10, I-405), not just a single digit.
+        private val FREEWAY = Regex("""\b(I[- ]\d+|Interstate(?:\s+\d+)?|Fwy|Freeway|Expressway|Tollway|Turnpike|Loop\s+\d+)\b""", RegexOption.IGNORE_CASE)
+        private val RAMP_ACTION = Regex("""^(?:Take|Use|Follow)\b.*\b(?:ramp|exit)\b""", RegexOption.IGNORE_CASE)
+        private val TURN_ACTION = Regex("""^(?:Turn|Make a (?:left|right|U-turn))\b""", RegexOption.IGNORE_CASE)
 
+        fun roadKind(seg: RouteSegment): RoadKind {
+            val maneuver = seg.maneuver.lowercase()
+            // Maneuver codes take precedence over incidental words in destination/sign text.
+            if (maneuver.startsWith("ramp") ||
+                (maneuver.isBlank() && RAMP_ACTION.containsMatchIn(seg.instruction))) return RoadKind.RAMP
+            // Only inspect the current road, not "toward I-10" or "signs for I-10".
+            val road = seg.instruction.split(Regex("""\b(toward|towards|signs for|to take|then)\b""", RegexOption.IGNORE_CASE))[0]
+            if (FREEWAY.containsMatchIn(road)) return RoadKind.FREEWAY
+            // Generic highway/parkway names alone do not establish controlled access.
+            return RoadKind.SURFACE
+        }
+
+        /** Estimated cruising reference in mph; this is not a verified legal limit. */
         fun limitMph(seg: RouteSegment): Int {
             val avgMph = if (seg.durationSeconds > 0) seg.distanceMeters / seg.durationSeconds / 0.44704 else 30.0
-            val freewayName = FREEWAY.containsMatchIn(seg.instruction)
-            val ramp = RAMP.containsMatchIn(seg.instruction) || seg.maneuver.contains("ramp")
             return when {
-                ramp -> 35
-                freewayName && avgMph >= 40 -> 65
+                roadKind(seg) == RoadKind.RAMP -> 35
+                roadKind(seg) == RoadKind.FREEWAY -> 65
                 avgMph >= 52 -> 65
                 avgMph >= 38 -> 45
                 avgMph >= 28 -> 35
@@ -44,15 +58,24 @@ class DriveModel(
             }
         }
 
-        fun isTurn(seg: RouteSegment): Boolean =
-            seg.maneuver.startsWith("turn") || seg.maneuver.contains("uturn") ||
-                Regex("\\b(Turn|left|right)\\b", RegexOption.IGNORE_CASE).containsMatchIn(seg.instruction)
+        fun isTurn(seg: RouteSegment): Boolean {
+            val maneuver = seg.maneuver.lowercase()
+            if (maneuver.isNotBlank()) return maneuver.startsWith("turn") || maneuver.contains("uturn")
+            return TURN_ACTION.containsMatchIn(seg.instruction)
+        }
+
+        fun allowsSyntheticLights(seg: RouteSegment): Boolean =
+            roadKind(seg) == RoadKind.SURFACE && limitMph(seg) <= 45
     }
 
     /** Segments with geometry (Google occasionally emits zero-length steps). */
     private val steps: List<RouteSegment> = route.segments.filter { it.points.size >= 2 }
 
-    fun fixes(): Flow<Fix> = flow {
+    fun fixes(): Flow<Fix> = if (matchGoogleTime && route.durationSeconds.isFinite() && route.durationSeconds > 0) {
+        GooglePacedDriveModel(route, updateHz).fixes()
+    } else estimatedFixes()
+
+    private fun estimatedFixes(): Flow<Fix> = flow {
         val rnd = Random(seed ?: System.nanoTime())
         val dt = 1.0 / updateHz
         val dtMs = (dt * 1000).toLong()
@@ -74,14 +97,13 @@ class DriveModel(
             for (k in 1 until pts.size) cum[k] = cum[k - 1] + Geo.haversine(pts[k - 1], pts[k])
             val len = cum.last().coerceAtLeast(1.0)
             val limit = limitMph(seg)
-            val surface = limit <= 45
+            val surface = allowsSyntheticLights(seg)
             val next = steps.getOrNull(i + 1)
             // Speed we must be down to at the end of this step (a turn ahead, a ramp, or the finish).
             val endSpeedMph = when {
                 next == null -> 0.0
                 isTurn(next) -> 12.0
-                next.maneuver.contains("ramp") -> 35.0
-                next.maneuver.contains("merge") -> 45.0
+                roadKind(next) == RoadKind.RAMP -> 35.0
                 else -> min(limit, limitMph(next)).toDouble()
             }
             // A traffic light at the intersection that starts this step (surface streets only).

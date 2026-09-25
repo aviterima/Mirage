@@ -33,7 +33,7 @@ class GoogleDirectionsRouteEngine(
             "&waypoints=" + enc(spec.waypoints.joinToString("|") { "${it.lat},${it.lng}" })
         // Transit: ask for the next departures from now, optionally filtered by vehicle family.
         val transitExtra = if (spec.mode == TravelMode.TRANSIT)
-            "&departure_time=now" + (spec.transitPreference?.let { "&transit_mode=$it" } ?: "") else ""
+            "&departure_time=now" + (spec.transitPreference?.let { "&transit_mode=$it" } ?: "") else if (spec.mode == TravelMode.DRIVE) "&departure_time=now&traffic_model=best_guess" else ""
 
         val url = cfg.directionsUrl(
             "origin=${enc(origin)}&destination=${enc(dest)}$waypoints&mode=${spec.mode.apiValue}$transitExtra"
@@ -68,12 +68,19 @@ class GoogleDirectionsRouteEngine(
 
             var distance = 0.0
             var duration = 0.0
+            var allTraffic = !transit
             val segments = mutableListOf<RouteSegment>()
             val legs = route.getJSONArray("legs")
             for (i in 0 until legs.length()) {
                 val leg = legs.getJSONObject(i)
                 distance += leg.getJSONObject("distance").getDouble("value")
-                duration += leg.getJSONObject("duration").getDouble("value")
+                val normalDuration = leg.getJSONObject("duration").getDouble("value")
+                val trafficDuration = if (!transit) leg.optJSONObject("duration_in_traffic")?.optDouble("value", Double.NaN) else null
+                val hasTraffic = trafficDuration != null && trafficDuration.isFinite() && trafficDuration > 0
+                allTraffic = allTraffic && hasTraffic
+                val legDuration = if (hasTraffic) trafficDuration!! else normalDuration
+                duration += legDuration
+                val legScale = if (normalDuration > 0) legDuration / normalDuration else 1.0
                 val steps = leg.optJSONArray("steps") ?: continue
                 for (j in 0 until steps.length()) {
                     val st = steps.getJSONObject(j)
@@ -84,7 +91,7 @@ class GoogleDirectionsRouteEngine(
                     val instruction = st.optString("html_instructions").replace(Regex("<[^>]*>"), " ").replace(Regex("\\s+"), " ").trim()
                     val maneuver = st.optString("maneuver")
                     if (!transit) {
-                        segments += RouteSegment(pts, dist, dur, null, instruction, maneuver)
+                        segments += RouteSegment(pts, dist, dur * legScale, null, instruction, maneuver)
                         continue
                     }
                     val td = st.optJSONObject("transit_details")
@@ -119,7 +126,7 @@ class GoogleDirectionsRouteEngine(
                     }
                 }
             }
-            return RouteResult(points, distance, duration, segments)
+            return RouteResult(points, distance, duration, segments, trafficAware = allTraffic && legs.length() > 0)
         }
     }
 }

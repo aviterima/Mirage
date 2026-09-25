@@ -25,12 +25,23 @@ android {
         applicationId = "com.mirage.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 29
-        versionName = "0.11.0"
+        versionCode = 30
+        versionName = "0.11.1"
         manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
         buildConfigField("String", "MAPS_API_KEY", "\"$mapsApiKey\"")
         // Optional: Mirage's own API gateway (holds the Google key server-side, meters credits).
         buildConfigField("String", "MIRAGE_API_BASE", "\"${System.getenv("MIRAGE_API_BASE") ?: ""}\"")
+    }
+
+    // Android tooling may choose a different default user directory on CI.
+    // Bind signing explicitly to the key restored and pinned by the workflow.
+    if (System.getenv("GITHUB_ACTIONS") == "true") {
+        signingConfigs.getByName("debug") {
+            storeFile = file(System.getenv("HOME") + "/.android/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {

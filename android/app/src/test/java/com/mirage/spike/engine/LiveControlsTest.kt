@@ -27,6 +27,50 @@ class DriveModelTest {
         assertEquals(25, DriveModel.limitMph(seg("Turn right onto W Elm Ln", 300.0, 45.0, a, b)))     // 15 mph avg residential
     }
 
+
+    @Test fun congestedInterstatesRemainFreeways() {
+        val a = LatLng(33.45, -112.07); val b = LatLng(33.50, -112.07)
+        for (name in listOf("I-10", "I-17", "I-405", "Loop 101")) {
+            val step = seg("Continue on $name", 5000.0, 900.0, a, b)
+            assertEquals(65, DriveModel.limitMph(step))
+            assertFalse(DriveModel.allowsSyntheticLights(step))
+        }
+    }
+
+    @Test fun exitSignsAndForksDoNotBecomeRampsOrTurns() {
+        val a = LatLng(33.45, -112.07); val b = LatLng(33.50, -112.07)
+        val step = seg("Keep right to stay on I-10 W, follow signs for Exit 143", 5000.0, 300.0, a, b, maneuver = "fork-right")
+        assertEquals(65, DriveModel.limitMph(step))
+        assertFalse(DriveModel.isTurn(step))
+        assertFalse(DriveModel.allowsSyntheticLights(step))
+        val ramp = seg("Take exit 143 toward downtown", 400.0, 40.0, a, b, maneuver = "ramp-right")
+        assertEquals(35, DriveModel.limitMph(ramp))
+        assertFalse(DriveModel.allowsSyntheticLights(ramp))
+    }
+
+    @Test fun surfaceStreetTowardFreewayRemainsSurface() {
+        val a = LatLng(33.45, -112.07); val b = LatLng(33.50, -112.07)
+        val step = seg("Turn right onto Main St toward I-10", 300.0, 45.0, a, b, maneuver = "turn-right")
+        assertEquals(25, DriveModel.limitMph(step))
+        assertTrue(DriveModel.isTurn(step))
+        assertTrue(DriveModel.allowsSyntheticLights(step))
+        assertEquals(25, DriveModel.limitMph(step.copy(instruction = "Continue on Old Highway 80")))
+    }
+
+    @Test fun busyFreewayHasNoFakeLightsOrForkBraking() = runTest {
+        val a = LatLng(33.45, -112.07); val b = LatLng(33.50, -112.07); val c = LatLng(33.55, -112.07)
+        val first = seg("Continue on I-10 W", 5560.0, 900.0, a, b)
+        val second = seg("Keep right to stay on I-10 W, follow signs for Exit 143", 5560.0, 900.0, b, c, maneuver = "fork-right")
+        val route = RouteResult(first.points + second.points.drop(1), 11120.0, 1800.0, listOf(first, second))
+        val fixes = DriveModel(route, Realism.BUSY, seed = 11L, matchGoogleTime = false).fixes().toList()
+        assertFalse(fixes.drop(1).dropLast(1).any { it.speedMps == 0f })
+        val boundary = fixes.filter { it.progress in 0.48f..0.52f }
+        assertTrue(boundary.isNotEmpty())
+        assertTrue("Freeway fork must retain cruising speed", boundary.all { it.speedMps / 0.44704 > 55.0 })
+        assertTrue("11 km freeway drive should finish in under 8 simulated minutes", fixes.size < 8 * 60 * 5)
+        assertEquals(c.lat, fixes.last().lat, 1e-9)
+    }
+
     private fun city(): RouteResult {
         val p0 = LatLng(33.4500, -112.0700); val p1 = LatLng(33.4600, -112.0700)
         val p2 = LatLng(33.4600, -112.0550); val p3 = LatLng(33.4700, -112.0550)
@@ -39,7 +83,7 @@ class DriveModelTest {
 
     @Test fun `city drive obeys limit plus five, slows for turns, stops at lights, arrives`() = runTest {
         val route = city()
-        val fixes = DriveModel(route, Realism.BUSY, seed = 11L).fixes().toList()
+        val fixes = DriveModel(route, Realism.BUSY, seed = 11L, matchGoogleTime = false).fixes().toList()
         val end = route.points.last()
         assertEquals(end.lat, fixes.last().lat, 1e-9); assertEquals(end.lng, fixes.last().lng, 1e-9)
         val maxMph = fixes.maxOf { it.speedMps } / 0.44704
@@ -53,7 +97,7 @@ class DriveModelTest {
             assertTrue("jump $d m at $i", d < 7.0)
         }
         // With no lights at all (CONSTANT) the drive is shorter.
-        val calm = DriveModel(route, Realism.CONSTANT, seed = 11L).fixes().toList()
+        val calm = DriveModel(route, Realism.CONSTANT, seed = 11L, matchGoogleTime = false).fixes().toList()
         assertTrue(calm.size < fixes.size)
         assertFalse(calm.drop(20).dropLast(3).any { it.speedMps == 0f })
     }
@@ -61,9 +105,9 @@ class DriveModelTest {
     @Test fun `over-limit setting is live`() = runTest {
         val route = city()
         PlaybackSource.speedOverLimitMph = -10.0
-        val slow = DriveModel(route, Realism.CONSTANT, seed = 2L).fixes().toList()
+        val slow = DriveModel(route, Realism.CONSTANT, seed = 2L, matchGoogleTime = false).fixes().toList()
         PlaybackSource.speedOverLimitMph = 10.0
-        val fast = DriveModel(route, Realism.CONSTANT, seed = 2L).fixes().toList()
+        val fast = DriveModel(route, Realism.CONSTANT, seed = 2L, matchGoogleTime = false).fixes().toList()
         assertTrue("slow=${slow.size} fast=${fast.size}", fast.size < slow.size)
     }
 }

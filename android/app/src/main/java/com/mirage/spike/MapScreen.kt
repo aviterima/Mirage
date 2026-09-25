@@ -186,10 +186,14 @@ fun MapScreen(
     val vm: MirageViewModel = viewModel()
     val status by MockState.status.collectAsState()
     val session by LiveSession.state.collectAsState()
+    var statusClock by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) { while (true) { statusClock = System.currentTimeMillis(); delay(1000) } }
+    val simulationLabel = simulationStatusText(status, session.activity, statusClock)
     var planning by remember { mutableStateOf(false) }
     var showChat by remember { mutableStateOf(false) }
     var showUpcoming by remember { mutableStateOf(false) }
     var showAdvanced by remember { mutableStateOf(false) }
+    var showLiveDetails by remember { mutableStateOf(false) }
     var follow by remember { mutableStateOf(true) }
     val live = status.running && !planning
     var showSetup by remember { mutableStateOf(false) }
@@ -316,9 +320,9 @@ fun MapScreen(
             properties = MapProperties(isMyLocationEnabled = hasLocPerm),
             uiSettings = MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = hasLocPerm, compassEnabled = true),
             contentPadding = PaddingValues(
-                top = topInset + if (live) 60.dp else if (vm.planMode == PlanMode.SNAP) 116.dp else 172.dp,
+                top = topInset + if (live) 100.dp else if (vm.planMode == PlanMode.SNAP) 148.dp else 204.dp,
                 bottom = when {
-                    live -> maxSheet
+                    live -> 164.dp
                     sheetCollapsed -> 100.dp
                     status.running -> maxSheet
                     else -> maxSheet
@@ -455,6 +459,9 @@ fun MapScreen(
         }
         if (live) {
             Surface(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(12.dp), shape = RoundedCornerShape(24.dp), shadowElevation = 3.dp) {
+                Column {
+                Text(simulationLabel, Modifier.padding(horizontal = 12.dp, vertical = 6.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                    color = if (simulationLabel.startsWith("NEEDS")) RED else ACCENT)
                 Row {
                     TextButton(onClick = { follow = true; goTo(LatLng(status.lat, status.lng)) }) { Text(if (follow) "Following" else "Follow location") }
                     TextButton(onClick = {
@@ -465,11 +472,17 @@ fun MapScreen(
                             runCatching { camera.animate(CameraUpdateFactory.newLatLngBounds(bounds.build(), 90)) }
                         }
                     }) { Text("Whole trip") }
+                    IconButton(onClick = { showSaved = true }) { Icon(Icons.Filled.Bookmark, "Saved plans") }
                     IconButton(onClick = { showSetup = true }) { Icon(Icons.Filled.Settings, "Setup") }
+                }
                 }
             }
         }
         if (!live) Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding().padding(12.dp)) {
+            Surface(shape = RoundedCornerShape(12.dp)) {
+                Text(simulationLabel, Modifier.padding(8.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                    color = if (simulationLabel.startsWith("NEEDS") || status.blocked) RED else ACCENT)
+            }
             if (status.running) Surface(shape = RoundedCornerShape(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(if (vm.queueAfterCurrent) "Next plan · after the current plan" else "New plan · replaces remaining trip", Modifier.weight(1f).padding(8.dp), fontSize = 12.sp)
@@ -586,7 +599,14 @@ fun MapScreen(
         val mockBlocked = !status.running && status.blocked
 
         // ---- Bottom sheet: capped at half the screen, scrolls inside, collapsible -----
-        Card(
+        if (live) {
+            Card(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(10.dp),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                CompactLiveControls(status, session, onStop,
+                    onChat = { showChat = true }, onDetails = { showLiveDetails = true })
+            }
+        } else Card(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(10.dp).heightIn(max = maxSheet),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -626,12 +646,30 @@ fun MapScreen(
         }
     }
 
+    if (showLiveDetails) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showLiveDetails = false },
+            title = { Text("Trip details") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    LiveControls(status, session,
+                        onNow = { showLiveDetails = false; planNow() },
+                        onNext = { showLiveDetails = false; planNext() }, onStop = onStop,
+                        onChat = { showLiveDetails = false; showChat = true },
+                        onStops = { showLiveDetails = false; showUpcoming = true },
+                        onAdvanced = { showLiveDetails = false; showAdvanced = true })
+                }
+            },
+            confirmButton = { TextButton(onClick = { showLiveDetails = false }) { Text("Back to map") } },
+        )
+    }
     if (showChat) ChatPanel { showChat = false }
     if (showUpcoming) UpcomingDialog(session, onDismiss = { showUpcoming = false }, onAdd = { showUpcoming = false; planNext() })
     if (showAdvanced) AdvancedDialog(status) { showAdvanced = false }
     if (showSaved) {
         SavedPlansDialog(
             vm = vm,
+            active = live,
             onDismiss = { showSaved = false },
             onLoaded = { sc ->
                 showSaved = false
@@ -1181,15 +1219,18 @@ private fun DwellDialog(stopName: String, minutes: Int, onSet: (Int) -> Unit, on
 // ---- Saved plans ------------------------------------------------------------------------
 
 @Composable
-private fun SavedPlansDialog(vm: MirageViewModel, onDismiss: () -> Unit, onLoaded: (SavedScenario) -> Unit) {
+private fun SavedPlansDialog(vm: MirageViewModel, active: Boolean = false, onDismiss: () -> Unit, onLoaded: (SavedScenario) -> Unit) {
     var name by remember { mutableStateOf("") }
+    val canSave = if (active) LiveSession.plan != null else vm.canSaveScenario
+    var savedMessage by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Saved plans") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    if (vm.canSaveScenario) "Save the current ${vm.planMode.label().lowercase()} under a name to reuse it later."
+                    if (active) "Save the active trip, including live stop edits, to replay from its start."
+                    else if (vm.canSaveScenario) "Save the current ${vm.planMode.label().lowercase()} under a name to reuse it later."
                     else "Set up a Snap, Route or Itinerary first to save it.",
                     fontSize = 12.sp, color = MUTED,
                 )
@@ -1197,11 +1238,15 @@ private fun SavedPlansDialog(vm: MirageViewModel, onDismiss: () -> Unit, onLoade
                     OutlinedTextField(
                         value = name, onValueChange = { name = it }, singleLine = true,
                         placeholder = { Text("Name, e.g. Lunch run") }, modifier = Modifier.weight(1f),
-                        enabled = vm.canSaveScenario,
+                        enabled = canSave,
                     )
-                    Button(onClick = { if (vm.saveScenario(name)) name = "" }, enabled = vm.canSaveScenario && name.isNotBlank()) { Text("Save") }
+                    Button(onClick = {
+                        val saved = if (active) vm.saveActiveScenario(name) else vm.saveScenario(name)
+                        if (saved) { savedMessage = "Saved " + name; name = "" }
+                    }, enabled = canSave && name.isNotBlank()) { Text(if (active) "Save trip" else "Save") }
                 }
                 HorizontalDivider()
+                if (savedMessage.isNotBlank()) Text(savedMessage)
                 if (vm.savedScenarios.isEmpty()) {
                     Text("Nothing saved yet.", fontSize = 12.sp, color = MUTED)
                 }

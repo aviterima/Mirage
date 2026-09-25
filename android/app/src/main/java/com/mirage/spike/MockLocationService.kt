@@ -92,7 +92,7 @@ class MockLocationService : Service() {
             // so never spoof a stale point. Just make sure no mock is left behind and stop.
             // (No foreground promotion here — from the background that can itself throw.)
             generation++
-            revertToReal("Stopped — real location restored", blocked = false)
+            revertToReal("Simulation stopped — waiting for real location", blocked = false)
             return START_NOT_STICKY
         }
         if (intent.action == ACTION_STOP) {
@@ -163,6 +163,7 @@ class MockLocationService : Service() {
             MockState.update {
                 it.copy(
                     mockAppSelected = true, blocked = false, starting = true, running = false,
+                    lastFixMillis = 0L, lastFusedFixMillis = 0L,
                     health = Health.GREEN, message = "Starting…", stepLabel = "", label = PlaybackSource.label,
                     progress = -1f, remainingSec = -1, legIndex = -1,
                 )
@@ -187,7 +188,7 @@ class MockLocationService : Service() {
             @Suppress("DEPRECATION")
             lm.addTestProvider(
                 p, false, true, false, false, true, true, true,
-                Criteria.POWER_LOW, Criteria.ACCURACY_FINE
+                android.location.provider.ProviderProperties.POWER_USAGE_LOW, android.location.provider.ProviderProperties.ACCURACY_FINE
             )
         } catch (_: IllegalArgumentException) {
             // already added on a previous run
@@ -265,9 +266,12 @@ class MockLocationService : Service() {
             )
             fixIn.copy(lat = p.lat, lng = p.lng, accuracyM = maxOf(fixIn.accuracyM, sig.accuracyM * (0.8f + ditherRnd.nextFloat() * 0.4f)))
         } else fixIn
+        var providerAccepted = false
+        val sentAt = System.currentTimeMillis()
         for (p in providers) {
             try {
                 lm.setTestProviderLocation(p, toLocation(p, fix))
+                providerAccepted = true
             } catch (_: Exception) {
                 if (gen != generation) return
                 reasserts++
@@ -275,9 +279,14 @@ class MockLocationService : Service() {
             }
         }
         if (flpMockReady) {
-            runCatching {
+            try {
                 flp.setMockLocation(toLocation(LocationManager.GPS_PROVIDER, fix))
-                    .addOnSuccessListener { flpFailures = 0 }
+                    .addOnSuccessListener {
+                        if (gen == generation) {
+                            flpFailures = 0
+                            MockState.update { it.copy(lastFusedFixMillis = maxOf(it.lastFusedFixMillis, sentAt)) }
+                        }
+                    }
                     .addOnFailureListener { e ->
                         if (gen != generation) return@addOnFailureListener
                         flpFailures++
@@ -285,15 +294,22 @@ class MockLocationService : Service() {
                             // Google Maps reads this channel: say so instead of showing GREEN.
                             MockState.update { it.copy(health = Health.AMBER, message = "Google feed failing: ${e.message ?: "rejected"}") }
                             flpMockReady = false
-                            flp.setMockMode(true).addOnSuccessListener { if (gen == generation) { flpMockReady = true; flpFailures = 0 } }
+                            try {
+                                flp.setMockMode(true).addOnSuccessListener { if (gen == generation) { flpMockReady = true; flpFailures = 0 } }
+                            } catch (_: SecurityException) {
+                                flpMockReady = false
+                            }
                         }
                     }
+            } catch (_: SecurityException) {
+                flpMockReady = false
+                flpFailures++
             }
         }
         count++
 
         var leakNow = false
-        var locationOff = false
+        var locationOff = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && !runCatching { lm.isLocationEnabled }.getOrDefault(true)
         if (++tick >= WATCHDOG_EVERY) {
             tick = 0
             locationOff = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && !runCatching { lm.isLocationEnabled }.getOrDefault(true)
@@ -313,12 +329,14 @@ class MockLocationService : Service() {
 
         val health = when {
             locationOff -> Health.RED
-            leakNow || flpFailures >= 5 -> Health.AMBER
+            !providerAccepted || !flpMockReady || flpFailures > 0 || System.currentTimeMillis() - MockState.status.value.lastFusedFixMillis > 5000 -> Health.AMBER
+            leakNow -> Health.AMBER
             else -> Health.GREEN
         }
         val message = when {
             locationOff -> "Location is turned OFF on the phone"
-            flpFailures >= 5 -> "Google feed failing — re-asserting"
+            !providerAccepted -> "Location output rejected — checking providers"
+            !flpMockReady || flpFailures > 0 || System.currentTimeMillis() - MockState.status.value.lastFusedFixMillis > 5000 -> "Waiting for Google location feed confirmation"
             leakEver -> "Re-asserting (leak seen)"
             PlaybackSource.paused -> "Paused — holding here"
             else -> "Simulating"
@@ -328,7 +346,7 @@ class MockLocationService : Service() {
                 running = true, starting = false, mockAppSelected = true, blocked = false, health = health,
                 lat = fix.lat, lng = fix.lng, speedMps = fix.speedMps, bearingDeg = fix.bearingDeg,
                 progress = fix.progress, remainingSec = fix.remainingSec,
-                emittedCount = count, lastFixMillis = System.currentTimeMillis(),
+                emittedCount = count, lastFixMillis = if (providerAccepted) sentAt else it.lastFixMillis,
                 reassertCount = reasserts, leakSeen = leakEver,
                 message = message, label = PlaybackSource.label,
                 paused = PlaybackSource.paused, signalDropped = false, signalName = sig.name,
@@ -339,7 +357,8 @@ class MockLocationService : Service() {
     }
 
     private fun detectLeak(): Boolean {
-        val last = runCatching { lm.getLastKnownLocation(LocationManager.GPS_PROVIDER) }.getOrNull()
+        val last = try { lm.getLastKnownLocation(LocationManager.GPS_PROVIDER) }
+            catch (_: SecurityException) { null }
             ?: return false
         return !isMock(last)
     }
@@ -475,7 +494,7 @@ class MockLocationService : Service() {
             runCatching { lm.setTestProviderEnabled(p, false) }
             runCatching { lm.removeTestProvider(p) }
         }
-        runCatching { flp.setMockMode(false) }
+        try { flp.setMockMode(false) } catch (_: SecurityException) { /* Permission may be revoked during shutdown. */ }
         runCatching { if (wakeLock?.isHeld == true) wakeLock?.release() }
         wakeLock = null
         MockState.update {
@@ -513,7 +532,7 @@ class MockLocationService : Service() {
             runCatching { lm.setTestProviderEnabled(p, false) }
             runCatching { lm.removeTestProvider(p) }
         }
-        runCatching { flp.setMockMode(false) }
+        try { flp.setMockMode(false) } catch (_: SecurityException) { /* Permission may be revoked during shutdown. */ }
         runCatching { if (wakeLock?.isHeld == true) wakeLock?.release() }
         LiveSession.clear()
         scope.cancel()

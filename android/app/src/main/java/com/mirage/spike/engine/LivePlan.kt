@@ -38,7 +38,7 @@ data class PreparedLeg(val flow: Flow<Fix>, val points: List<LatLng>)
 /** Routes future legs just in time, holding the last location throughout API latency. */
 class LivePlan(
     val title: String,
-    private val origin: LatLng,
+    val origin: LatLng,
     stops: List<ItineraryStop>,
     private val route: suspend (LatLng, ItineraryStop) -> PreparedLeg,
     private val firstLeg: PreparedLeg? = null,
@@ -52,6 +52,17 @@ class LivePlan(
 
     @Synchronized fun view() = SessionView(title, entries.toList(), index, kind, points, staySeconds.toInt())
     private fun publish() = LiveSession.publish(this, view())
+    /** Save configured stops; for the current stop preserve its remaining/pending stay. */
+    @Synchronized fun stopsForSave(): List<ItineraryStop> = entries.mapIndexed { i, entry ->
+        if (i != index) entry.stop else {
+            val seconds = when (kind) {
+                ActivityKind.TRAVELING, ActivityKind.ROUTING -> entry.stop.dwellMinutes * 60.0 + extraOnArrivalSeconds
+                ActivityKind.STAYING, ActivityKind.HOLDING -> staySeconds
+                else -> entry.stop.dwellMinutes * 60.0
+            }
+            entry.stop.copy(dwellMinutes = kotlin.math.ceil(seconds / 60.0).toInt().coerceIn(0, 1440))
+        }
+    }
     @Synchronized fun append(stop: ItineraryStop) { entries += LiveStop(stop = stop); publish() }
     @Synchronized fun remove(id: String): Boolean {
         val i = entries.indexOfFirst { it.id == id }

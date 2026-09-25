@@ -23,6 +23,7 @@ import com.mirage.spike.engine.*
 fun LiveControls(status: MockStatus, session: SessionView, onNow: () -> Unit, onNext: () -> Unit, onStop: () -> Unit, onChat: () -> Unit, onStops: () -> Unit, onAdvanced: () -> Unit) {
     val current = session.stops.getOrNull(session.index)?.stop
     val next = session.stops.getOrNull(session.index + 1)?.stop
+    val estimate by DriveTiming.estimate.collectAsState()
     val title = when {
         status.paused -> "Paused here"
         session.activity == ActivityKind.ROUTING -> "Finding your route"
@@ -37,6 +38,7 @@ fun LiveControls(status: MockStatus, session: SessionView, onNow: () -> Unit, on
         ActivityKind.ROUTING -> "Holding your position while the route is prepared"
         else -> "Simulation stays on until you stop it"
     }, style = MaterialTheme.typography.bodyMedium)
+    if (current?.mode == TravelMode.DRIVE && estimate.isNotBlank()) Text(estimate, style = MaterialTheme.typography.bodySmall)
     Text(next?.let { "Next: ${it.name} · stay ${it.dwellMinutes} min" } ?: "No further stops", style = MaterialTheme.typography.bodySmall)
     if (status.health != Health.GREEN) Text(status.message, color = MaterialTheme.colorScheme.error)
     if (status.stepLabel.startsWith("Route failed")) Text(status.stepLabel, color = MaterialTheme.colorScheme.error)
@@ -94,13 +96,19 @@ fun UpcomingDialog(session: SessionView, onDismiss: () -> Unit, onAdd: () -> Uni
 @Composable
 fun AdvancedDialog(status: MockStatus, onDismiss: () -> Unit) {
     var scale by remember { mutableStateOf(PlaybackSource.timeScale) }
+    var googleTiming by remember { mutableStateOf(DriveTiming.matchGoogleTime) }
     var over by remember { mutableStateOf(PlaybackSource.speedOverLimitMph.toFloat()) }
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Live advanced controls") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Fast-forward · ${scale.toInt()}×")
             Row { listOf(1.0, 2.0, 5.0, 10.0).forEach { n -> TextButton(onClick = { scale = n; PlaybackSource.timeScale = n }) { Text("${n.toInt()}×") } } }
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text("Match Google travel time", Modifier.weight(1f))
+                Switch(checked = googleTiming, onCheckedChange = { googleTiming = it; DriveTiming.matchGoogleTime = it })
+            }
+            Text("Timing mode applies to the next driving leg. Google timing includes traffic when available; the manual mph adjustment below applies only when this switch is off.", style = MaterialTheme.typography.bodySmall)
             Text("Driving · estimated road limit ${if (over >= 0) "+" else ""}${over.toInt()} mph")
-            Slider(value = over, onValueChange = { over = it; PlaybackSource.speedOverLimitMph = it.toDouble() }, valueRange = -10f..15f)
+            Slider(enabled = !googleTiming, value = over, onValueChange = { over = it; PlaybackSource.speedOverLimitMph = it.toDouble() }, valueRange = -10f..15f)
             Text("Applies immediately to driving legs. Road limits are estimates.", style = MaterialTheme.typography.bodySmall)
             Text("GPS signal · ${status.signalName}")
             Row { Signal.PRESETS.forEach { preset -> TextButton(onClick = { PlaybackSource.signal = preset }) { Text(preset.name) } } }
@@ -160,6 +168,40 @@ fun ChatPanel(onDismiss: () -> Unit) {
                 Button(onClick = { Conversation.submit(text); text = "" }, enabled = text.isNotBlank()) { Text("Send") }
             }
             Text("Voice is processed on this phone. Place search and routing use your Maps connection. Hands-free stays enabled until you turn the microphone off.", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+/** Map-first live summary; editing and diagnostics live behind Details. */
+@Composable
+fun CompactLiveControls(status: MockStatus, session: SessionView, onStop: () -> Unit, onChat: () -> Unit, onDetails: () -> Unit) {
+    val current = session.stops.getOrNull(session.index)?.stop
+    val title = when {
+        status.paused -> "Paused"
+        session.activity == ActivityKind.ROUTING -> "Finding route"
+        session.activity == ActivityKind.TRAVELING -> "To ${current?.name ?: status.label}"
+        else -> "At ${current?.name ?: status.label.ifBlank { "this location" }}"
+    }
+    Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(title, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
+                Text(when (session.activity) {
+                    ActivityKind.TRAVELING -> "${(status.speedMps / 0.44704).toInt()} mph" + if (status.remainingSec >= 0) " · ${fmtDuration(status.remainingSec.toDouble())} left" else ""
+                    ActivityKind.STAYING -> "${fmtDuration(session.remainingStaySeconds.toDouble())} stay remaining"
+                    ActivityKind.ROUTING -> "Holding position"
+                    else -> "Holding position"
+                }, style = MaterialTheme.typography.bodySmall)
+            }
+            TextButton(onClick = onDetails) { Text("Details") }
+        }
+        if (status.health != Health.GREEN) Text(status.message, color = MaterialTheme.colorScheme.error, maxLines = 2)
+        if (status.stepLabel.startsWith("Route failed")) Text(status.stepLabel, color = MaterialTheme.colorScheme.error, maxLines = 2)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            OutlinedButton(onClick = { Conversation.submit(if (status.paused) "continue" else "pause") }, modifier = Modifier.weight(1f)) { Text(if (status.paused) "Resume" else "Pause") }
+            OutlinedButton(onClick = onChat, modifier = Modifier.weight(1f)) { Text("Talk") }
+            Button(onClick = onStop, modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Stop") }
         }
     }
 }
