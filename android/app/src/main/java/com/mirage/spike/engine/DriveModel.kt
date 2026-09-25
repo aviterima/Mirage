@@ -12,11 +12,17 @@ import kotlin.math.sqrt
  * Drives a Google Directions route using estimated cruising speeds, NOT posted limits.
  * Road classification is independent of speed: ramps/freeways never get synthetic lights.
  */
+/** Google timing is the default; manual estimated-speed mode remains available. */
+object DriveTiming {
+    @Volatile var matchGoogleTime: Boolean = true
+}
+
 class DriveModel(
     private val route: RouteResult,
     private val realism: Realism = Realism.REALISTIC,
     private val updateHz: Int = 5,
     private val seed: Long? = null,
+    private val matchGoogleTime: Boolean = DriveTiming.matchGoogleTime,
 ) {
     companion object {
         enum class RoadKind { FREEWAY, RAMP, SURFACE }
@@ -64,7 +70,11 @@ class DriveModel(
     /** Segments with geometry (Google occasionally emits zero-length steps). */
     private val steps: List<RouteSegment> = route.segments.filter { it.points.size >= 2 }
 
-    fun fixes(): Flow<Fix> = flow {
+    fun fixes(): Flow<Fix> = if (matchGoogleTime && route.durationSeconds.isFinite() && route.durationSeconds > 0) {
+        GooglePacedDriveModel(route, updateHz).fixes()
+    } else estimatedFixes()
+
+    private fun estimatedFixes(): Flow<Fix> = flow {
         val rnd = Random(seed ?: System.nanoTime())
         val dt = 1.0 / updateHz
         val dtMs = (dt * 1000).toLong()
