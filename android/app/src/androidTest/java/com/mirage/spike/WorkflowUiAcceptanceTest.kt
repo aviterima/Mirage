@@ -52,6 +52,8 @@ class WorkflowUiAcceptanceTest {
         MockState.reset(); LiveSession.clear(); PlaybackSource.clearQueue()
     }
     private fun screenshot(name: String) {
+        compose.waitForIdle()
+        device.waitForIdle()
         assertEquals("No system dialog may cover the app", "com.mirage.app", device.currentPackageName)
         device.executeShellCommand("mkdir -p /sdcard/Download/mirage-acceptance")
         device.executeShellCommand("screencap -p /sdcard/Download/mirage-acceptance/" + name + ".png")
