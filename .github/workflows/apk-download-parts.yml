@@ -1,0 +1,75 @@
+name: Package verified 0.11.2 APK for download
+on:
+  push:
+    branches: ["codex/acceptance-0.11.2-download"]
+    paths: [".github/workflows/apk-download-parts.yml"]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch the already tested and signed APK
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: aviterima/Mirage
+          run-id: 36168505351
+          name: mirage-debug-apk
+          path: apk
+      - name: Verify exact bytes and prepare portable downloads
+        run: |
+          echo 'd089f8f50e879b32285faf2aafe0c3314bda14b3f5e618c3fc5c09e4af075462  apk/app-debug.apk' | sha256sum -c -
+          mkdir parts
+          split -b 24M -d apk/app-debug.apk parts/app-debug.apk.part-
+          test "$(find parts -type f | wc -l)" -le 8
+          stat -c '%s bytes' apk/app-debug.apk
+      - name: Download part 0
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirage-complete-part-00
+          path: parts/app-debug.apk.part-00
+          if-no-files-found: ignore
+      - name: Download part 1
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirage-complete-part-01
+          path: parts/app-debug.apk.part-01
+          if-no-files-found: ignore
+      - name: Download part 2
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirage-complete-part-02
+          path: parts/app-debug.apk.part-02
+          if-no-files-found: ignore
+      - name: Download part 3
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirage-complete-part-03
+          path: parts/app-debug.apk.part-03
+          if-no-files-found: ignore
+      - name: Download part 4
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirage-complete-part-04
+          path: parts/app-debug.apk.part-04
+          if-no-files-found: ignore
+      - name: Download part 5
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirage-complete-part-05
+          path: parts/app-debug.apk.part-05
+          if-no-files-found: ignore
+      - name: Download part 6
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirage-complete-part-06
+          path: parts/app-debug.apk.part-06
+          if-no-files-found: ignore
+      - name: Download part 7
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirage-complete-part-07
+          path: parts/app-debug.apk.part-07
+          if-no-files-found: ignore
