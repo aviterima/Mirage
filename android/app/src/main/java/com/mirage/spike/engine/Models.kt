@@ -77,6 +77,7 @@ data class RouteResult(
     val segments: List<RouteSegment> = emptyList(),
     /** True only when every leg supplied a valid traffic-aware duration. */
     val trafficAware: Boolean = false,
+    val fetchedAtMillis: Long = System.currentTimeMillis(),
 )
 
 data class MotionParams(
