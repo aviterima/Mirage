@@ -186,6 +186,9 @@ fun MapScreen(
     val vm: MirageViewModel = viewModel()
     val status by MockState.status.collectAsState()
     val session by LiveSession.state.collectAsState()
+    var statusClock by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) { while (true) { statusClock = System.currentTimeMillis(); delay(1000) } }
+    val simulationLabel = simulationStatusText(status, session.activity, statusClock)
     var planning by remember { mutableStateOf(false) }
     var showChat by remember { mutableStateOf(false) }
     var showUpcoming by remember { mutableStateOf(false) }
@@ -317,7 +320,7 @@ fun MapScreen(
             properties = MapProperties(isMyLocationEnabled = hasLocPerm),
             uiSettings = MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = hasLocPerm, compassEnabled = true),
             contentPadding = PaddingValues(
-                top = topInset + if (live) 60.dp else if (vm.planMode == PlanMode.SNAP) 116.dp else 172.dp,
+                top = topInset + if (live) 100.dp else if (vm.planMode == PlanMode.SNAP) 148.dp else 204.dp,
                 bottom = when {
                     live -> 164.dp
                     sheetCollapsed -> 100.dp
@@ -456,6 +459,9 @@ fun MapScreen(
         }
         if (live) {
             Surface(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(12.dp), shape = RoundedCornerShape(24.dp), shadowElevation = 3.dp) {
+                Column {
+                Text(simulationLabel, Modifier.padding(horizontal = 12.dp, vertical = 6.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                    color = if (simulationLabel.startsWith("NEEDS")) RED else ACCENT)
                 Row {
                     TextButton(onClick = { follow = true; goTo(LatLng(status.lat, status.lng)) }) { Text(if (follow) "Following" else "Follow location") }
                     TextButton(onClick = {
@@ -469,9 +475,14 @@ fun MapScreen(
                     IconButton(onClick = { showSaved = true }) { Icon(Icons.Filled.Bookmark, "Saved plans") }
                     IconButton(onClick = { showSetup = true }) { Icon(Icons.Filled.Settings, "Setup") }
                 }
+                }
             }
         }
         if (!live) Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding().padding(12.dp)) {
+            Surface(shape = RoundedCornerShape(12.dp)) {
+                Text(simulationLabel, Modifier.padding(8.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                    color = if (simulationLabel.startsWith("NEEDS") || status.blocked) RED else ACCENT)
+            }
             if (status.running) Surface(shape = RoundedCornerShape(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(if (vm.queueAfterCurrent) "Next plan · after the current plan" else "New plan · replaces remaining trip", Modifier.weight(1f).padding(8.dp), fontSize = 12.sp)
