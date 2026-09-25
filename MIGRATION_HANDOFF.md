@@ -6,7 +6,7 @@ Migration date: 25 September 2026. Owner: Armando Viteri.
 
 Reference inspected before this documentation change: 3fd315c115f816b07336de2942ba156dd90f6303.
 
-Canonical repository: https://github.com/aviterima/Mirage . main is the integrated source. The separately documented 0.11 voice/chat candidate and APK must remain distinguishable from main until release acceptance; recheck its PR before continuing. Preserve HANDOFF.md, UX specifications, wake-word requirements, Android history, existing signing identity and APK provenance. Migration does not imply physical-device acceptance or a merged release.
+Canonical repository: https://github.com/aviterima/Mirage . main is the integrated source. The 0.11.0 voice/chat candidate is PR #1. A newer 0.11.1 highway-speed/flight-timing candidate is draft PR #2, branch codex/highway-speed-0.11.1, observed at 034ac3cf02f0d4f774cb27f0688d200cdb169933 on September 25. Its build checks were in progress during migration. Keep both candidates distinct from main until release acceptance; recheck the PRs before continuing. Preserve HANDOFF.md, UX specifications, wake-word requirements, Android history, existing signing identity and APK provenance. Migration does not imply physical-device acceptance or a merged release.
 
 ## Continuing work
 
