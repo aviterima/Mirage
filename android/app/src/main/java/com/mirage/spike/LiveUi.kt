@@ -169,3 +169,37 @@ fun ChatPanel(onDismiss: () -> Unit) {
         }
     }
 }
+
+/** Map-first live summary; editing and diagnostics live behind Details. */
+@Composable
+fun CompactLiveControls(status: MockStatus, session: SessionView, onStop: () -> Unit, onChat: () -> Unit, onDetails: () -> Unit) {
+    val current = session.stops.getOrNull(session.index)?.stop
+    val title = when {
+        status.paused -> "Paused"
+        session.activity == ActivityKind.ROUTING -> "Finding route"
+        session.activity == ActivityKind.TRAVELING -> "To ${current?.name ?: status.label}"
+        else -> "At ${current?.name ?: status.label.ifBlank { "this location" }}"
+    }
+    Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(title, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
+                Text(when (session.activity) {
+                    ActivityKind.TRAVELING -> "${(status.speedMps / 0.44704).toInt()} mph" + if (status.remainingSec >= 0) " · ${fmtDuration(status.remainingSec.toDouble())} left" else ""
+                    ActivityKind.STAYING -> "${fmtDuration(session.remainingStaySeconds.toDouble())} stay remaining"
+                    ActivityKind.ROUTING -> "Holding position"
+                    else -> "Holding position"
+                }, style = MaterialTheme.typography.bodySmall)
+            }
+            TextButton(onClick = onDetails) { Text("Details") }
+        }
+        if (status.health != Health.GREEN) Text(status.message, color = MaterialTheme.colorScheme.error, maxLines = 2)
+        if (status.stepLabel.startsWith("Route failed")) Text(status.stepLabel, color = MaterialTheme.colorScheme.error, maxLines = 2)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            OutlinedButton(onClick = { Conversation.submit(if (status.paused) "continue" else "pause") }, modifier = Modifier.weight(1f)) { Text(if (status.paused) "Resume" else "Pause") }
+            OutlinedButton(onClick = onChat, modifier = Modifier.weight(1f)) { Text("Talk") }
+            Button(onClick = onStop, modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Stop") }
+        }
+    }
+}
