@@ -98,8 +98,8 @@ jobs:
           set -euo pipefail
           apksigner_path=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)
           test -n "$apksigner_path"
-          "$apksigner_path" verify --print-certs app/build/outputs/apk/debug/app-debug.apk > "$RUNNER_TEMP/mirage-cert.txt"
-          actual_cert=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/mirage-cert.txt" | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')
+          "$apksigner_path" verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.apk | tee "$RUNNER_TEMP/mirage-cert.txt"
+          actual_cert=$(sed -n 's/.*certificate SHA-256 digest: //p' "$RUNNER_TEMP/mirage-cert.txt" | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')
           expected_cert=$(printf '%s' "$MIRAGE_SIGNING_CERT_SHA256" | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')
           test -n "$actual_cert"
           if [ "$actual_cert" != "$expected_cert" ]; then
