@@ -38,6 +38,7 @@ class WorkflowUiAcceptanceTest {
         device.executeShellCommand("pm grant com.mirage.app android.permission.ACCESS_COARSE_LOCATION")
         device.executeShellCommand("pm grant com.mirage.app android.permission.POST_NOTIFICATIONS")
         device.executeShellCommand("appops set com.mirage.app android:mock_location allow")
+        device.executeShellCommand("am force-stop com.google.android.apps.nexuslauncher")
         activity = ActivityScenario.launch(MainActivity::class.java)
         compose.waitUntil(15_000) {
             compose.onAllNodesWithContentDescription("Saved plans").fetchSemanticsNodes().isNotEmpty()
@@ -51,6 +52,7 @@ class WorkflowUiAcceptanceTest {
         MockState.reset(); LiveSession.clear(); PlaybackSource.clearQueue()
     }
     private fun screenshot(name: String) {
+        assertEquals("No system dialog may cover the app", "com.mirage.app", device.currentPackageName)
         device.executeShellCommand("mkdir -p /sdcard/Download/mirage-acceptance")
         device.executeShellCommand("screencap -p /sdcard/Download/mirage-acceptance/" + name + ".png")
     }
@@ -80,7 +82,32 @@ class WorkflowUiAcceptanceTest {
 
     @Test fun uc21_savedRouteProvidesItineraryComposition() {
         saved(); compose.onNodeWithText("Fixture commute").performClick(); screenshot("uc21-composition")
-        compose.onNodeWithText("Add to itinerary", ignoreCase = true).assertIsDisplayed()
+        compose.onNodeWithText("Add to itinerary", ignoreCase = true).performScrollTo().assertIsDisplayed()
+    }
+
+    @Test fun savedSnapsBuildBothRouteEndpoints() {
+        saved()
+        compose.onNodeWithText("Fixture Home").performClick()
+        compose.onNodeWithText("Use as start").performScrollTo().performClick()
+        saved()
+        compose.onNodeWithText("Fixture Office").performClick()
+        compose.onNodeWithText("Use as destination").performScrollTo().performClick()
+        compose.onNode(hasSetTextAction() and hasText("Fixture Home")).assertIsDisplayed()
+        compose.onNode(hasSetTextAction() and hasText("Fixture Office")).assertIsDisplayed()
+        screenshot("saved-snaps-route-endpoints")
+    }
+
+    @Test fun savedRouteCompositionPromptsForDisconnectedLeg() {
+        saved()
+        compose.onNodeWithText("Fixture commute").performClick()
+        compose.onNodeWithText("Add to itinerary").performScrollTo().performClick()
+        saved()
+        compose.onNodeWithText("Fixture commute").performClick()
+        compose.onNodeWithText("Add to itinerary").performScrollTo().performClick()
+        compose.onNodeWithText("Connect these routes?").assertIsDisplayed()
+        screenshot("route-connector-confirmation")
+        compose.onNodeWithText("Cancel").performClick()
+        compose.onNodeWithText("Saved plans").assertIsDisplayed()
     }
 
     @Test fun uc11_snapStartsAndProviderAcceptanceBecomesFresh() {

@@ -190,7 +190,7 @@ fun CompactLiveControls(status: MockStatus, session: SessionView, onStop: () -> 
         Column(Modifier.weight(1f).clickable(onClick = onDetails).semantics { contentDescription = "Trip details" }) {
             Text(title, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
             Text(if (session.activity == ActivityKind.TRAVELING)
-                "${(status.speedMps / 0.44704).toInt()} mph · Details"
+                "${(status.speedMps / 0.44704).toInt()} mph" + (if (status.remainingSec >= 0) " · ${fmtDuration(status.remainingSec.toDouble())} left" else " · Details")
                 else "${if (status.paused) "Paused" else "Holding"} · Details",
                 style = MaterialTheme.typography.bodySmall, maxLines = 1)
         }

@@ -25,8 +25,8 @@ android {
         applicationId = "com.mirage.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 30
-        versionName = "0.11.1"
+        versionCode = 31
+        versionName = "0.11.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
         buildConfigField("String", "MAPS_API_KEY", "\"$mapsApiKey\"")
@@ -143,3 +143,4 @@ android.sourceSets.getByName("main").assets.srcDir(voiceAssets)
 tasks.configureEach {
     if (name.startsWith("merge") && name.endsWith("Assets")) dependsOn(prepareVoiceModel)
 }
+

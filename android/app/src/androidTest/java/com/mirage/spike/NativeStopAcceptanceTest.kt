@@ -26,6 +26,7 @@ class NativeStopAcceptanceTest {
         device.executeShellCommand("pm grant com.mirage.app android.permission.POST_NOTIFICATIONS")
         device.executeShellCommand("appops set com.mirage.app android:mock_location allow")
         MockState.reset(); LiveSession.clear(); PlaybackSource.clearQueue()
+        device.executeShellCommand("am force-stop com.google.android.apps.nexuslauncher")
         val activity = ActivityScenario.launch(MainActivity::class.java)
         fun tap(selector: UiSelector) {
             val item = device.findObject(selector)
@@ -49,6 +50,8 @@ class NativeStopAcceptanceTest {
             device.executeShellCommand("screencap -p /sdcard/Download/mirage-acceptance/uc39-native-stop.png")
             println("ACCEPTANCE native Stop: output stopped. Fresh physical GPS not asserted.")
         } finally {
+            device.executeShellCommand("mkdir -p /sdcard/Download/mirage-acceptance")
+            device.executeShellCommand("screencap -p /sdcard/Download/mirage-acceptance/native-stop-final.png")
             ctx.stopService(Intent(ctx, MockLocationService::class.java))
             activity.close()
             MockState.reset(); LiveSession.clear(); PlaybackSource.clearQueue()

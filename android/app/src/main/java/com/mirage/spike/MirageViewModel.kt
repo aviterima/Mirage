@@ -499,7 +499,7 @@ class MirageViewModel : ViewModel() {
     /** Finish the day where it began. */
     fun addReturnToStart() {
         val s = tripStart() ?: run { error = "Set a start first"; return }
-        stops.add(ItineraryStop("Trip origin", s, 0, mode, avgMph))
+        stops.add(ItineraryStop("Trip start", s, 0, mode, avgMph))
         invalidateRoute()
     }
 
@@ -561,11 +561,14 @@ class MirageViewModel : ViewModel() {
         val n = name.trim()
         if (n.isBlank() || !canSaveScenario) return false
         if (savedScenarios.any { it.name.equals(n, true) }) { error = "That name already exists. Choose a different name."; return false }
+        val effectiveStart = tripStart()
+        val realOrigin = startFromReal && !useSimulatedStart && !queueAfterCurrent
         val sc = SavedScenario(
             id = "${System.currentTimeMillis()}-${(Math.random() * 1_000_000).toInt()}",
             name = n, kind = planMode.name, createdAt = System.currentTimeMillis(),
-            startIsReal = startFromReal || start == null,
-            start = if (startFromReal) null else start, startName = if (startFromReal) "" else startName,
+            startIsReal = realOrigin || effectiveStart == null,
+            start = if (realOrigin) null else effectiveStart,
+            startName = when { realOrigin -> ""; queueAfterCurrent -> "Previous trip end"; useSimulatedStart -> "Simulated location"; else -> startName },
             dest = dest, destName = destName,
             travelMode = mode, speeds = modeSpeeds.toMap(), realism = realism, transitPref = transitPref,
             stops = stops.map { SavedStop(it.name, it.point.lat, it.point.lng, it.dwellMinutes, it.mode, it.avgMph) },
@@ -632,6 +635,7 @@ class MirageViewModel : ViewModel() {
         }
         val tail = existing.lastOrNull()?.point
         val origin = if (sc.startIsReal) lastReal else sc.start
+        if (sc.startIsReal && origin == null) { error = "Real location is unavailable. Set a real start first."; return false }
         val resolvedOrigin = origin ?: tail ?: tripStart()
             ?: run { error = "Set a start location first"; return false }
         val gap = tail != null && Geo.haversine(tail, resolvedOrigin) > 25.0

@@ -26,7 +26,7 @@ object CommandParser {
     fun normalize(text: String) = text.lowercase().trim().replace(Regex("[.,!?]+$"), "").replace(Regex("\\s+"), " ")
     fun minutes(text: String): Int? {
         val t = normalize(text).replace("half an hour", "30 minutes").replace("half hour", "30 minutes").replace("an hour", "1 hour").replace("a minute", "1 minute")
-        if (Regex("[-+]\\d|\\d+\\.\\d+|minus |negative ").containsMatchIn(t)) return null
+        if (Regex("[-+−]\\d|\\d*\\.\\d+|minus |negative |hundred|thousand").containsMatchIn(t)) return null
         val words = mapOf("one" to 1, "two" to 2, "three" to 3, "four" to 4, "five" to 5,
             "six" to 6, "seven" to 7, "eight" to 8, "nine" to 9, "ten" to 10,
             "eleven" to 11, "twelve" to 12, "thirteen" to 13, "fourteen" to 14,
@@ -34,12 +34,13 @@ object CommandParser {
             "nineteen" to 19, "twenty" to 20, "thirty" to 30, "forty" to 40,
             "fifty" to 50, "sixty" to 60, "seventy" to 70, "eighty" to 80, "ninety" to 90)
         val number = words.keys.joinToString("|")
-        val match = Regex("\\b(\\d+|(?:$number)(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?) (minutes?|hours?)\\b").find(t) ?: return null
+        val match = Regex("\\b(\\d+|(?:$number)(?:[ -](?:$number))*) (minutes?|hours?)\\b").find(t) ?: return null
         val token = match.groupValues[1]
         val parts = token.split(' ', '-')
+        if (parts.size > 2) return null
         val n = token.toLongOrNull() ?: if (parts.size == 1) words[token]?.toLong() else {
             val tens = words[parts[0]] ?: return null
-            if (tens < 20 || tens % 10 != 0) return null
+            if (tens < 20 || tens % 10 != 0 || (words[parts[1]] ?: 0) !in 1..9) return null
             (tens + (words[parts[1]] ?: return null)).toLong()
         } ?: return null
         if (n !in 1..1440) return null

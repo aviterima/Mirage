@@ -27,7 +27,10 @@ class WorkflowAcceptanceTest {
         PlaybackSource.timeScale = 1.0; PlaybackSource.consumeSkip()
         Dispatchers.resetMain()
     }
-    private fun vm() = MirageViewModel().apply { attachStore(InMemoryScenarioStore()) }
+    private fun vm() = MirageViewModel().apply {
+        configureApi(ApiConfig(null, "", "acceptance-test"))
+        attachStore(InMemoryScenarioStore())
+    }
 
     @Test fun savedPlacesComposeRouteWithoutReplacingOtherEndpoint() {
         val vm = vm()
@@ -59,7 +62,7 @@ class WorkflowAcceptanceTest {
     @Test fun durationParserRejectsMalformedAndSupportsCompoundWords() {
         assertEquals(27, CommandParser.minutes("twenty-seven minutes"))
         assertEquals(120, CommandParser.minutes("two hours"))
-        listOf("-5 minutes", "1.5 minutes", "minus five minutes", "999999999999999999999 minutes", "five one minutes").forEach {
+        listOf("-5 minutes", "1.5 minutes", "minus five minutes", "999999999999999999999 minutes", "five one minutes", ".5 minutes", "twenty seventeen minutes", "one hundred five minutes").forEach {
             assertNull(it, CommandParser.minutes(it))
         }
     }

@@ -1256,6 +1256,7 @@ private fun SavedPlansDialog(vm: MirageViewModel, active: Boolean = false, onDis
                     }, enabled = canSave && name.isNotBlank()) { Text(if (active) "Save trip" else "Save") }
                 }
                 HorizontalDivider()
+                Text("Tap a saved item for start, destination or itinerary actions.", fontSize = 12.sp, color = MUTED)
                 if (savedMessage.isNotBlank()) Text(savedMessage)
                 if (vm.savedScenarios.isEmpty()) {
                     Text("Nothing saved yet.", fontSize = 12.sp, color = MUTED)

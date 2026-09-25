@@ -74,11 +74,7 @@ object MockState {
 fun simulationStatusText(status: MockStatus, activity: com.mirage.spike.engine.ActivityKind, nowMillis: Long): String {
     if (status.starting) return "STARTING · waiting for location output"
     if (!status.running) return if (status.blocked) "NOT ACTIVE · setup required" else "SIMULATION OFF · planning only"
-    val age = nowMillis - status.lastFixMillis
-    val fusedAge = nowMillis - status.lastFusedFixMillis
-    if (status.health != Health.GREEN || status.signalDropped ||
-        status.lastFixMillis == 0L || age !in 0..5000 ||
-        status.lastFusedFixMillis == 0L || fusedAge !in 0..5000) return "NEEDS ATTENTION · output not confirmed"
+    if (locationOutputIssue(status, nowMillis) != null) return "NEEDS ATTENTION · output not confirmed"
     if (status.paused) return "PAUSED · simulated location held"
     return when (activity) {
         com.mirage.spike.engine.ActivityKind.ROUTING -> "HOLDING · preparing next route"
