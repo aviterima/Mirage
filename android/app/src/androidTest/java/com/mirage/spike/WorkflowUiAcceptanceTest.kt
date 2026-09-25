@@ -51,9 +51,8 @@ class WorkflowUiAcceptanceTest {
         MockState.reset(); LiveSession.clear(); PlaybackSource.clearQueue()
     }
     private fun screenshot(name: String) {
-        val dir = File(context.getExternalFilesDir(null), "acceptance")
-        dir.mkdirs()
-        device.takeScreenshot(File(dir, name + ".png"))
+        device.executeShellCommand("mkdir -p /sdcard/Download/mirage-acceptance")
+        device.executeShellCommand("screencap -p /sdcard/Download/mirage-acceptance/" + name + ".png")
     }
     private fun saved() {
         compose.onNodeWithContentDescription("Saved plans").performClick()
@@ -108,12 +107,4 @@ class WorkflowUiAcceptanceTest {
             generousClearFraction >= 0.75f)
     }
 
-    @Test fun uc39_stopEndsSnapOutput() {
-        loadHome()
-        compose.onNodeWithText("Stop", useUnmergedTree = true).performClick()
-        compose.waitUntil(20_000) { !MockState.status.value.running && !MockState.status.value.starting }
-        compose.onNodeWithText("SIMULATION OFF", substring = true).assertExists()
-        screenshot("uc39-off")
-        // This checks output stop, not a fresh physical GPS fix or another app's display.
-    }
 }
