@@ -40,6 +40,8 @@ class GooglePacedDriveModel(private val route: RouteResult, private val updateHz
             route.points.lastOrNull()?.let { emit(Fix(it.lat, it.lng, 0f, 0f, 4f, progress = 1f, remainingSec = 0)) }
             return@flow
         }
+        val fetched = java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(route.fetchedAtMillis))
+        DriveTiming.estimate.value = (if (route.trafficAware) "Google traffic estimate" else "Google standard estimate · traffic unavailable") + " · fetched " + fetched
         val duration = steps.sumOf { it.seconds }
         val totalMeters = steps.sumOf { it.meters }
         // Boundary speeds are shared by adjacent steps; lane forks are not turns.
