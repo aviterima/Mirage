@@ -25,6 +25,29 @@ class ScenarioTest {
     @Before fun main() { Dispatchers.setMain(UnconfinedTestDispatcher()) }
     @After fun reset() { Dispatchers.resetMain() }
 
+    @Test fun activeTripSaveIncludesEditsAndIgnoresDraft() {
+        val store = InMemoryScenarioStore()
+        val vm = MirageViewModel().apply { attachStore(store) }
+        vm.choosePlanMode(PlanMode.SNAP)
+        vm.setDestPoint(LatLng(0.0, 0.0), "Unrelated draft")
+        val origin = LatLng(33.4, -112.0)
+        val plan = com.mirage.spike.engine.LivePlan("Trip", origin,
+            listOf(com.mirage.spike.engine.ItineraryStop("First", LatLng(33.5,-112.0), 10)),
+            { _, _ -> error("Saving must not route") })
+        com.mirage.spike.engine.LiveSession.activate(plan)
+        try {
+            plan.append(com.mirage.spike.engine.ItineraryStop("Added live", LatLng(33.6,-112.0), 20))
+            assertTrue(vm.saveActiveScenario("Active"))
+            val saved = vm.savedScenarios.single()
+            assertEquals("ITINERARY", saved.kind)
+            assertEquals(origin, saved.start)
+            assertEquals(listOf("First","Added live"), saved.stops.map { it.name })
+            assertEquals(20, saved.stops.last().dwellMinutes)
+            assertEquals("Unrelated draft", vm.destName)
+            assertEquals(saved, MirageViewModel().apply { attachStore(store) }.savedScenarios.single())
+        } finally { com.mirage.spike.engine.LiveSession.clear() }
+    }
+
     @Test fun `scenario survives a JSON round trip`() {
         val sc = SavedScenario(
             id = "1", name = "Lunch run", kind = "ITINERARY", createdAt = 42L, startIsReal = true,
