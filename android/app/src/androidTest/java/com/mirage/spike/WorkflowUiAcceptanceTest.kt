@@ -44,6 +44,8 @@ class WorkflowUiAcceptanceTest {
         }
     }
     @After fun close() {
+        println("ACCEPTANCE final status: " + MockState.status.value)
+        screenshot("final-" + System.currentTimeMillis())
         context.stopService(Intent(context, MockLocationService::class.java))
         if (::activity.isInitialized) activity.close()
         MockState.reset(); LiveSession.clear(); PlaybackSource.clearQueue()
@@ -92,6 +94,18 @@ class WorkflowUiAcceptanceTest {
         }
         assertEquals(33.50, MockState.status.value.lat, 0.001)
         screenshot("uc11-snap-output")
+    }
+
+    @Test fun uc32_liveMapHasSeventyFivePercentClearHeight() {
+        loadHome()
+        val top = compose.onNodeWithText("Following").fetchSemanticsNode().boundsInRoot
+        val bottom = compose.onNodeWithText("At Fixture Home").fetchSemanticsNode().boundsInRoot
+        val root = compose.onRoot().fetchSemanticsNode().boundsInRoot
+        val generousClearFraction = (bottom.top - top.bottom) / root.height
+        println("ACCEPTANCE uc32 clear-height upper bound: " + generousClearFraction)
+        screenshot("uc32-live-map")
+        assertTrue("Even excluding panel padding, clear map height is only " + generousClearFraction,
+            generousClearFraction >= 0.75f)
     }
 
     @Test fun uc39_stopEndsSnapOutput() {

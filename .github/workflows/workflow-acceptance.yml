@@ -51,15 +51,7 @@ jobs:
           arch: x86_64
           profile: pixel_7_pro
           disable-animations: true
-          script: |
-            mkdir -p acceptance-evidence
-            cd android
-            set +e
-            ./gradlew --no-daemon connectedDebugAndroidTest
-            test_result=$?
-            adb pull /sdcard/Android/data/com.mirage.app/files/acceptance ../acceptance-evidence/
-            adb logcat -d -s AndroidRuntime TestRunner > ../acceptance-evidence/logcat.txt
-            exit "$test_result"
+          script: bash .github/scripts/run-workflow-acceptance.sh
       - name: Print structured test results
         if: always()
         run: |
