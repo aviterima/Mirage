@@ -52,6 +52,17 @@ class LivePlan(
 
     @Synchronized fun view() = SessionView(title, entries.toList(), index, kind, points, staySeconds.toInt())
     private fun publish() = LiveSession.publish(this, view())
+    /** Save configured stops; for the current stop preserve its remaining/pending stay. */
+    @Synchronized fun stopsForSave(): List<ItineraryStop> = entries.mapIndexed { i, entry ->
+        if (i != index) entry.stop else {
+            val seconds = when (kind) {
+                ActivityKind.TRAVELING, ActivityKind.ROUTING -> entry.stop.dwellMinutes * 60.0 + extraOnArrivalSeconds
+                ActivityKind.STAYING, ActivityKind.HOLDING -> staySeconds
+                else -> entry.stop.dwellMinutes * 60.0
+            }
+            entry.stop.copy(dwellMinutes = kotlin.math.ceil(seconds / 60.0).toInt().coerceIn(0, 1440))
+        }
+    }
     @Synchronized fun append(stop: ItineraryStop) { entries += LiveStop(stop = stop); publish() }
     @Synchronized fun remove(id: String): Boolean {
         val i = entries.indexOfFirst { it.id == id }
