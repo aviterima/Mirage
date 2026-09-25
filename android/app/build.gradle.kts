@@ -27,6 +27,7 @@ android {
         targetSdk = 34
         versionCode = 30
         versionName = "0.11.1"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
         buildConfigField("String", "MAPS_API_KEY", "\"$mapsApiKey\"")
         // Optional: Mirage's own API gateway (holds the Google key server-side, meters credits).
@@ -92,6 +93,12 @@ dependencies {
 
     // JVM unit tests: engine models and the ViewModel state machine (run in CI before release)
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation(platform("androidx.compose:compose-bom:2024.09.02"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
     // Unit tests run against a stub android.jar whose org.json returns nothing; use the real one.
     testImplementation("org.json:json:20240303")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
