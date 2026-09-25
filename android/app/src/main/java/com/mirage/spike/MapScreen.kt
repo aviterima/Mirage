@@ -466,6 +466,7 @@ fun MapScreen(
                             runCatching { camera.animate(CameraUpdateFactory.newLatLngBounds(bounds.build(), 90)) }
                         }
                     }) { Text("Whole trip") }
+                    IconButton(onClick = { showSaved = true }) { Icon(Icons.Filled.Bookmark, "Saved plans") }
                     IconButton(onClick = { showSetup = true }) { Icon(Icons.Filled.Settings, "Setup") }
                 }
             }
@@ -657,6 +658,7 @@ fun MapScreen(
     if (showSaved) {
         SavedPlansDialog(
             vm = vm,
+            active = live,
             onDismiss = { showSaved = false },
             onLoaded = { sc ->
                 showSaved = false
@@ -1206,15 +1208,18 @@ private fun DwellDialog(stopName: String, minutes: Int, onSet: (Int) -> Unit, on
 // ---- Saved plans ------------------------------------------------------------------------
 
 @Composable
-private fun SavedPlansDialog(vm: MirageViewModel, onDismiss: () -> Unit, onLoaded: (SavedScenario) -> Unit) {
+private fun SavedPlansDialog(vm: MirageViewModel, active: Boolean = false, onDismiss: () -> Unit, onLoaded: (SavedScenario) -> Unit) {
     var name by remember { mutableStateOf("") }
+    val canSave = if (active) LiveSession.plan != null else vm.canSaveScenario
+    var savedMessage by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Saved plans") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    if (vm.canSaveScenario) "Save the current ${vm.planMode.label().lowercase()} under a name to reuse it later."
+                    if (active) "Save the active trip, including live stop edits, to replay from its start."
+                    else if (vm.canSaveScenario) "Save the current ${vm.planMode.label().lowercase()} under a name to reuse it later."
                     else "Set up a Snap, Route or Itinerary first to save it.",
                     fontSize = 12.sp, color = MUTED,
                 )
@@ -1222,11 +1227,15 @@ private fun SavedPlansDialog(vm: MirageViewModel, onDismiss: () -> Unit, onLoade
                     OutlinedTextField(
                         value = name, onValueChange = { name = it }, singleLine = true,
                         placeholder = { Text("Name, e.g. Lunch run") }, modifier = Modifier.weight(1f),
-                        enabled = vm.canSaveScenario,
+                        enabled = canSave,
                     )
-                    Button(onClick = { if (vm.saveScenario(name)) name = "" }, enabled = vm.canSaveScenario && name.isNotBlank()) { Text("Save") }
+                    Button(onClick = {
+                        val saved = if (active) vm.saveActiveScenario(name) else vm.saveScenario(name)
+                        if (saved) { savedMessage = "Saved " + name; name = "" }
+                    }, enabled = canSave && name.isNotBlank()) { Text(if (active) "Save trip" else "Save") }
                 }
                 HorizontalDivider()
+                if (savedMessage.isNotBlank()) Text(savedMessage)
                 if (vm.savedScenarios.isEmpty()) {
                     Text("Nothing saved yet.", fontSize = 12.sp, color = MUTED)
                 }
