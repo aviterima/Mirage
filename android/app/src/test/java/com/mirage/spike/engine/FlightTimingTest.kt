@@ -17,7 +17,7 @@ class FlightTimingTest {
         for (end in listOf(LatLng(0.0, 10.0), LatLng(0.0, 60.0))) {
             val fixes = FlightModel(start, end, FlightParams(timeScale = 10.0)).fixes().toList()
             val groundBeforeClimb = fixes.takeWhile { it.altitudeM == 0.0 }
-            assertEquals("120 seconds taxi plus 35 seconds takeoff", 31, groundBeforeClimb.size)
+            assertEquals("Ground samples at t=0 through t=155 inclusive, every 5 seconds", 32, groundBeforeClimb.size)
             assertTrue(groundBeforeClimb.maxOf { it.speedMps } <= 80f)
         }
     }
