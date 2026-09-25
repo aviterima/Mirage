@@ -38,7 +38,7 @@ data class PreparedLeg(val flow: Flow<Fix>, val points: List<LatLng>)
 /** Routes future legs just in time, holding the last location throughout API latency. */
 class LivePlan(
     val title: String,
-    private val origin: LatLng,
+    val origin: LatLng,
     stops: List<ItineraryStop>,
     private val route: suspend (LatLng, ItineraryStop) -> PreparedLeg,
     private val firstLeg: PreparedLeg? = null,
