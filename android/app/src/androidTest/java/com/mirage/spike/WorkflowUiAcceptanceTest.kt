@@ -58,7 +58,7 @@ class WorkflowUiAcceptanceTest {
     }
     private fun saved() {
         compose.onNodeWithContentDescription("Saved plans").performClick()
-        compose.onNodeWithText("Fixture Home").assertIsDisplayed()
+        compose.onNode(hasText("Fixture Home") and hasAnyAncestor(isDialog())).assertIsDisplayed()
     }
     private fun loadHome() {
         saved()
@@ -69,28 +69,28 @@ class WorkflowUiAcceptanceTest {
 
     @Test fun uc08_savedCollectionIsVisible() {
         saved()
-        compose.onNodeWithText("Fixture Office").assertIsDisplayed()
-        compose.onNodeWithText("Fixture commute").assertIsDisplayed()
+        compose.onNode(hasText("Fixture Office") and hasAnyAncestor(isDialog())).assertIsDisplayed()
+        compose.onNode(hasText("Fixture commute") and hasAnyAncestor(isDialog())).assertIsDisplayed()
         screenshot("uc08-saved-list")
     }
 
     @Test fun uc10_savedSnapProvidesBothEndpointActions() {
-        saved(); compose.onNodeWithText("Fixture Home").performClick(); screenshot("uc10-endpoint-actions")
+        saved(); compose.onNode(hasText("Fixture Home") and hasAnyAncestor(isDialog())).performClick(); screenshot("uc10-endpoint-actions")
         compose.onNodeWithText("Use as start", ignoreCase = true).assertIsDisplayed()
         compose.onNodeWithText("Use as destination", ignoreCase = true).assertIsDisplayed()
     }
 
     @Test fun uc21_savedRouteProvidesItineraryComposition() {
-        saved(); compose.onNodeWithText("Fixture commute").performClick(); screenshot("uc21-composition")
+        saved(); compose.onNode(hasText("Fixture commute") and hasAnyAncestor(isDialog())).performClick(); screenshot("uc21-composition")
         compose.onNodeWithText("Add to itinerary", ignoreCase = true).performScrollTo().assertIsDisplayed()
     }
 
     @Test fun savedSnapsBuildBothRouteEndpoints() {
         saved()
-        compose.onNodeWithText("Fixture Home").performClick()
+        compose.onNode(hasText("Fixture Home") and hasAnyAncestor(isDialog())).performClick()
         compose.onNodeWithText("Use as start").performScrollTo().performClick()
         saved()
-        compose.onNodeWithText("Fixture Office").performClick()
+        compose.onNode(hasText("Fixture Office") and hasAnyAncestor(isDialog())).performClick()
         compose.onNodeWithText("Use as destination").performScrollTo().performClick()
         compose.onNode(hasSetTextAction() and hasText("Fixture Home")).assertIsDisplayed()
         compose.onNode(hasSetTextAction() and hasText("Fixture Office")).assertIsDisplayed()
@@ -99,10 +99,10 @@ class WorkflowUiAcceptanceTest {
 
     @Test fun savedRouteCompositionPromptsForDisconnectedLeg() {
         saved()
-        compose.onNodeWithText("Fixture commute").performClick()
+        compose.onNode(hasText("Fixture commute") and hasAnyAncestor(isDialog())).performClick()
         compose.onNodeWithText("Add to itinerary").performScrollTo().performClick()
         saved()
-        compose.onNodeWithText("Fixture commute").performClick()
+        compose.onNode(hasText("Fixture commute") and hasAnyAncestor(isDialog())).performClick()
         compose.onNodeWithText("Add to itinerary").performScrollTo().performClick()
         compose.onNodeWithText("Connect these routes?").assertIsDisplayed()
         screenshot("route-connector-confirmation")
