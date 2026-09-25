@@ -25,8 +25,8 @@ android {
         applicationId = "com.mirage.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 29
-        versionName = "0.11.0"
+        versionCode = 30
+        versionName = "0.11.1"
         manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
         buildConfigField("String", "MAPS_API_KEY", "\"$mapsApiKey\"")
         // Optional: Mirage's own API gateway (holds the Google key server-side, meters credits).
