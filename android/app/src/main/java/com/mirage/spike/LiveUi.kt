@@ -94,13 +94,19 @@ fun UpcomingDialog(session: SessionView, onDismiss: () -> Unit, onAdd: () -> Uni
 @Composable
 fun AdvancedDialog(status: MockStatus, onDismiss: () -> Unit) {
     var scale by remember { mutableStateOf(PlaybackSource.timeScale) }
+    var googleTiming by remember { mutableStateOf(DriveTiming.matchGoogleTime) }
     var over by remember { mutableStateOf(PlaybackSource.speedOverLimitMph.toFloat()) }
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Live advanced controls") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Fast-forward · ${scale.toInt()}×")
             Row { listOf(1.0, 2.0, 5.0, 10.0).forEach { n -> TextButton(onClick = { scale = n; PlaybackSource.timeScale = n }) { Text("${n.toInt()}×") } } }
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text("Match Google travel time", Modifier.weight(1f))
+                Switch(checked = googleTiming, onCheckedChange = { googleTiming = it; DriveTiming.matchGoogleTime = it })
+            }
+            Text("Timing mode applies to the next driving leg. Google timing includes traffic when available; the manual mph adjustment below applies only when this switch is off.", style = MaterialTheme.typography.bodySmall)
             Text("Driving · estimated road limit ${if (over >= 0) "+" else ""}${over.toInt()} mph")
-            Slider(value = over, onValueChange = { over = it; PlaybackSource.speedOverLimitMph = it.toDouble() }, valueRange = -10f..15f)
+            Slider(enabled = !googleTiming, value = over, onValueChange = { over = it; PlaybackSource.speedOverLimitMph = it.toDouble() }, valueRange = -10f..15f)
             Text("Applies immediately to driving legs. Road limits are estimates.", style = MaterialTheme.typography.bodySmall)
             Text("GPS signal · ${status.signalName}")
             Row { Signal.PRESETS.forEach { preset -> TextButton(onClick = { PlaybackSource.signal = preset }) { Text(preset.name) } } }
