@@ -118,14 +118,14 @@ jobs:
       # Small transport artifacts allow clients with a 32 MiB transfer cap to retrieve
       # the signed APK unchanged. The complete APK artifact remains available above.
       - name: Prepare test-build download parts
-        if: github.ref == 'refs/heads/codex/acceptance-50-20260925'
+        if: startsWith(github.ref, 'refs/heads/codex/acceptance-')
         run: |
           mkdir -p "$RUNNER_TEMP/apk-parts"
-          split -b 24M -d android/app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/apk-parts/app-debug.apk.part-"
-          sha256sum android/app/build/outputs/apk/debug/app-debug.apk
+          split -b 24M -d app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/apk-parts/app-debug.apk.part-"
+          sha256sum app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload test-build part 0
-        if: github.ref == 'refs/heads/codex/acceptance-50-20260925'
+        if: startsWith(github.ref, 'refs/heads/codex/acceptance-')
         uses: actions/upload-artifact@v4
         with:
           name: mirage-apk-part-00
@@ -133,7 +133,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Upload test-build part 1
-        if: github.ref == 'refs/heads/codex/acceptance-50-20260925'
+        if: startsWith(github.ref, 'refs/heads/codex/acceptance-')
         uses: actions/upload-artifact@v4
         with:
           name: mirage-apk-part-01
@@ -141,7 +141,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Upload test-build part 2
-        if: github.ref == 'refs/heads/codex/acceptance-50-20260925'
+        if: startsWith(github.ref, 'refs/heads/codex/acceptance-')
         uses: actions/upload-artifact@v4
         with:
           name: mirage-apk-part-02
@@ -149,7 +149,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Upload test-build part 3
-        if: github.ref == 'refs/heads/codex/acceptance-50-20260925'
+        if: startsWith(github.ref, 'refs/heads/codex/acceptance-')
         uses: actions/upload-artifact@v4
         with:
           name: mirage-apk-part-03
