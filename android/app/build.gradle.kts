@@ -33,6 +33,17 @@ android {
         buildConfigField("String", "MIRAGE_API_BASE", "\"${System.getenv("MIRAGE_API_BASE") ?: ""}\"")
     }
 
+    // Android tooling may choose a different default user directory on CI.
+    // Bind signing explicitly to the key restored and pinned by the workflow.
+    if (System.getenv("GITHUB_ACTIONS") == "true") {
+        signingConfigs.getByName("debug") {
+            storeFile = file(System.getenv("HOME") + "/.android/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
