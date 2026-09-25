@@ -15,6 +15,7 @@ import kotlin.math.sqrt
 /** Google timing is the default; manual estimated-speed mode remains available. */
 object DriveTiming {
     @Volatile var matchGoogleTime: Boolean = true
+    val estimate = kotlinx.coroutines.flow.MutableStateFlow("")
 }
 
 class DriveModel(
