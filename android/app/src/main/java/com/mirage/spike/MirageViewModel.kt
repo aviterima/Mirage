@@ -582,7 +582,7 @@ class MirageViewModel : ViewModel() {
         val plan = LiveSession.plan ?: return false
         val view = plan.view()
         if (n.isBlank() || view.stops.isEmpty()) return false
-        val activeStops = view.stops.map { it.stop }
+        val activeStops = plan.stopsForSave()
         val last = activeStops.last()
         val kind = when {
             activeStops.size > 1 || activeStops.any { it.dwellMinutes > 0 } -> PlanMode.ITINERARY
