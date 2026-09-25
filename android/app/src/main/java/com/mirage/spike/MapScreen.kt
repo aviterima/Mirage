@@ -190,6 +190,7 @@ fun MapScreen(
     var showChat by remember { mutableStateOf(false) }
     var showUpcoming by remember { mutableStateOf(false) }
     var showAdvanced by remember { mutableStateOf(false) }
+    var showLiveDetails by remember { mutableStateOf(false) }
     var follow by remember { mutableStateOf(true) }
     val live = status.running && !planning
     var showSetup by remember { mutableStateOf(false) }
@@ -318,7 +319,7 @@ fun MapScreen(
             contentPadding = PaddingValues(
                 top = topInset + if (live) 60.dp else if (vm.planMode == PlanMode.SNAP) 116.dp else 172.dp,
                 bottom = when {
-                    live -> maxSheet
+                    live -> 164.dp
                     sheetCollapsed -> 100.dp
                     status.running -> maxSheet
                     else -> maxSheet
@@ -586,7 +587,14 @@ fun MapScreen(
         val mockBlocked = !status.running && status.blocked
 
         // ---- Bottom sheet: capped at half the screen, scrolls inside, collapsible -----
-        Card(
+        if (live) {
+            Card(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(10.dp),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                CompactLiveControls(status, session, onStop,
+                    onChat = { showChat = true }, onDetails = { showLiveDetails = true })
+            }
+        } else Card(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(10.dp).heightIn(max = maxSheet),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -626,6 +634,23 @@ fun MapScreen(
         }
     }
 
+    if (showLiveDetails) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showLiveDetails = false },
+            title = { Text("Trip details") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    LiveControls(status, session,
+                        onNow = { showLiveDetails = false; planNow() },
+                        onNext = { showLiveDetails = false; planNext() }, onStop = onStop,
+                        onChat = { showLiveDetails = false; showChat = true },
+                        onStops = { showLiveDetails = false; showUpcoming = true },
+                        onAdvanced = { showLiveDetails = false; showAdvanced = true })
+                }
+            },
+            confirmButton = { TextButton(onClick = { showLiveDetails = false }) { Text("Back to map") } },
+        )
+    }
     if (showChat) ChatPanel { showChat = false }
     if (showUpcoming) UpcomingDialog(session, onDismiss = { showUpcoming = false }, onAdd = { showUpcoming = false; planNext() })
     if (showAdvanced) AdvancedDialog(status) { showAdvanced = false }
