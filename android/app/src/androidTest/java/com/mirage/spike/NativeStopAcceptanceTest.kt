@@ -39,7 +39,7 @@ class NativeStopAcceptanceTest {
         }
         try {
             tap(UiSelector().description("Saved plans"))
-            tap(UiSelector().text("Native Home"))
+            tap(UiSelector().description("Load Native Home"))
             tap(UiSelector().text("Snap to “Native Home”"))
             awaitState { MockState.status.value.running }
             tap(UiSelector().text("Stop"))
@@ -55,3 +55,4 @@ class NativeStopAcceptanceTest {
         }
     }
 }
+

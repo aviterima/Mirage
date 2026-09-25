@@ -60,7 +60,7 @@ class WorkflowUiAcceptanceTest {
     }
     private fun loadHome() {
         saved()
-        compose.onNodeWithText("Fixture Home").performClick()
+        compose.onNodeWithContentDescription("Load Fixture Home").performClick()
         compose.onNodeWithText("Snap to “Fixture Home”").performClick()
         compose.waitUntil(20_000) { MockState.status.value.running }
     }
@@ -73,13 +73,13 @@ class WorkflowUiAcceptanceTest {
     }
 
     @Test fun uc10_savedSnapProvidesBothEndpointActions() {
-        saved(); screenshot("uc10-missing-endpoint-actions")
+        saved(); compose.onNodeWithText("Fixture Home").performClick(); screenshot("uc10-endpoint-actions")
         compose.onNodeWithText("Use as start", ignoreCase = true).assertIsDisplayed()
         compose.onNodeWithText("Use as destination", ignoreCase = true).assertIsDisplayed()
     }
 
     @Test fun uc21_savedRouteProvidesItineraryComposition() {
-        saved(); screenshot("uc21-missing-composition")
+        saved(); compose.onNodeWithText("Fixture commute").performClick(); screenshot("uc21-composition")
         compose.onNodeWithText("Add to itinerary", ignoreCase = true).assertIsDisplayed()
     }
 
@@ -97,14 +97,15 @@ class WorkflowUiAcceptanceTest {
 
     @Test fun uc32_liveMapHasSeventyFivePercentClearHeight() {
         loadHome()
-        val top = compose.onNodeWithText("Following").fetchSemanticsNode().boundsInRoot
-        val bottom = compose.onNodeWithText("At Fixture Home").fetchSemanticsNode().boundsInRoot
+        val top = compose.onNodeWithTag("liveStatus").fetchSemanticsNode().boundsInRoot
+        val bottom = compose.onNodeWithTag("liveControls").fetchSemanticsNode().boundsInRoot
         val root = compose.onRoot().fetchSemanticsNode().boundsInRoot
         val generousClearFraction = (bottom.top - top.bottom) / root.height
-        println("ACCEPTANCE uc32 clear-height upper bound: " + generousClearFraction)
+        println("ACCEPTANCE uc32 clear-height fraction: " + generousClearFraction)
         screenshot("uc32-live-map")
-        assertTrue("Even excluding panel padding, clear map height is only " + generousClearFraction,
+        assertTrue("Clear map height is only " + generousClearFraction,
             generousClearFraction >= 0.75f)
     }
 
 }
+

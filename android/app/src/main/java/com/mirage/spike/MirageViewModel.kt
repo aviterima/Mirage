@@ -498,8 +498,8 @@ class MirageViewModel : ViewModel() {
 
     /** Finish the day where it began. */
     fun addReturnToStart() {
-        val s = start ?: run { error = "Set a start first"; return }
-        stops.add(ItineraryStop(if (startFromReal) "Home (start)" else "$startName (start)", s, 0, mode, avgMph))
+        val s = tripStart() ?: run { error = "Set a start first"; return }
+        stops.add(ItineraryStop("Trip origin", s, 0, mode, avgMph))
         invalidateRoute()
     }
 
@@ -560,6 +560,7 @@ class MirageViewModel : ViewModel() {
     fun saveScenario(name: String): Boolean {
         val n = name.trim()
         if (n.isBlank() || !canSaveScenario) return false
+        if (savedScenarios.any { it.name.equals(n, true) }) { error = "That name already exists. Choose a different name."; return false }
         val sc = SavedScenario(
             id = "${System.currentTimeMillis()}-${(Math.random() * 1_000_000).toInt()}",
             name = n, kind = planMode.name, createdAt = System.currentTimeMillis(),
@@ -569,8 +570,7 @@ class MirageViewModel : ViewModel() {
             travelMode = mode, speeds = modeSpeeds.toMap(), realism = realism, transitPref = transitPref,
             stops = stops.map { SavedStop(it.name, it.point.lat, it.point.lng, it.dwellMinutes, it.mode, it.avgMph) },
         )
-        // Same name replaces the older copy.
-        savedScenarios.removeAll { it.name.equals(n, ignoreCase = true) }
+        error = null
         savedScenarios.add(0, sc)
         store.save(savedScenarios.toList())
         return true
@@ -582,6 +582,7 @@ class MirageViewModel : ViewModel() {
         val plan = LiveSession.plan ?: return false
         val view = plan.view()
         if (n.isBlank() || view.stops.isEmpty()) return false
+        if (savedScenarios.any { it.name.equals(n, true) }) { error = "That name already exists. Choose a different name."; return false }
         val activeStops = plan.stopsForSave()
         val last = activeStops.last()
         val kind = when {
@@ -597,9 +598,50 @@ class MirageViewModel : ViewModel() {
             speeds = modeSpeeds.toMap(), realism = realism, transitPref = transitPref,
             stops = activeStops.map { SavedStop(it.name, it.point.lat, it.point.lng, it.dwellMinutes, it.mode, it.avgMph) },
         )
-        savedScenarios.removeAll { it.name.equals(n, ignoreCase = true) }
+        error = null
         savedScenarios.add(0, sc)
         store.save(savedScenarios.toList())
+        return true
+    }
+
+    fun useSavedPlaceAsStart(sc: SavedScenario) {
+        val point = sc.dest ?: return
+        if (planMode == PlanMode.SNAP) choosePlanMode(PlanMode.ROUTE)
+        setStartPoint(point, sc.name)
+    }
+
+    fun useSavedPlaceAsDestination(sc: SavedScenario) {
+        val point = sc.dest ?: return
+        if (planMode == PlanMode.SNAP) choosePlanMode(PlanMode.ROUTE)
+        setDestPoint(point, sc.name)
+    }
+
+    fun addSavedPlaceStop(sc: SavedScenario) {
+        val point = sc.dest ?: return
+        choosePlanMode(PlanMode.ITINERARY)
+        setDestPoint(point, sc.name)
+    }
+
+    /** Append in the draft only. A disconnected route requires an explicit connector. */
+    fun appendSavedRoute(sc: SavedScenario, connectGap: Boolean = false): Boolean {
+        if (sc.kind != PlanMode.ROUTE.name || sc.dest == null) { error = "Choose a saved route"; return false }
+        val existing = when (planMode) {
+            PlanMode.ITINERARY -> stops.toList()
+            PlanMode.ROUTE -> dest?.let { listOf(ItineraryStop(destName, it, 0, mode, avgMph)) }.orEmpty()
+            else -> emptyList()
+        }
+        val tail = existing.lastOrNull()?.point
+        val origin = if (sc.startIsReal) lastReal else sc.start
+        val resolvedOrigin = origin ?: tail ?: tripStart()
+            ?: run { error = "Set a start location first"; return false }
+        val gap = tail != null && Geo.haversine(tail, resolvedOrigin) > 25.0
+        if (gap && !connectGap) { error = "This route starts elsewhere. Add a connecting leg?"; return false }
+        if (existing.isEmpty()) setStartPoint(resolvedOrigin, sc.startName.ifBlank { "Route start" })
+        planMode = PlanMode.ITINERARY
+        stops.clear(); stops.addAll(existing)
+        if (gap) stops.add(ItineraryStop(sc.startName.ifBlank { "Route start" }, resolvedOrigin, 0, TravelMode.DRIVE, defaultSpeed(TravelMode.DRIVE)))
+        stops.add(ItineraryStop(sc.destName.ifBlank { sc.name }, sc.dest, 0, sc.travelMode, sc.speeds[sc.travelMode] ?: defaultSpeed(sc.travelMode)))
+        invalidateRoute(); error = null; notice = "Route added. Review the itinerary before starting."
         return true
     }
 
@@ -610,6 +652,7 @@ class MirageViewModel : ViewModel() {
 
     /** Put a saved plan back on screen. A "real location" start uses today's real position. */
     fun loadScenario(sc: SavedScenario) {
+        queueAfterCurrent = false
         clearSuggestions()
         planMode = runCatching { PlanMode.valueOf(sc.kind) }.getOrDefault(PlanMode.ROUTE)
         mode = sc.travelMode
@@ -620,8 +663,8 @@ class MirageViewModel : ViewModel() {
         stops.addAll(sc.stops.map { ItineraryStop(it.name, LatLng(it.lat, it.lng), it.dwellMinutes, it.mode, it.avgMph) })
         if (sc.startIsReal || sc.start == null) {
             val real = lastReal
-            if (real != null) { start = real; startName = "My location"; startFromReal = true }
-            useSimulatedStart = true
+            start = real; startName = "My location"; startFromReal = true
+            useSimulatedStart = false
         } else {
             start = sc.start; startName = sc.startName; startFromReal = false; useSimulatedStart = false
         }
@@ -759,3 +802,4 @@ fun fmtDuration(sec: Double): String {
     val h = mins / 60; val m = mins % 60
     return if (m == 0) "$h h" else "$h h $m min"
 }
+

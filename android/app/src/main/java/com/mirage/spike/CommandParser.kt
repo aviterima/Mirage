@@ -26,9 +26,24 @@ object CommandParser {
     fun normalize(text: String) = text.lowercase().trim().replace(Regex("[.,!?]+$"), "").replace(Regex("\\s+"), " ")
     fun minutes(text: String): Int? {
         val t = normalize(text).replace("half an hour", "30 minutes").replace("half hour", "30 minutes").replace("an hour", "1 hour").replace("a minute", "1 minute")
-        val m = Regex("(\\d+|one|two|three|four|five|ten|fifteen|twenty|thirty|forty five|sixty|ninety) (minutes?|hours?)").find(t) ?: return null
-        val n = m.groupValues[1].toIntOrNull() ?: mapOf("one" to 1, "two" to 2, "three" to 3, "four" to 4, "five" to 5, "ten" to 10, "fifteen" to 15, "twenty" to 20, "thirty" to 30, "forty five" to 45, "sixty" to 60, "ninety" to 90)[m.groupValues[1]] ?: return null
-        return (n * if (m.groupValues[2].startsWith("hour")) 60 else 1).takeIf { it in 1..1440 }
+        if (Regex("[-+]\\d|\\d+\\.\\d+|minus |negative ").containsMatchIn(t)) return null
+        val words = mapOf("one" to 1, "two" to 2, "three" to 3, "four" to 4, "five" to 5,
+            "six" to 6, "seven" to 7, "eight" to 8, "nine" to 9, "ten" to 10,
+            "eleven" to 11, "twelve" to 12, "thirteen" to 13, "fourteen" to 14,
+            "fifteen" to 15, "sixteen" to 16, "seventeen" to 17, "eighteen" to 18,
+            "nineteen" to 19, "twenty" to 20, "thirty" to 30, "forty" to 40,
+            "fifty" to 50, "sixty" to 60, "seventy" to 70, "eighty" to 80, "ninety" to 90)
+        val number = words.keys.joinToString("|")
+        val match = Regex("\\b(\\d+|(?:$number)(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?) (minutes?|hours?)\\b").find(t) ?: return null
+        val token = match.groupValues[1]
+        val parts = token.split(' ', '-')
+        val n = token.toLongOrNull() ?: if (parts.size == 1) words[token]?.toLong() else {
+            val tens = words[parts[0]] ?: return null
+            if (tens < 20 || tens % 10 != 0) return null
+            (tens + (words[parts[1]] ?: return null)).toLong()
+        } ?: return null
+        if (n !in 1..1440) return null
+        return (n * if (match.groupValues[2].startsWith("hour")) 60 else 1).takeIf { it in 1..1440 }?.toInt()
     }
     fun parse(input: String): SpokenCommand {
         val t = normalize(input).removePrefix("hello mirage ").removePrefix("please ")
@@ -44,8 +59,10 @@ object CommandParser {
             else -> parseDetails(t)
         }
     }
-    private fun parseDetails(t: String): SpokenCommand {
-        if (Regex("^(extend|stay|when i arrive|add another)").containsMatchIn(t)) {
+    private fun parseDetails(input: String): SpokenCommand {
+        val arrival = input.startsWith("when i arrive")
+        val t = input.replace(Regex("^when i arrive[, ]+"), "")
+        if (Regex("^(extend|stay|add another)").containsMatchIn(t)) {
             minutes(t)?.let { return if (t.startsWith("extend") || t.contains("another") || t.contains("longer")) SpokenCommand.Extend(it) else SpokenCommand.Stay(it) }
         }
         Regex("^(?:fast forward|fast-forward|speed up)(?: to)? (\\d+|one|two|five|ten)(?: times|x)?$").matchEntire(t)?.let {
@@ -58,7 +75,7 @@ object CommandParser {
         Regex("^(?:number |option |the )?(\\d+|one|two|three|first|second|third)(?: one)?$").matchEntire(t)?.let {
             ordinal(it.groupValues[1])?.let { n -> return SpokenCommand.Choice(n) }
         }
-        val next = t.startsWith("after this") || t.startsWith("after arrival") || t.startsWith("next ") || t.startsWith("when i arrive, ")
+        val next = arrival || t.startsWith("after this") || t.startsWith("after arrival") || t.startsWith("next ") || t.startsWith("when i arrive, ")
         var text = t.replace(Regex("^(?:after this|after arrival)[, ]+"), "").removePrefix("next ")
         val snap = text.startsWith("snap to ")
         val legs = mutableListOf<RequestedStop>()
@@ -77,3 +94,4 @@ object CommandParser {
     }
     private fun ordinal(t: String) = t.toIntOrNull()?.takeIf { it > 0 } ?: mapOf("first" to 1, "one" to 1, "second" to 2, "two" to 2, "third" to 3, "three" to 3, "fourth" to 4, "fifth" to 5)[t]
 }
+

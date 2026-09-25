@@ -98,6 +98,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
@@ -320,9 +323,9 @@ fun MapScreen(
             properties = MapProperties(isMyLocationEnabled = hasLocPerm),
             uiSettings = MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = hasLocPerm, compassEnabled = true),
             contentPadding = PaddingValues(
-                top = topInset + if (live) 100.dp else if (vm.planMode == PlanMode.SNAP) 148.dp else 204.dp,
+                top = topInset + if (live) 60.dp else if (vm.planMode == PlanMode.SNAP) 148.dp else 204.dp,
                 bottom = when {
-                    live -> 164.dp
+                    live -> 96.dp
                     sheetCollapsed -> 100.dp
                     status.running -> maxSheet
                     else -> maxSheet
@@ -458,26 +461,17 @@ fun MapScreen(
             }
         }
         if (live) {
-            Surface(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(12.dp), shape = RoundedCornerShape(24.dp), shadowElevation = 3.dp) {
-                Column {
-                Text(simulationLabel, Modifier.padding(horizontal = 12.dp, vertical = 6.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                    color = if (simulationLabel.startsWith("NEEDS")) RED else ACCENT)
-                Row {
-                    TextButton(onClick = { follow = true; goTo(LatLng(status.lat, status.lng)) }) { Text(if (follow) "Following" else "Follow location") }
-                    TextButton(onClick = {
-                        follow = false
-                        val pts = session.points + session.stops.map { it.stop.point }
-                        if (pts.size >= 2) scope.launch {
-                            val bounds = LatLngBounds.Builder(); pts.forEach { bounds.include(it.toG()) }
-                            runCatching { camera.animate(CameraUpdateFactory.newLatLngBounds(bounds.build(), 90)) }
-                        }
-                    }) { Text("Whole trip") }
+            Surface(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(8.dp).testTag("liveStatus"), shape = RoundedCornerShape(12.dp), shadowElevation = 3.dp) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { showLiveDetails = true }, modifier = Modifier.weight(1f)) {
+                        Text(simulationLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+                            overflow = TextOverflow.Ellipsis, color = if (simulationLabel.startsWith("NEEDS")) RED else ACCENT)
+                    }
                     IconButton(onClick = { showSaved = true }) { Icon(Icons.Filled.Bookmark, "Saved plans") }
-                    IconButton(onClick = { showSetup = true }) { Icon(Icons.Filled.Settings, "Setup") }
-                }
                 }
             }
         }
+
         if (!live) Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding().padding(12.dp)) {
             Surface(shape = RoundedCornerShape(12.dp)) {
                 Text(simulationLabel, Modifier.padding(8.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold,
@@ -600,8 +594,8 @@ fun MapScreen(
 
         // ---- Bottom sheet: capped at half the screen, scrolls inside, collapsible -----
         if (live) {
-            Card(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(10.dp),
-                shape = RoundedCornerShape(24.dp),
+            Card(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(8.dp).testTag("liveControls"),
+                shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                 CompactLiveControls(status, session, onStop,
                     onChat = { showChat = true }, onDetails = { showLiveDetails = true })
@@ -652,6 +646,20 @@ fun MapScreen(
             title = { Text("Trip details") },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
+                    locationOutputIssue(status)?.let { Text(it, color = RED) }
+                    TextButton(onClick = { showLiveDetails = false; showSetup = true }) { Text("Setup and output checks") }
+                    Row {
+                        TextButton(onClick = { follow = true; goTo(LatLng(status.lat, status.lng)); showLiveDetails = false }) { Text("Follow location") }
+                        TextButton(onClick = {
+                            follow = false
+                            val pts = session.points + session.stops.map { it.stop.point }
+                            if (pts.size >= 2) scope.launch {
+                                val bounds = LatLngBounds.Builder(); pts.forEach { bounds.include(it.toG()) }
+                                runCatching { camera.animate(CameraUpdateFactory.newLatLngBounds(bounds.build(), 90)) }
+                            }
+                            showLiveDetails = false
+                        }) { Text("Whole trip") }
+                    }
                     LiveControls(status, session,
                         onNow = { showLiveDetails = false; planNow() },
                         onNext = { showLiveDetails = false; planNext() }, onStop = onStop,
@@ -1223,6 +1231,8 @@ private fun SavedPlansDialog(vm: MirageViewModel, active: Boolean = false, onDis
     var name by remember { mutableStateOf("") }
     val canSave = if (active) LiveSession.plan != null else vm.canSaveScenario
     var savedMessage by remember { mutableStateOf("") }
+    var selected by remember { mutableStateOf<String?>(null) }
+    var connector by remember { mutableStateOf<SavedScenario?>(null) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Saved plans") },
@@ -1242,7 +1252,7 @@ private fun SavedPlansDialog(vm: MirageViewModel, active: Boolean = false, onDis
                     )
                     Button(onClick = {
                         val saved = if (active) vm.saveActiveScenario(name) else vm.saveScenario(name)
-                        if (saved) { savedMessage = "Saved " + name; name = "" }
+                        if (saved) { savedMessage = "Saved " + name; name = "" } else savedMessage = vm.error ?: "Could not save"
                     }, enabled = canSave && name.isNotBlank()) { Text(if (active) "Save trip" else "Save") }
                 }
                 HorizontalDivider()
@@ -1252,7 +1262,7 @@ private fun SavedPlansDialog(vm: MirageViewModel, active: Boolean = false, onDis
                 }
                 Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     vm.savedScenarios.forEach { sc ->
-                        Row(Modifier.fillMaxWidth().clickable { vm.loadScenario(sc); onLoaded(sc) }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.fillMaxWidth().clickable { selected = if (selected == sc.id) null else sc.id }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                             val kind = runCatching { PlanMode.valueOf(sc.kind) }.getOrDefault(PlanMode.ROUTE)
                             Icon(
                                 when (kind) { PlanMode.SNAP -> Icons.Filled.Place; PlanMode.ROUTE -> sc.travelMode.icon(); PlanMode.ITINERARY -> Icons.Filled.Bookmark },
@@ -1263,10 +1273,22 @@ private fun SavedPlansDialog(vm: MirageViewModel, active: Boolean = false, onDis
                                 Text(sc.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(scenarioSummary(sc, kind), fontSize = 12.sp, color = MUTED, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
-                            TextButton(onClick = { vm.loadScenario(sc); onLoaded(sc) }) { Text("Load", fontSize = 12.sp) }
+                            TextButton(onClick = { vm.loadScenario(sc); onLoaded(sc) }, modifier = Modifier.semantics { contentDescription = "Load ${sc.name}" }) { Text("Load", fontSize = 12.sp) }
                             IconButton(onClick = { vm.deleteScenario(sc.id) }, modifier = Modifier.size(32.dp)) {
                                 Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = RED)
                             }
+                        }
+                        if (selected == sc.id) {
+                            if (sc.kind == PlanMode.SNAP.name) {
+                                TextButton(onClick = { vm.useSavedPlaceAsStart(sc); onLoaded(sc) }) { Text("Use as start") }
+                                TextButton(onClick = { vm.useSavedPlaceAsDestination(sc); onLoaded(sc) }) { Text("Use as destination") }
+                                TextButton(onClick = { vm.addSavedPlaceStop(sc); onLoaded(sc) }) { Text("Add as stop") }
+                            }
+                            if (sc.kind == PlanMode.ROUTE.name) TextButton(onClick = {
+                                if (vm.appendSavedRoute(sc)) onLoaded(sc)
+                                else if (vm.error?.contains("connecting leg") == true) connector = sc
+                                else savedMessage = vm.error ?: "Could not add route"
+                            }) { Text("Add to itinerary") }
                         }
                     }
                 }
@@ -1274,6 +1296,12 @@ private fun SavedPlansDialog(vm: MirageViewModel, active: Boolean = false, onDis
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
     )
+    connector?.let { route ->
+        AlertDialog(onDismissRequest = { connector = null }, title = { Text("Connect these routes?") },
+            text = { Text("The previous route ends away from this route's start. Add a driving leg between them? You can review its mode before starting.") },
+            confirmButton = { TextButton(onClick = { if (vm.appendSavedRoute(route, true)) { connector = null; onLoaded(route) } }) { Text("Add connecting leg") } },
+            dismissButton = { TextButton(onClick = { connector = null }) { Text("Cancel") } })
+    }
 }
 
 private fun scenarioSummary(sc: SavedScenario, kind: PlanMode): String = when (kind) {
@@ -1464,3 +1492,4 @@ private fun armStatic(at: LatLng?, name: String, cfg: ApiConfig) {
 
 private fun LatLng.toG() = GLatLng(lat, lng)
 private fun GLatLng.toE() = LatLng(latitude, longitude)
+

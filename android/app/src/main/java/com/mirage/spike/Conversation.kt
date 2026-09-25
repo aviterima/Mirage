@@ -175,7 +175,7 @@ object Conversation {
         val v = LiveSession.state.value
         val current = v.stops.getOrNull(v.index)?.stop?.name ?: st.label
         val next = v.stops.getOrNull(v.index + 1)?.stop?.name
-        return (if (PlaybackSource.paused) "Paused at $current." else when(v.activity) {
+        return (locationOutputIssue(st)?.let { "$it " } ?: "") + (if (PlaybackSource.paused) "Paused here. Destination: $current." else when(v.activity) {
             ActivityKind.ROUTING -> "Finding a route to $current."
             ActivityKind.TRAVELING -> "Traveling to $current."
             ActivityKind.STAYING -> "Staying at $current, about ${(v.remainingStaySeconds + 59) / 60} minutes left."
@@ -183,3 +183,4 @@ object Conversation {
         }) + (next?.let { " Next: $it." } ?: " No further stops.")
     }
 }
+

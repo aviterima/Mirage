@@ -87,3 +87,16 @@ fun simulationStatusText(status: MockStatus, activity: com.mirage.spike.engine.A
         else -> "HOLDING · simulation remains on"
     }
 }
+
+
+/** Shared diagnosis for visible and spoken status; provider acceptance is not destination-app verification. */
+fun locationOutputIssue(status: MockStatus, now: Long = System.currentTimeMillis()): String? = when {
+    !status.running -> null
+    status.signalDropped -> "Location output is paused by the simulated signal dropout."
+    status.lastFixMillis == 0L -> "Location output is unconfirmed: no GPS fix accepted. Check mock-location setup."
+    now - status.lastFixMillis !in 0..5000 -> "Location output is unconfirmed: GPS updates are stale. Check Setup."
+    status.lastFusedFixMillis == 0L -> "Location output is unconfirmed: waiting for Google fused location. Check Setup."
+    now - status.lastFusedFixMillis !in 0..5000 -> "Location output is unconfirmed: Google fused-location updates are stale. Check Setup."
+    status.health != Health.GREEN -> "Location output is unconfirmed: ${status.message}"
+    else -> null
+}

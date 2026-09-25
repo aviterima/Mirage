@@ -70,14 +70,14 @@ class ScenarioTest {
         assertTrue(vm.canSaveScenario)
         assertTrue(vm.saveScenario("Lunch run"))
         assertEquals(1, vm.savedScenarios.size)
-        // Same name replaces, does not duplicate.
-        assertTrue(vm.saveScenario("lunch RUN"))
+        // Duplicate names are rejected without changing the original.
+        assertFalse(vm.saveScenario("lunch RUN"))
         assertEquals(1, vm.savedScenarios.size)
 
         val vm2 = MirageViewModel().apply { attachStore(store) }
         assertEquals(1, vm2.savedScenarios.size)
         val sc = vm2.savedScenarios[0]
-        assertEquals("lunch RUN", sc.name)
+        assertEquals("Lunch run", sc.name)
         vm2.loadScenario(sc)
         assertEquals(PlanMode.ITINERARY, vm2.planMode)
         assertEquals(2, vm2.stops.size)
@@ -107,3 +107,4 @@ class ScenarioTest {
         vm.setDwell(0, 45); assertEquals(45, vm.stops[0].dwellMinutes)
     }
 }
+

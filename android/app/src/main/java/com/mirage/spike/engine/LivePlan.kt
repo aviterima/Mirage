@@ -52,17 +52,8 @@ class LivePlan(
 
     @Synchronized fun view() = SessionView(title, entries.toList(), index, kind, points, staySeconds.toInt())
     private fun publish() = LiveSession.publish(this, view())
-    /** Save configured stops; for the current stop preserve its remaining/pending stay. */
-    @Synchronized fun stopsForSave(): List<ItineraryStop> = entries.mapIndexed { i, entry ->
-        if (i != index) entry.stop else {
-            val seconds = when (kind) {
-                ActivityKind.TRAVELING, ActivityKind.ROUTING -> entry.stop.dwellMinutes * 60.0 + extraOnArrivalSeconds
-                ActivityKind.STAYING, ActivityKind.HOLDING -> staySeconds
-                else -> entry.stop.dwellMinutes * 60.0
-            }
-            entry.stop.copy(dwellMinutes = kotlin.math.ceil(seconds / 60.0).toInt().coerceIn(0, 1440))
-        }
-    }
+    /** Full replay template: elapsed time never changes configured durations. */
+    @Synchronized fun stopsForSave(): List<ItineraryStop> = entries.map { it.stop }
     @Synchronized fun append(stop: ItineraryStop) { entries += LiveStop(stop = stop); publish() }
     @Synchronized fun remove(id: String): Boolean {
         val i = entries.indexOfFirst { it.id == id }
@@ -91,9 +82,9 @@ class LivePlan(
     @Synchronized fun setCurrentStay(minutes: Int): Boolean {
         if (index !in entries.indices) return false
         val seconds = minutes.coerceIn(0, 1440) * 60.0
+        entries[index] = entries[index].copy(stop = entries[index].stop.copy(dwellMinutes = minutes.coerceIn(0, 1440)))
         if (kind == ActivityKind.TRAVELING || kind == ActivityKind.ROUTING) {
-            entries[index] = entries[index].copy(stop = entries[index].stop.copy(dwellMinutes = 0))
-            extraOnArrivalSeconds = seconds
+            extraOnArrivalSeconds = 0.0
         } else {
             staySeconds = seconds
             kind = if (seconds > 0) ActivityKind.STAYING else ActivityKind.HOLDING
@@ -102,8 +93,9 @@ class LivePlan(
     }
     @Synchronized fun extendStay(minutes: Int): Boolean {
         if (kind == ActivityKind.STAYING || kind == ActivityKind.HOLDING) { kind = ActivityKind.STAYING; staySeconds = (staySeconds + minutes * 60).coerceIn(0.0, 86400.0) }
-        else if (kind == ActivityKind.TRAVELING || kind == ActivityKind.ROUTING) extraOnArrivalSeconds = (extraOnArrivalSeconds + minutes * 60).coerceIn(0.0, 86400.0)
+        else if (kind == ActivityKind.TRAVELING || kind == ActivityKind.ROUTING) extraOnArrivalSeconds = 0.0
         else return false
+        entries[index] = entries[index].copy(stop = entries[index].stop.copy(dwellMinutes = (entries[index].stop.dwellMinutes + minutes).coerceIn(0, 1440)))
         publish(); return true
     }
     @Synchronized private fun next(): ItineraryStop? {
@@ -185,3 +177,4 @@ fun holdPlan(at: LatLng, name: String, cfg: ApiConfig): LivePlan {
     return LivePlan(name, at, listOf(stop), { from, to -> prepareLeg(cfg, from, to) },
         PreparedLeg(flow { emit(Fix(at.lat, at.lng, 0f, 0f, 4f)) }, listOf(at)))
 }
+

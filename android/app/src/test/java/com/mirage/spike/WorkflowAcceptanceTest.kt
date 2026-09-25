@@ -29,6 +29,41 @@ class WorkflowAcceptanceTest {
     }
     private fun vm() = MirageViewModel().apply { attachStore(InMemoryScenarioStore()) }
 
+    @Test fun savedPlacesComposeRouteWithoutReplacingOtherEndpoint() {
+        val vm = vm()
+        vm.choosePlanMode(PlanMode.SNAP); vm.setDestPoint(home, "Home"); vm.saveScenario("Home")
+        val a = vm.savedScenarios.first()
+        vm.setDestPoint(office, "Office"); vm.saveScenario("Office")
+        val b = vm.savedScenarios.first()
+        vm.useSavedPlaceAsStart(a); vm.useSavedPlaceAsDestination(b)
+        assertEquals(PlanMode.ROUTE, vm.planMode)
+        assertEquals(home, vm.tripStart()); assertEquals(office, vm.dest)
+        assertEquals(2, vm.savedScenarios.size)
+    }
+
+    @Test fun disconnectedRoutesRequireConnectorWithoutPartialMutation() {
+        val vm = vm()
+        vm.choosePlanMode(PlanMode.ROUTE); vm.setStartPoint(home, "Home"); vm.setDestPoint(office, "Office")
+        vm.saveScenario("Commute")
+        val route = vm.savedScenarios.single()
+        vm.choosePlanMode(PlanMode.SNAP)
+        assertTrue(vm.appendSavedRoute(route))
+        val before = vm.stops.toList()
+        assertFalse(vm.appendSavedRoute(route))
+        assertEquals(before, vm.stops.toList())
+        assertTrue(vm.appendSavedRoute(route, true))
+        assertEquals(listOf(office, home, office), vm.stops.map { it.point })
+        assertEquals(0, vm.stops[1].dwellMinutes)
+    }
+
+    @Test fun durationParserRejectsMalformedAndSupportsCompoundWords() {
+        assertEquals(27, CommandParser.minutes("twenty-seven minutes"))
+        assertEquals(120, CommandParser.minutes("two hours"))
+        listOf("-5 minutes", "1.5 minutes", "minus five minutes", "999999999999999999999 minutes", "five one minutes").forEach {
+            assertNull(it, CommandParser.minutes(it))
+        }
+    }
+
     @Test fun uc09_duplicateNameCannotSilentlyDestroyOriginal() {
         val vm = vm()
         vm.choosePlanMode(PlanMode.SNAP); vm.setDestPoint(home, "Home Phoenix")
@@ -136,3 +171,4 @@ class WorkflowAcceptanceTest {
         assertEquals(expected, MirageViewModel().apply { attachStore(store) }.savedScenarios.toList())
     }
 }
+

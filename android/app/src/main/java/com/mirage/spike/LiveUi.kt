@@ -6,6 +6,9 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -182,26 +185,17 @@ fun CompactLiveControls(status: MockStatus, session: SessionView, onStop: () -> 
         session.activity == ActivityKind.TRAVELING -> "To ${current?.name ?: status.label}"
         else -> "At ${current?.name ?: status.label.ifBlank { "this location" }}"
     }
-    Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(title, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
-                Text(when (session.activity) {
-                    ActivityKind.TRAVELING -> "${(status.speedMps / 0.44704).toInt()} mph" + if (status.remainingSec >= 0) " · ${fmtDuration(status.remainingSec.toDouble())} left" else ""
-                    ActivityKind.STAYING -> "${fmtDuration(session.remainingStaySeconds.toDouble())} stay remaining"
-                    ActivityKind.ROUTING -> "Holding position"
-                    else -> "Holding position"
-                }, style = MaterialTheme.typography.bodySmall)
-            }
-            TextButton(onClick = onDetails) { Text("Details") }
+    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).clickable(onClick = onDetails).semantics { contentDescription = "Trip details" }) {
+            Text(title, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
+            Text(if (session.activity == ActivityKind.TRAVELING)
+                "${(status.speedMps / 0.44704).toInt()} mph · Details"
+                else "${if (status.paused) "Paused" else "Holding"} · Details",
+                style = MaterialTheme.typography.bodySmall, maxLines = 1)
         }
-        if (status.health != Health.GREEN) Text(status.message, color = MaterialTheme.colorScheme.error, maxLines = 2)
-        if (status.stepLabel.startsWith("Route failed")) Text(status.stepLabel, color = MaterialTheme.colorScheme.error, maxLines = 2)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            OutlinedButton(onClick = { Conversation.submit(if (status.paused) "continue" else "pause") }, modifier = Modifier.weight(1f)) { Text(if (status.paused) "Resume" else "Pause") }
-            OutlinedButton(onClick = onChat, modifier = Modifier.weight(1f)) { Text("Talk") }
-            Button(onClick = onStop, modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Stop") }
-        }
+        TextButton(onClick = { Conversation.submit(if (status.paused) "continue" else "pause") }) { Text(if (status.paused) "Resume" else "Pause") }
+        IconButton(onClick = onChat) { Icon(Icons.Filled.Mic, contentDescription = "Talk") }
+        Button(onClick = onStop, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Stop") }
     }
 }
