@@ -23,6 +23,7 @@ import com.mirage.spike.engine.*
 fun LiveControls(status: MockStatus, session: SessionView, onNow: () -> Unit, onNext: () -> Unit, onStop: () -> Unit, onChat: () -> Unit, onStops: () -> Unit, onAdvanced: () -> Unit) {
     val current = session.stops.getOrNull(session.index)?.stop
     val next = session.stops.getOrNull(session.index + 1)?.stop
+    val estimate by DriveTiming.estimate.collectAsState()
     val title = when {
         status.paused -> "Paused here"
         session.activity == ActivityKind.ROUTING -> "Finding your route"
@@ -37,6 +38,7 @@ fun LiveControls(status: MockStatus, session: SessionView, onNow: () -> Unit, on
         ActivityKind.ROUTING -> "Holding your position while the route is prepared"
         else -> "Simulation stays on until you stop it"
     }, style = MaterialTheme.typography.bodyMedium)
+    if (current?.mode == TravelMode.DRIVE && estimate.isNotBlank()) Text(estimate, style = MaterialTheme.typography.bodySmall)
     Text(next?.let { "Next: ${it.name} · stay ${it.dwellMinutes} min" } ?: "No further stops", style = MaterialTheme.typography.bodySmall)
     if (status.health != Health.GREEN) Text(status.message, color = MaterialTheme.colorScheme.error)
     if (status.stepLabel.startsWith("Route failed")) Text(status.stepLabel, color = MaterialTheme.colorScheme.error)
