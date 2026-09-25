@@ -1,3 +1,5 @@
+> Historical baseline before the 0.11.2 fixes. For current targeted-fix results, see [FIX_VERIFICATION_0.11.2.md](FIX_VERIFICATION_0.11.2.md).
+
 # Mirage: executed acceptance-test results
 Date: September 25, 2026
 
