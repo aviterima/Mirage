@@ -576,6 +576,33 @@ class MirageViewModel : ViewModel() {
         return true
     }
 
+    /** Save the active plan including live stop edits, independent of the draft form. */
+    fun saveActiveScenario(name: String): Boolean {
+        val n = name.trim()
+        val plan = LiveSession.plan ?: return false
+        val view = plan.view()
+        if (n.isBlank() || view.stops.isEmpty()) return false
+        val activeStops = view.stops.map { it.stop }
+        val last = activeStops.last()
+        val kind = when {
+            activeStops.size > 1 || activeStops.any { it.dwellMinutes > 0 } -> PlanMode.ITINERARY
+            Geo.haversine(plan.origin, last.point) < 1.0 -> PlanMode.SNAP
+            else -> PlanMode.ROUTE
+        }
+        val sc = SavedScenario(
+            id = java.util.UUID.randomUUID().toString(), name = n, kind = kind.name,
+            createdAt = System.currentTimeMillis(), startIsReal = false,
+            start = plan.origin, startName = "Saved trip start",
+            dest = last.point, destName = last.name, travelMode = last.mode,
+            speeds = modeSpeeds.toMap(), realism = realism, transitPref = transitPref,
+            stops = activeStops.map { SavedStop(it.name, it.point.lat, it.point.lng, it.dwellMinutes, it.mode, it.avgMph) },
+        )
+        savedScenarios.removeAll { it.name.equals(n, ignoreCase = true) }
+        savedScenarios.add(0, sc)
+        store.save(savedScenarios.toList())
+        return true
+    }
+
     fun deleteScenario(id: String) {
         savedScenarios.removeAll { it.id == id }
         store.save(savedScenarios.toList())
