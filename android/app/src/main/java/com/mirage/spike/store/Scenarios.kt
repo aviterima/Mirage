@@ -14,6 +14,11 @@ data class SavedStop(
     val dwellMinutes: Int,
     val mode: TravelMode,
     val avgMph: Float,
+    val address: String = "",
+    val placeId: String = "",
+    val routingRealism: Realism? = null,
+    val routingTransitPref: String? = null,
+    val ownRoutingPreferences: Boolean = false,
 )
 
 /**
@@ -36,6 +41,8 @@ data class SavedScenario(
     val realism: Realism,
     val transitPref: String?,
     val stops: List<SavedStop>,
+    val destAddress: String = "",
+    val destPlaceId: String = "",
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id); put("name", name); put("kind", kind); put("createdAt", createdAt)
@@ -43,7 +50,7 @@ data class SavedScenario(
         start?.let { put("startLat", it.lat); put("startLng", it.lng) }
         put("startName", startName)
         dest?.let { put("destLat", it.lat); put("destLng", it.lng) }
-        put("destName", destName)
+        put("destName", destName); put("destAddress", destAddress); put("destPlaceId", destPlaceId)
         put("travelMode", travelMode.name)
         put("speeds", JSONObject().apply { speeds.forEach { (m, v) -> put(m.name, v.toDouble()) } })
         put("realism", realism.name)
@@ -53,6 +60,10 @@ data class SavedScenario(
                 put(JSONObject().apply {
                     put("name", s.name); put("lat", s.lat); put("lng", s.lng)
                     put("dwell", s.dwellMinutes); put("mode", s.mode.name); put("avgMph", s.avgMph.toDouble())
+                    put("address", s.address); put("placeId", s.placeId)
+                    s.routingRealism?.let { put("routingRealism", it.name) }
+                    s.routingTransitPref?.let { put("routingTransitPref", it) }
+                    put("ownRoutingPreferences", s.ownRoutingPreferences)
                 })
             }
         })
@@ -70,6 +81,9 @@ data class SavedScenario(
                     stops += SavedStop(
                         s.optString("name"), s.getDouble("lat"), s.getDouble("lng"),
                         s.optInt("dwell", 30), mode(s.optString("mode")), s.optDouble("avgMph", 45.0).toFloat(),
+                        s.optString("address"), s.optString("placeId"),
+                        runCatching { Realism.valueOf(s.optString("routingRealism")) }.getOrNull(),
+                        s.optString("routingTransitPref").takeIf { it.isNotBlank() }, s.optBoolean("ownRoutingPreferences", false),
                     )
                 }
             }
@@ -85,7 +99,7 @@ data class SavedScenario(
                 speeds = speeds,
                 realism = runCatching { Realism.valueOf(o.optString("realism")) }.getOrDefault(Realism.REALISTIC),
                 transitPref = o.optString("transitPref").takeIf { it.isNotBlank() },
-                stops = stops,
+                stops = stops, destAddress = o.optString("destAddress"), destPlaceId = o.optString("destPlaceId"),
             )
         }
 

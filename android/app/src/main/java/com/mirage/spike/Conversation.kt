@@ -101,7 +101,7 @@ object Conversation {
         val hit = mutable.value.choices.getOrNull(index) ?: run { reply("Choose one of the listed places by number.", spoken); return }
         val request = pending ?: return
         val leg = request.legs.getOrNull(resolved.size) ?: return
-        resolved += ItineraryStop(hit.name, hit.latLng, leg.minutes, leg.mode, defaultSpeed(leg.mode))
+        resolved += ItineraryStop(hit.name, hit.latLng, leg.minutes, leg.mode, defaultSpeed(leg.mode), hit.address, hit.placeId)
         mutable.update { it.copy(choices = emptyList()) }
         resolveNext(request, spoken)
     }
@@ -128,7 +128,7 @@ object Conversation {
                         return@launch
                     }
                     val hit = hits.single()
-                    resolved += ItineraryStop(hit.name, hit.latLng, leg.minutes, leg.mode, defaultSpeed(leg.mode))
+                    resolved += ItineraryStop(hit.name, hit.latLng, leg.minutes, leg.mode, defaultSpeed(leg.mode), hit.address, hit.placeId)
                     continue
                 }
                 val ctx = context ?: error("Open Mirage first")
@@ -138,8 +138,11 @@ object Conversation {
                 val stops = resolved.toList()
                 val origin = (if (request.snap) stops.first().point else position()) ?: run { reply("Waiting for your real location. Pick a start on the map first.", spoken); return@launch }
                 if (request.next && MockState.status.value.running && LiveSession.plan != null && !request.snap) {
-                    stops.forEach { LiveSession.plan?.append(it) }
-                    reply("Added ${stops.joinToString { it.name }} after the existing stops.", spoken)
+                    val live = LiveSession.plan
+                    val view = live?.view()
+                    val anchor = view?.stops?.getOrNull(view.index)?.id
+                    if (live?.insertAfter(anchor, stops) == true) reply("Added ${stops.joinToString { it.name }} after the current stop.", spoken)
+                    else reply("The trip advanced. Please try adding that destination again.", spoken)
                 } else {
                     val planOrigin = if (request.next && MockState.status.value.running) PlaybackSource.endPoint ?: origin else origin
                     val cfg = api

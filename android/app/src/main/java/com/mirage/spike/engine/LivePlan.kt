@@ -1,6 +1,7 @@
 package com.mirage.spike.engine
 
 import com.mirage.spike.MockState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -16,21 +17,24 @@ data class SessionView(
     val title: String = "", val stops: List<LiveStop> = emptyList(), val index: Int = -1,
     val activity: ActivityKind = ActivityKind.IDLE, val points: List<LatLng> = emptyList(),
     val remainingStaySeconds: Int = 0,
+    val routeFailure: String? = null,
 )
 
 /** Execution is separate from the editable draft. All edits target stable stop IDs. */
 object LiveSession {
     private val mutable = MutableStateFlow(SessionView())
     val state = mutable.asStateFlow()
+    @Volatile var epoch: Long = 0
+        private set
     @Volatile var plan: LivePlan? = null
         private set
-    fun activate(p: LivePlan) { val snapshot = p.view(); synchronized(this) { plan = p; mutable.value = snapshot } }
+    fun activate(p: LivePlan) { val snapshot = p.view(); synchronized(this) { if (plan !== p) epoch++; plan = p; mutable.value = snapshot } }
     @Synchronized fun publish(p: LivePlan, view: SessionView) { if (plan === p) mutable.value = view }
     @Synchronized fun holding(title: String, points: List<LatLng>) {
-        plan = null
+        epoch++; plan = null
         mutable.value = SessionView(title = title, activity = ActivityKind.HOLDING, points = points)
     }
-    @Synchronized fun clear() { plan = null; mutable.value = SessionView() }
+    @Synchronized fun clear() { epoch++; plan = null; mutable.value = SessionView() }
 }
 
 data class PreparedLeg(val flow: Flow<Fix>, val points: List<LatLng>)
@@ -50,7 +54,25 @@ class LivePlan(
     private var staySeconds = 0.0
     private var extraOnArrivalSeconds = 0.0
 
-    @Synchronized fun view() = SessionView(title, entries.toList(), index, kind, points, staySeconds.toInt())
+    @Volatile private var routeFailure: String? = null
+    @Volatile private var retryRequested = false
+    @Synchronized fun retryFailed() { retryRequested = true }
+    @Synchronized fun remainingForContinuation(): List<ItineraryStop> {
+        val first = if (kind == ActivityKind.TRAVELING || kind == ActivityKind.ROUTING || routeFailure != null) index.coerceAtLeast(0) else (index + 1).coerceAtLeast(0)
+        return entries.drop(first).map { it.stop }
+    }
+    /** Insert complete blocks atomically; never reuse a completed anchor. */
+    @Synchronized fun insertAfter(anchor: String?, added: List<ItineraryStop>, atEnd: Boolean = false): Boolean {
+        if (added.isEmpty()) return false
+        val at = if (atEnd) entries.size else {
+            val i = entries.indexOfFirst { it.id == anchor }
+            if (i < index || i < 0) return false
+            i + 1
+        }
+        entries.addAll(at, added.map { LiveStop(stop = it) }); publish(); return true
+    }
+    @Synchronized fun appendAll(stops: List<ItineraryStop>) { entries.addAll(stops.map { LiveStop(stop = it) }); publish() }
+    @Synchronized fun view() = SessionView(title, entries.toList(), index, kind, points, staySeconds.toInt(), routeFailure)
     private fun publish() = LiveSession.publish(this, view())
     /** Full replay template: elapsed time never changes configured durations. */
     @Synchronized fun stopsForSave(): List<ItineraryStop> = entries.map { it.stop }
@@ -130,14 +152,34 @@ class LivePlan(
                 }
                 continue
             }
-            val leg = if (index == 0 && firstLeg != null) firstLeg else coroutineScope {
-                MockState.update { it.copy(stepLabel = "Finding route to ${stop.name}", legIndex = index) }
-                val task = async { route(LatLng(last.lat, last.lng), stop) }
-                while (!task.isCompleted) {
-                    emit(last.copy(speedMps = 0f, progress = -1f, remainingSec = -1)); delay(200)
+            var prepared: PreparedLeg? = null
+            var skipped = false
+            while (prepared == null && !skipped) {
+                try {
+                    routeFailure = null
+                    synchronized(this@LivePlan) { kind = ActivityKind.ROUTING; publish() }
+                    prepared = if (index == 0 && firstLeg != null) firstLeg else coroutineScope {
+                        MockState.update { it.copy(stepLabel = "Finding route to ${stop.name}", legIndex = index) }
+                        val task = async { route(LatLng(last.lat, last.lng), stop) }
+                        while (!task.isCompleted) {
+                            emit(last.copy(speedMps = 0f, progress = -1f, remainingSec = -1)); delay(200)
+                        }
+                        task.await()
+                    }
+                } catch (e: CancellationException) { throw e }
+                catch (e: Exception) {
+                    routeFailure = e.message ?: "Route unavailable"
+                    retryRequested = false
+                    hold()
+                    MockState.update { it.copy(stepLabel = "Route failed: $routeFailure. Holding here; retry or skip this stop.") }
+                    while (!retryRequested) {
+                        if (PlaybackSource.consumeSkip()) { skipped = true; break }
+                        emit(last.copy(speedMps = 0f, progress = -1f, remainingSec = -1)); delay(200)
+                    }
                 }
-                task.await()
             }
+            if (skipped) { routeFailure = null; continue }
+            val leg = prepared ?: continue
             traveling(leg.points)
             PlaybackSource.routePoints = leg.points
             PlaybackSource.endPoint = leg.points.lastOrNull()
@@ -162,11 +204,13 @@ suspend fun prepareLeg(cfg: ApiConfig, from: LatLng, stop: ItineraryStop, realis
         val flight = FlightModel(from, stop.point)
         return PreparedLeg(flight.fixes(), flight.pathPoints)
     }
-    val r = GoogleDirectionsRouteEngine(cfg).route(RouteSpec(from, stop.point, mode = stop.mode, transitPreference = transitPreference))
+    val effectiveRealism = stop.routingRealism ?: realism
+    val effectiveTransit = if (stop.ownRoutingPreferences) stop.routingTransitPref else transitPreference
+    val r = GoogleDirectionsRouteEngine(cfg).route(RouteSpec(from, stop.point, mode = stop.mode, transitPreference = effectiveTransit))
     val flow = when {
         stop.mode == TravelMode.TRANSIT -> TransitModel(r).fixes()
-        stop.mode == TravelMode.DRIVE && r.segments.isNotEmpty() -> DriveModel(r, realism).fixes()
-        else -> MotionModel(r, MotionParams(avgSpeedMps = stop.avgMph * 0.44704, realism = realism, mode = stop.mode)).fixes()
+        stop.mode == TravelMode.DRIVE && r.segments.isNotEmpty() -> DriveModel(r, effectiveRealism).fixes()
+        else -> MotionModel(r, MotionParams(avgSpeedMps = stop.avgMph * 0.44704, realism = effectiveRealism, mode = stop.mode)).fixes()
     }
     return PreparedLeg(flow, r.points)
 }

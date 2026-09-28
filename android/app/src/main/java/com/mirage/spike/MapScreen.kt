@@ -189,6 +189,9 @@ fun MapScreen(
     val vm: MirageViewModel = viewModel()
     val status by MockState.status.collectAsState()
     val session by LiveSession.state.collectAsState()
+    val addition = vm.continuation.state
+    LaunchedEffect(status.running) { if (!status.running) vm.continuation.cancel() }
+    LaunchedEffect(vm.notice) { if (vm.notice != null) { delay(5000); vm.notice = null } }
     var statusClock by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { statusClock = System.currentTimeMillis(); delay(1000) } }
     val simulationLabel = simulationStatusText(status, session.activity, statusClock)
@@ -234,8 +237,8 @@ fun MapScreen(
         // Continental view until the real fix arrives — never pretend to know where you are.
         position = CameraPosition.fromLatLngZoom(GLatLng(39.5, -98.35), 3f)
     }
-    LaunchedEffect(status.lat, status.lng, live, follow) {
-        if (live && follow) runCatching { camera.move(CameraUpdateFactory.newLatLng(GLatLng(status.lat, status.lng))) }
+    LaunchedEffect(status.lat, status.lng, live, follow, addition != null) {
+        if (live && follow && addition == null) runCatching { camera.move(CameraUpdateFactory.newLatLng(GLatLng(status.lat, status.lng))) }
     }
     LaunchedEffect(camera.isMoving) {
         if (camera.isMoving && camera.cameraMoveStartedReason == com.google.maps.android.compose.CameraMoveStartedReason.GESTURE) follow = false
@@ -312,8 +315,17 @@ fun MapScreen(
         holdAt = { at -> withPerms { armStatic(at, vm.destName, vm.api); vm.onSnapStarted(); onStartService(); planning = false } },
     )
     val onStop = { Conversation.cancelPending(); onStopService(); vm.onStopped(); planning = false }
-    val planNow = { planning = true; follow = false; vm.choosePlanMode(PlanMode.ROUTE); vm.useSimulatedPosition() }
-    val planNext = { planning = true; follow = false; vm.choosePlanMode(PlanMode.ROUTE); vm.useTripEnd() }
+    val planNow = { planning = false; follow = false; vm.continuation.begin(Placement.NOW) }
+    val planNext = { planning = false; follow = false; vm.continuation.begin(Placement.NEXT) }
+    val addDestination = { planning = false; follow = false; vm.continuation.begin() }
+    val confirmAddition = { if (vm.continuation.commit(onStartService)) { planning = false; follow = true } }
+    LaunchedEffect(addition?.points, addition?.editorOpen) {
+        val points = addition?.points.orEmpty()
+        if (points.isNotEmpty() && addition?.editorOpen == false) {
+            val bounds = LatLngBounds.Builder(); points.forEach { bounds.include(it.toG()) }
+            runCatching { camera.animate(CameraUpdateFactory.newLatLngBounds(bounds.build(), 90)) }
+        }
+    }
 
     Box(Modifier.fillMaxSize()) {
 
@@ -349,6 +361,14 @@ fun MapScreen(
                     icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_VIOLET),
                     title = vm.destName,
                 )
+            }
+            addition?.let { draft ->
+                if (draft.points.isNotEmpty()) Polyline(points = draft.points.map { it.toG() }, color = VIOLET, width = 9f)
+                draft.stops.forEachIndexed { index, stop ->
+                    Marker(state = rememberMarkerState(key = "addition-$index-${stop.point}", position = stop.point.toG()),
+                        title = stop.name, snippet = stop.address,
+                        icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_VIOLET))
+                }
             }
             if (status.running && session.points.isNotEmpty()) {
                 Polyline(points = session.points.map { it.toG() }, color = ACCENT, width = 14f)
@@ -389,8 +409,8 @@ fun MapScreen(
         var snapMenu by remember { mutableStateOf<Field?>(null) }
         // The boxes always show the chosen place: a pick, a map tap or a snap wins over
         // whatever was being typed.
-        LaunchedEffect(startLabel) { startQuery = startLabel }
-        LaunchedEffect(endLabel) { endQuery = endLabel }
+        LaunchedEffect(startLabel) { if (!startFocused || startLabel.isNotBlank()) startQuery = startLabel }
+        LaunchedEffect(endLabel) { if (!endFocused || endLabel.isNotBlank()) endQuery = endLabel }
         val syncBoxes = {
             startQuery = startLabel
             endQuery = endLabel
@@ -398,9 +418,7 @@ fun MapScreen(
         val done = { keyboard?.hide(); focus.clearFocus() }
         val onEnter: (String) -> Unit = { q ->
             done()
-            val top = vm.suggestions.firstOrNull()
-            if (top != null) { vm.pickSuggestion(top); syncBoxes(); goTo(top.latLng) }
-            else if (q.isNotBlank()) vm.search(q) { p -> syncBoxes(); goTo(p) }
+            if (q.isNotBlank()) vm.search(q) { p -> syncBoxes(); goTo(p) }
         }
         val snapReal: (Field) -> Unit = { field ->
             // "My real location" for a box: a fresh fix when idle; while spoofing the phone's own
@@ -453,7 +471,7 @@ fun MapScreen(
                     DropdownMenuItem(
                         text = { Text("Clear") },
                         onClick = {
-                            snapMenu = null; vm.clearSuggestions()
+                            snapMenu = null; vm.editLocationQuery(field, "", null)
                             if (field == Field.START) startQuery = "" else endQuery = ""
                         },
                     )
@@ -467,7 +485,7 @@ fun MapScreen(
                         Text(simulationLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1,
                             overflow = TextOverflow.Ellipsis, color = if (simulationLabel.startsWith("NEEDS")) RED else ACCENT)
                     }
-                    IconButton(onClick = { showSaved = true }) { Icon(Icons.Filled.Bookmark, "Saved plans") }
+                    IconButton(onClick = { vm.continuation.begin(source = DestinationSource.SNAP) }) { Icon(Icons.Filled.Bookmark, "Saved plans") }
                 }
             }
         }
@@ -504,12 +522,12 @@ fun MapScreen(
                         if (vm.planMode != PlanMode.SNAP) {
                             LocationBox(
                                 value = startQuery,
-                                onValueChange = { startQuery = it; vm.activeField = Field.START; vm.suggest(it, camera.position.target.toE()) },
+                                onValueChange = { startQuery = it; vm.editLocationQuery(Field.START, it, camera.position.target.toE()) },
                                 placeholder = "Start · search, long-press the map, or ⌖",
                                 dot = GREEN,
                                 onFocus = { f ->
                                     startFocused = f
-                                    if (f) { vm.activeField = Field.START; if (startQuery == startLabel) startQuery = "" }
+                                    if (f) { vm.activeField = Field.START; vm.clearSuggestions() }
                                     else if (startQuery.isBlank()) { startQuery = startLabel; vm.clearSuggestions() }
                                 },
                                 onEnter = { onEnter(startQuery) },
@@ -543,7 +561,7 @@ fun MapScreen(
                         // END / PLACE / NEXT STOP
                         LocationBox(
                             value = endQuery,
-                            onValueChange = { endQuery = it; vm.activeField = Field.END; vm.suggest(it, camera.position.target.toE()) },
+                            onValueChange = { endQuery = it; vm.editLocationQuery(Field.END, it, camera.position.target.toE()) },
                             placeholder = when (vm.planMode) {
                                 PlanMode.SNAP -> "Place · search, tap the map, or ⌖"
                                 PlanMode.ROUTE -> "End · search, tap the map, or ⌖"
@@ -552,7 +570,7 @@ fun MapScreen(
                             dot = if (vm.planMode == PlanMode.SNAP) ACCENT else VIOLET,
                             onFocus = { f ->
                                 endFocused = f
-                                if (f) { vm.activeField = Field.END; if (endQuery == endLabel) endQuery = "" }
+                                if (f) { vm.activeField = Field.END; vm.clearSuggestions() }
                                 else if (endQuery.isBlank()) { endQuery = endLabel; vm.clearSuggestions() }
                             },
                             onEnter = { onEnter(endQuery) },
@@ -597,8 +615,9 @@ fun MapScreen(
             Card(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(8.dp).testTag("liveControls"),
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                CompactLiveControls(status, session, onStop,
-                    onChat = { showChat = true }, onDetails = { showLiveDetails = true })
+                if (addition != null) ContinuationPreviewBar(vm.continuation, confirmAddition)
+                else CompactLiveControls(status, session, onStop, onAdd = addDestination,
+                    onChat = { showChat = true }, onDetails = { showLiveDetails = true }, notice = vm.notice)
             }
         } else Card(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(10.dp).heightIn(max = maxSheet),
@@ -614,7 +633,6 @@ fun MapScreen(
                 when {
                     live -> LiveControls(status, session, planNow, planNext, onStop,
                         onChat = { showChat = true }, onStops = { showUpcoming = true }, onAdvanced = { showAdvanced = true })
-                    status.running -> Controls(vm = vm, status = status, mockBlocked = mockBlocked, onOpenSetup = { showSetup = true }, a = actions)
                     sheetCollapsed -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { sheetCollapsed = false }) {
                             Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Expand controls", tint = ACCENT)
@@ -640,6 +658,7 @@ fun MapScreen(
         }
     }
 
+    ContinuationSheet(vm.continuation, vm.savedScenarios.toList(), confirmAddition, onStop)
     if (showLiveDetails) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showLiveDetails = false },

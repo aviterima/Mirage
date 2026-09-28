@@ -55,7 +55,7 @@ fun LiveControls(status: MockStatus, session: SessionView, onNow: () -> Unit, on
     if (session.activity == ActivityKind.STAYING) TextButton(onClick = { Conversation.submit("extend stay by fifteen minutes") }) { Text("＋ Stay 15 minutes longer") }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(onClick = onNow, modifier = Modifier.weight(1f)) { Text(if (session.activity == ActivityKind.HOLDING) "Go somewhere" else "Change destination") }
-        OutlinedButton(onClick = onNext, modifier = Modifier.weight(1f)) { Text("Go there next") }
+        OutlinedButton(onClick = onNext, modifier = Modifier.weight(1f)) { Text("Add next stop") }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         TextButton(onClick = onStops, enabled = session.stops.isNotEmpty()) { Text("Upcoming stops") }
@@ -177,25 +177,31 @@ fun ChatPanel(onDismiss: () -> Unit) {
 
 /** Map-first live summary; editing and diagnostics live behind Details. */
 @Composable
-fun CompactLiveControls(status: MockStatus, session: SessionView, onStop: () -> Unit, onChat: () -> Unit, onDetails: () -> Unit) {
+fun CompactLiveControls(status: MockStatus, session: SessionView, onStop: () -> Unit, onChat: () -> Unit,
+    onDetails: () -> Unit, onAdd: () -> Unit, notice: String? = null) {
     val current = session.stops.getOrNull(session.index)?.stop
     val title = when {
-        status.paused -> "Paused"
+        session.routeFailure != null -> "Route unavailable · holding here"
+        status.paused -> "Paused · ${current?.name ?: status.label}"
         session.activity == ActivityKind.ROUTING -> "Finding route"
         session.activity == ActivityKind.TRAVELING -> "To ${current?.name ?: status.label}"
         else -> "At ${current?.name ?: status.label.ifBlank { "this location" }}"
     }
-    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-        Column(Modifier.weight(1f).clickable(onClick = onDetails).semantics { contentDescription = "Trip details" }) {
-            Text(title, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
-            Text(if (session.activity == ActivityKind.TRAVELING)
-                "${(status.speedMps / 0.44704).toInt()} mph" + (if (status.remainingSec >= 0) " · ${fmtDuration(status.remainingSec.toDouble())} left" else " · Details")
-                else "${if (status.paused) "Paused" else "Holding"} · Details",
-                style = MaterialTheme.typography.bodySmall, maxLines = 1)
+    Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp)) {
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Text(if (session.routeFailure != null) title else notice ?: title, Modifier.weight(1f).clickable(onClick = onDetails).semantics { contentDescription = "Trip details" },
+                maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
+            if (session.routeFailure != null) {
+                TextButton(onClick = { LiveSession.plan?.retryFailed() }) { Text("Retry") }
+                TextButton(onClick = { PlaybackSource.requestSkip() }) { Text("Skip stop") }
+            }
         }
-        TextButton(onClick = { Conversation.submit(if (status.paused) "continue" else "pause") }) { Text(if (status.paused) "Resume" else "Pause") }
-        IconButton(onClick = onChat) { Icon(Icons.Filled.Mic, contentDescription = "Talk") }
-        Button(onClick = onStop, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Stop") }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Button(onClick = onAdd) { Text("Add destination") }
+            TextButton(onClick = { Conversation.submit(if (status.paused) "continue" else "pause") }) { Text(if (status.paused) "Resume" else "Pause") }
+            IconButton(onClick = onChat) { Icon(Icons.Filled.Mic, contentDescription = "Talk") }
+            Button(onClick = onStop, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Stop") }
+        }
     }
 }

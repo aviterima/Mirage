@@ -14,6 +14,11 @@ data class ItineraryStop(
     /** How this leg is traveled; each leg has its own mode and speed. */
     val mode: TravelMode = TravelMode.DRIVE,
     val avgMph: Float = 45f,
+    val address: String = "",
+    val placeId: String = "",
+    val routingRealism: Realism? = null,
+    val routingTransitPref: String? = null,
+    val ownRoutingPreferences: Boolean = false,
 )
 
 /**

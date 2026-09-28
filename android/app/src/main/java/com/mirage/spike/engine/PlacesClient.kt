@@ -8,7 +8,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 
-data class PlaceHit(val latLng: LatLng, val name: String, val address: String = "")
+data class PlaceHit(val latLng: LatLng, val name: String, val address: String = "", val placeId: String = "")
 
 class PlacesException(message: String) : Exception(message)
 
@@ -48,7 +48,7 @@ class GooglePlaces(
         val req = Request.Builder()
             .url(cfg.placesSearchUrl())
             .apply { cfg.headers(places = true).forEach { (k, v) -> addHeader(k, v) } }
-            .addHeader("X-Goog-FieldMask", "places.location,places.displayName,places.formattedAddress")
+            .addHeader("X-Goog-FieldMask", "places.id,places.location,places.displayName,places.formattedAddress")
             .post(payload.toString().toRequestBody(jsonType))
             .build()
 
@@ -67,7 +67,7 @@ class GooglePlaces(
                 val lat = loc.optDouble("latitude", Double.NaN); val lng = loc.optDouble("longitude", Double.NaN)
                 if (lat.isNaN() || lng.isNaN()) return@mapNotNull null
                 val name = pl.optJSONObject("displayName")?.optString("text").takeUnless { it.isNullOrBlank() } ?: query
-                PlaceHit(LatLng(lat, lng), name, pl.optString("formattedAddress"))
+                PlaceHit(LatLng(lat, lng), name, pl.optString("formattedAddress"), pl.optString("id"))
             }
         }
     }

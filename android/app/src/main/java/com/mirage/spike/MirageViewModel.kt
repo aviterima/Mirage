@@ -56,7 +56,10 @@ enum class Field { START, END }
 enum class PlanMode { SNAP, ROUTE, ITINERARY }
 
 /** Drives the map screen: endpoints, routing, average speed, itinerary, and simulation control. */
-class MirageViewModel : ViewModel() {
+class MirageViewModel(
+    val placeSearch: suspend (ApiConfig, String, LatLng?) -> List<PlaceHit> = { cfg, query, bias -> GooglePlaces(cfg).searchMany(query, bias, 8) },
+) : ViewModel() {
+    val continuation = ContinuationPlanner(this, viewModelScope)
 
     // ---- Endpoints -----------------------------------------------------------
     // No made-up default: until a real fix (or a pick) arrives the start is simply unset.
@@ -68,6 +71,10 @@ class MirageViewModel : ViewModel() {
     var startFromReal by mutableStateOf(false)
         private set
     var dest by mutableStateOf<LatLng?>(null)
+        private set
+    var destAddress by mutableStateOf("")
+        private set
+    var destPlaceId by mutableStateOf("")
         private set
     var destName by mutableStateOf("Destination")
         private set
@@ -137,6 +144,15 @@ class MirageViewModel : ViewModel() {
     var suggestBusy by mutableStateOf(false)
         private set
     private var suggestJob: Job? = null
+    private var searchSerial = 0L
+    private var suggestedField = Field.END
+    fun editLocationQuery(field: Field, query: String, bias: LatLng?) {
+        activeField = field
+        if (field == Field.END) { dest = null; destName = ""; destAddress = ""; destPlaceId = "" }
+        else { start = null; startName = ""; startFromReal = false; useSimulatedStart = false; queueAfterCurrent = false }
+        invalidateRoute()
+        suggest(query, bias)
+    }
 
     // ---- API access: built-in key, the user's own key, or Mirage's hosted gateway -------
     var api by mutableStateOf(ApiConfig(BuildConfig.MIRAGE_API_BASE, BuildConfig.MAPS_API_KEY, ""))
@@ -260,6 +276,7 @@ class MirageViewModel : ViewModel() {
      * simply: pick, pick, pick.
      */
     fun setDestPoint(p: LatLng, name: String = "Dropped pin") {
+        destAddress = ""; destPlaceId = ""
         if (planMode == PlanMode.ITINERARY) {
             stops.add(ItineraryStop(name, p, 30, mode, avgMph))
             dest = null; destName = ""; error = null
@@ -327,60 +344,45 @@ class MirageViewModel : ViewModel() {
 
     // ---- Search ----------------------------------------------------------------
 
-    /** Refresh the pick list as the user types (debounced; last keystroke wins). */
-    fun suggest(query: String, bias: LatLng?) {
-        suggestJob?.cancel()
+    /** Last keystroke and active field win, including uncancellable responses. */
+    fun suggest(query: String, bias: LatLng?) = requestSearch(query, bias, true)
+    private fun requestSearch(query: String, bias: LatLng?, debounce: Boolean) {
+        clearSuggestions()
         val q = query.trim()
-        if (q.length < 2 || !hasKey) { suggestions.clear(); suggestBusy = false; return }
+        if (q.length < 2 || !hasKey) return
+        val serial = searchSerial
+        val field = activeField
+        suggestedField = field
+        suggestBusy = true
         suggestJob = viewModelScope.launch {
-            delay(350)
-            suggestBusy = true
             try {
-                val hits = places.searchMany(q, bias ?: start, 8)
-                if (!isActive) return@launch
-                suggestions.clear(); suggestions.addAll(hits)
-                error = null
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                error = e.message ?: "Places search failed"
-            } finally { if (isActive) suggestBusy = false }
+                if (debounce) delay(350)
+                val hits = placeSearch(api, q, bias ?: tripStart())
+                if (!isActive || serial != searchSerial || field != activeField) return@launch
+                suggestions.addAll(hits)
+                error = if (hits.isEmpty()) "No matches. Try a full address or city." else null
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { if (serial == searchSerial) error = describe(e, "Places search failed") }
+            finally { if (serial == searchSerial) suggestBusy = false }
         }
     }
-
-    fun clearSuggestions() { suggestJob?.cancel(); suggestions.clear(); suggestBusy = false }
-
-    /** The user picked one row from the list: it becomes the start or the destination. */
+    fun clearSuggestions() { searchSerial++; suggestJob?.cancel(); suggestions.clear(); suggestBusy = false }
     fun pickSuggestion(hit: PlaceHit) {
+        if (suggestedField != activeField || hit !in suggestions) return
+        val field = activeField
         clearSuggestions()
-        applySearchResult(hit.latLng, hit.name)
+        if (field == Field.START) setStartPoint(hit.latLng, hit.name) else {
+            setDestPoint(hit.latLng, hit.name)
+            if (planMode == PlanMode.ITINERARY && stops.isNotEmpty()) {
+                stops[stops.lastIndex] = stops.last().copy(address = hit.address, placeId = hit.placeId)
+            } else { destAddress = hit.address; destPlaceId = hit.placeId }
+        }
         error = null
     }
-
-    private fun applySearchResult(p: LatLng, name: String) {
-        if (activeField == Field.START) setStartPoint(p, name) else setDestPoint(p, name)
-    }
-
-    /** Search by place/business/landmark name (Places), biased to the current start;
-     *  falls back to Geocoding for plain addresses. Surfaces the real API error. */
+    /** Enter fetches choices and never silently chooses a previous result. */
     fun search(query: String, onFound: (LatLng) -> Unit) {
         if (!hasKey) { error = "Add MAPS_API_KEY to search by name"; return }
-        clearSuggestions()
-        viewModelScope.launch {
-            error = null
-            try {
-                val hit = places.searchText(query, start)
-                if (hit != null) { applySearchResult(hit.latLng, hit.name); onFound(hit.latLng); return@launch }
-            } catch (e: Exception) {
-                error = describe(e, "Places search failed")
-                return@launch
-            }
-            // Places found nothing — try a plain-address geocode.
-            try {
-                val p = geocoder.geocode(query)
-                if (p != null) { applySearchResult(p, query); onFound(p) } else error = "No match for “$query”"
-            } catch (e: Exception) { error = describe(e, "Search failed") }
-        }
+        requestSearch(query, tripStart(), false)
     }
 
     // ---- Single trip -------------------------------------------------------------
@@ -415,7 +417,7 @@ class MirageViewModel : ViewModel() {
         val origin = tripStart() ?: run { error = "Set a start point"; return }
         val destination = dest ?: run { error = "Set a destination"; return }
         if (!canStart) { error = "Route was reset — tap Get route again"; return }
-        val stop = ItineraryStop(destName, destination, 0, mode, avgMph)
+        val stop = ItineraryStop(destName, destination, 0, mode, avgMph, destAddress, destPlaceId)
         if (MockState.status.value.running && queueAfterCurrent && LiveSession.plan != null) {
             LiveSession.plan?.append(stop)
             notice = "Added ${stop.name} after the existing stops"
@@ -569,9 +571,9 @@ class MirageViewModel : ViewModel() {
             startIsReal = realOrigin || effectiveStart == null,
             start = if (realOrigin) null else effectiveStart,
             startName = when { realOrigin -> ""; queueAfterCurrent -> "Previous trip end"; useSimulatedStart -> "Simulated location"; else -> startName },
-            dest = dest, destName = destName,
+            dest = dest, destName = destName, destAddress = destAddress, destPlaceId = destPlaceId,
             travelMode = mode, speeds = modeSpeeds.toMap(), realism = realism, transitPref = transitPref,
-            stops = stops.map { SavedStop(it.name, it.point.lat, it.point.lng, it.dwellMinutes, it.mode, it.avgMph) },
+            stops = stops.map { SavedStop(it.name, it.point.lat, it.point.lng, it.dwellMinutes, it.mode, it.avgMph, it.address, it.placeId, it.routingRealism, it.routingTransitPref, it.ownRoutingPreferences) },
         )
         error = null
         savedScenarios.add(0, sc)
@@ -597,9 +599,9 @@ class MirageViewModel : ViewModel() {
             id = java.util.UUID.randomUUID().toString(), name = n, kind = kind.name,
             createdAt = System.currentTimeMillis(), startIsReal = false,
             start = plan.origin, startName = "Saved trip start",
-            dest = last.point, destName = last.name, travelMode = last.mode,
+            dest = last.point, destName = last.name, travelMode = last.mode, destAddress = last.address, destPlaceId = last.placeId,
             speeds = modeSpeeds.toMap(), realism = realism, transitPref = transitPref,
-            stops = activeStops.map { SavedStop(it.name, it.point.lat, it.point.lng, it.dwellMinutes, it.mode, it.avgMph) },
+            stops = activeStops.map { SavedStop(it.name, it.point.lat, it.point.lng, it.dwellMinutes, it.mode, it.avgMph, it.address, it.placeId, it.routingRealism, it.routingTransitPref, it.ownRoutingPreferences) },
         )
         error = null
         savedScenarios.add(0, sc)
@@ -617,12 +619,16 @@ class MirageViewModel : ViewModel() {
         val point = sc.dest ?: return
         if (planMode == PlanMode.SNAP) choosePlanMode(PlanMode.ROUTE)
         setDestPoint(point, sc.name)
+        if (planMode == PlanMode.ITINERARY && stops.isNotEmpty()) stops[stops.lastIndex] = stops.last().copy(address = sc.destAddress, placeId = sc.destPlaceId)
+        else { destAddress = sc.destAddress; destPlaceId = sc.destPlaceId }
     }
 
     fun addSavedPlaceStop(sc: SavedScenario) {
         val point = sc.dest ?: return
         choosePlanMode(PlanMode.ITINERARY)
         setDestPoint(point, sc.name)
+        if (planMode == PlanMode.ITINERARY && stops.isNotEmpty()) stops[stops.lastIndex] = stops.last().copy(address = sc.destAddress, placeId = sc.destPlaceId)
+        else { destAddress = sc.destAddress; destPlaceId = sc.destPlaceId }
     }
 
     /** Append in the draft only. A disconnected route requires an explicit connector. */
@@ -664,7 +670,7 @@ class MirageViewModel : ViewModel() {
         realism = sc.realism
         transitPref = sc.transitPref
         stops.clear()
-        stops.addAll(sc.stops.map { ItineraryStop(it.name, LatLng(it.lat, it.lng), it.dwellMinutes, it.mode, it.avgMph) })
+        stops.addAll(sc.stops.map { ItineraryStop(it.name, LatLng(it.lat, it.lng), it.dwellMinutes, it.mode, it.avgMph, it.address, it.placeId, it.routingRealism, it.routingTransitPref, it.ownRoutingPreferences) })
         if (sc.startIsReal || sc.start == null) {
             val real = lastReal
             start = real; startName = "My location"; startFromReal = true
@@ -672,7 +678,7 @@ class MirageViewModel : ViewModel() {
         } else {
             start = sc.start; startName = sc.startName; startFromReal = false; useSimulatedStart = false
         }
-        dest = sc.dest; destName = sc.destName
+        dest = sc.dest; destName = sc.destName; destAddress = sc.destAddress; destPlaceId = sc.destPlaceId
         invalidateRoute()
         error = null
         // Routes can be prepared straight away; the user then just taps Start.
@@ -686,7 +692,7 @@ class MirageViewModel : ViewModel() {
         if (stops.any { it.mode != TravelMode.FLY } && !hasKey) { error = "Add a Maps key in Setup"; return }
         val snapshot = stops.toList()
         if (MockState.status.value.running && queueAfterCurrent && LiveSession.plan != null) {
-            snapshot.forEach { LiveSession.plan?.append(it) }
+            LiveSession.plan?.appendAll(snapshot)
             notice = "Added ${snapshot.size} stops after the existing stops"
             queueAfterCurrent = false; useSimulatedStart = true
             return
@@ -701,6 +707,7 @@ class MirageViewModel : ViewModel() {
     }
 
     fun onStopped() {
+        continuation.cancel(); clearSuggestions()
         phase = if (routePts.isEmpty()) Phase.IDLE else Phase.READY
     }
 
