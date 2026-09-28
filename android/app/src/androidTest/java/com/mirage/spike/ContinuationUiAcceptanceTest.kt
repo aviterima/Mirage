@@ -71,7 +71,8 @@ class ContinuationUiAcceptanceTest {
     }
     @Test fun heldSimulationContinuesToSavedSnapFromCurrentPointWithClearMap() {
         chooseSnap()
-        compose.onNodeWithText("Fixture Office, Scottsdale, Arizona").assertExists()
+        compose.onNode(hasText("Fixture Office, Scottsdale, Arizona") and
+            hasAnyAncestor(hasTestTag("continuationEditor"))).assertExists()
         compose.onNodeWithText("Review on map").performScrollTo().performClick()
         compose.waitForIdle()
         val top = compose.onNodeWithTag("liveStatus").fetchSemanticsNode().boundsInRoot
