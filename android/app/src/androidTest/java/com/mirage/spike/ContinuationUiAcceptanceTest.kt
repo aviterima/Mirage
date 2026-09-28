@@ -63,6 +63,17 @@ class ContinuationUiAcceptanceTest {
         compose.waitUntil(15_000) { compose.onAllNodes(hasTestTag("confirmContinuation") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
     }
     private fun confirm() { ready(); compose.onNodeWithTag("confirmContinuation").performScrollTo().performClick() }
+    private fun assertPausedOutput() {
+        compose.waitUntil(10_000) {
+            val status = MockState.status.value
+            status.paused && locationOutputIssue(status) == null
+        }
+        // Cover provider callbacks both before and after the header timer ticks.
+        repeat(12) {
+            compose.onNodeWithText("PAUSED · simulated location held").assertIsDisplayed()
+            android.os.SystemClock.sleep(100)
+        }
+    }
     private fun chooseSnap() {
         open("Snaps")
         compose.onNodeWithTag("continueSaved-office").performScrollTo().performClick()
@@ -94,6 +105,7 @@ class ContinuationUiAcceptanceTest {
         compose.waitUntil(10_000) { LiveSession.state.value.stops.size == 2 }
         assertTrue(PlaybackSource.paused)
         assertEquals(office, LiveSession.state.value.stops[1].stop.point)
+        assertPausedOutput()
         screenshot("continuation-paused-addition")
     }
     @Test fun savedRouteConnectsItsStartWithoutJumpingOrReplacingTheTrip() {
@@ -119,6 +131,7 @@ class ContinuationUiAcceptanceTest {
         assertEquals(listOf(0, 17, 23), LiveSession.state.value.stops.map { it.stop.dwellMinutes })
         assertEquals(original, PrefsScenarioStore(context).load().first { it.id == "itinerary" })
         assertTrue(PlaybackSource.paused)
+        assertPausedOutput()
         screenshot("continuation-itinerary-added")
     }
     @Test fun cancelAndMapBrowsingLeaveExistingSessionUntouched() {

@@ -194,7 +194,9 @@ fun MapScreen(
     LaunchedEffect(vm.notice) { if (vm.notice != null) { delay(5000); vm.notice = null } }
     var statusClock by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { statusClock = System.currentTimeMillis(); delay(1000) } }
-    val simulationLabel = simulationStatusText(status, session.activity, statusClock)
+    // A location callback can arrive between one-second timer ticks. Diagnose it
+    // against the current time so fresh output never looks like a future timestamp.
+    val simulationLabel = simulationStatusText(status, session.activity, maxOf(statusClock, System.currentTimeMillis()))
     var planning by remember { mutableStateOf(false) }
     var showChat by remember { mutableStateOf(false) }
     var showUpcoming by remember { mutableStateOf(false) }
