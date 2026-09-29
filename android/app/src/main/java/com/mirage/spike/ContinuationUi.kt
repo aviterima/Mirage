@@ -29,15 +29,15 @@ private fun actionLabel(d: ContinuationDraft): String = when (d.placement) {
 @Composable
 fun ContinuationPreviewBar(planner: ContinuationPlanner, onConfirm: () -> Unit) {
     val d = planner.state ?: return
-    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).testTag("continuationPreview")) {
-        Text(d.title.ifBlank { "Add destination" }, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(d.stops.firstOrNull()?.address?.takeIf { it.isNotBlank() } ?: planner.originLabel(d),
-            style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            TextButton(onClick = { planner.edit(true) }) { Text("Review") }
-            TextButton(onClick = planner::cancel) { Text("Cancel") }
-            Button(onClick = onConfirm, enabled = d.ready && !d.previewBusy) { Text(actionLabel(d)) }
+    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp).testTag("continuationPreview"),
+        verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).clickable { planner.edit(true) }.padding(4.dp)) {
+            Text(d.title.ifBlank { "Add destination" }, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("Review · " + (d.stops.firstOrNull()?.address?.takeIf { it.isNotBlank() } ?: planner.originLabel(d)),
+                style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
+        TextButton(onClick = planner::cancel) { Text("Cancel") }
+        Button(onClick = onConfirm, enabled = d.ready && !d.previewBusy) { Text(actionLabel(d)) }
     }
 }
 

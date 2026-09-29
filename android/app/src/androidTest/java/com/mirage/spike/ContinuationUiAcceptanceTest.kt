@@ -68,6 +68,10 @@ class ContinuationUiAcceptanceTest {
             val status = MockState.status.value
             status.paused && locationOutputIssue(status) == null
         }
+        // Wait for the sheet to close and Compose to render the service status.
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithText("PAUSED · simulated location held").fetchSemanticsNodes().isNotEmpty()
+        }
         // Cover provider callbacks both before and after the header timer ticks.
         repeat(12) {
             compose.onNodeWithText("PAUSED · simulated location held").assertIsDisplayed()
@@ -89,6 +93,7 @@ class ContinuationUiAcceptanceTest {
         val top = compose.onNodeWithTag("liveStatus").fetchSemanticsNode().boundsInRoot
         val bottom = compose.onNodeWithTag("liveControls").fetchSemanticsNode().boundsInRoot
         val root = compose.onRoot().fetchSemanticsNode().boundsInRoot
+        screenshot("continuation-snap-map-preview")
         assertTrue("Continuation preview must leave 75% clear map height", (bottom.top - top.bottom) / root.height >= 0.75f)
         screenshot("continuation-snap-map-preview")
         compose.onNodeWithText("Go now").performClick()

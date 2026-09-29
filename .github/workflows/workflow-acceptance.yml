@@ -1,7 +1,7 @@
 name: Mirage workflow acceptance
 on:
   push:
-    branches: ["codex/acceptance-50-20260925", "codex/acceptance-continuation-0.11.3"]
+    branches: ["codex/acceptance-50-20260925", "codex/acceptance-continuation-0.11.3", "codex/continuation-release-0.11.3"]
   workflow_dispatch:
 permissions:
   contents: read
@@ -62,6 +62,9 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_7_pro
+          ram-size: 4096M
+          heap-size: 512M
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -cores 2
           disable-animations: true
           script: bash .github/scripts/check-upgrade.sh && bash .github/scripts/run-workflow-acceptance.sh
       - name: Print structured test results
