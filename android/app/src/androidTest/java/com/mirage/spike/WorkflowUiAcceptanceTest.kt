@@ -143,7 +143,16 @@ class WorkflowUiAcceptanceTest {
             assertTrue(add.fetchSemanticsNode().boundsInRoot.bottom <= action.fetchSemanticsNode().boundsInRoot.top)
             add.performClick()
             compose.onNode(hasSetTextAction() and hasText("Add a stop · search, tap the map, or ⌖")).performTextInput("Library")
-            compose.onNode(hasSetTextAction() and hasText("Library")).assertIsDisplayed()
+            val input=compose.onNode(hasSetTextAction() and hasText("Library"))
+            compose.waitUntil(5000) {
+                var imeVisible=false
+                activity.onActivity { imeVisible=it.window.decorView.rootWindowInsets.isVisible(android.view.WindowInsets.Type.ime()) }
+                val field=input.fetchSemanticsNode().boundsInRoot
+                val footer=compose.onNodeWithTag("plannerFooter").fetchSemanticsNode().boundsInRoot
+                imeVisible && field.height>0 && field.top>=0 && field.bottom<=footer.top
+            }
+            input.assertIsDisplayed()
+            assertTrue("Keyboard must not let the footer cover the input",input.fetchSemanticsNode().boundsInRoot.bottom<=compose.onNodeWithTag("plannerFooter").fetchSemanticsNode().boundsInRoot.top)
             screenshot("large-text-keyboard-planner")
             device.pressBack()
         } finally {device.executeShellCommand("settings put system font_scale 1.0")}

@@ -16,6 +16,9 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -520,7 +523,7 @@ fun MapScreen(
             }
         }
 
-        if (!live) Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding().padding(12.dp).heightIn(max = plannerHeight).verticalScroll(rememberScrollState())) {
+        if (!live) Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().heightIn(max = plannerHeight).statusBarsPadding().padding(12.dp).verticalScroll(rememberScrollState())) {
             Surface(shape = RoundedCornerShape(12.dp)) {
                 Text(simulationLabel, Modifier.padding(8.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold,
                     color = if (simulationLabel.startsWith("NEEDS") || status.blocked) RED else ACCENT)
@@ -668,7 +671,7 @@ fun MapScreen(
                     onChat = { showChat = true }, onDetails = { showLiveDetails = true }, notice = vm.notice)
             }
         } else Card(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(8.dp).onSizeChanged{footerPx=it.height},
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().testTag("plannerFooter").onSizeChanged{footerPx=it.height}.navigationBarsPadding().padding(8.dp),
             shape = RoundedCornerShape(16.dp),
         ) {
             Column(Modifier.padding(8.dp)) {
@@ -796,6 +799,7 @@ fun MapScreen(
 }
 
 /** One compact location box: coloured dot, editable text, optional trailing control. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun LocationBox(
     value: String,
@@ -806,6 +810,12 @@ private fun LocationBox(
     onEnter: () -> Unit,
     trailing: @Composable () -> Unit,
 ) {
+    val bringIntoView=remember {BringIntoViewRequester()}
+    var focused by remember {mutableStateOf(false)}
+    val imeBottom=WindowInsets.ime.getBottom(LocalDensity.current)
+    LaunchedEffect(focused,imeBottom) {
+        if(focused && imeBottom>0) { kotlinx.coroutines.delay(150);bringIntoView.bringIntoView() }
+    }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.padding(start = 8.dp, end = 4.dp).size(10.dp).background(dot, CircleShape))
         OutlinedTextField(
@@ -820,7 +830,7 @@ private fun LocationBox(
             ),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { onEnter() }),
-            modifier = Modifier.weight(1f).onFocusChanged { onFocus(it.isFocused) },
+            modifier = Modifier.weight(1f).bringIntoViewRequester(bringIntoView).onFocusChanged { focused=it.isFocused;onFocus(it.isFocused) },
         )
         trailing()
     }
