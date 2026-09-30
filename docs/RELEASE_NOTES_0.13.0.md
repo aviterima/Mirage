@@ -1,6 +1,6 @@
 # Mirage 0.13.0 release notes
 
-Status: candidate; release gates pending. See the validation report for final evidence.
+Status: signed APK passed 117 JVM and 21 Android emulator tests. See the validation report for APK identity, upgrade evidence and physical-device limits.
 
 ## Changes
 

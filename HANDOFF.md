@@ -1,6 +1,19 @@
-# Mirage 0.13.0 — candidate under implementation
+# Mirage 0.13.0 — signed and emulator-tested
 
-Approved usability, recovery, route and contextual-voice upgrade. See [current specification](docs/USABILITY_RECOVERY_VOICE_SPEC_0.13.0.md). This candidate has not yet passed its release gates; 0.12.1 remains the last delivered APK.
+Improves planning and live stop editing, saved content management, interrupted-trip recovery, route/timing controls, backup/sharing and contextual on-device voice. **117 JVM tests and 21 Android emulator tests passed, with no failures, errors or skips.** The signed update from 0.12.1 preserved saved records, API-key preference and install identity. Physical-phone validation remains outstanding.
+
+- [Current specification](docs/USABILITY_RECOVERY_VOICE_SPEC_0.13.0.md)
+- [Quick start](docs/QUICK_START_0.13.0.md)
+- [Implementation report](docs/IMPLEMENTATION_REPORT_0.13.0.md)
+- [Release notes](docs/RELEASE_NOTES_0.13.0.md)
+- [Validation and APK identity](docs/VALIDATION_0.13.0.md)
+- [Voice dependencies and licenses](docs/THIRD_PARTY_VOICE.md)
+
+Tested code commit: `e76c2dacc017f638d3d519ece34c7e23cc9464e5` on `codex/live-itinerary-voice-0.12.0`. Standard build 36758203088 and signed acceptance 36758203157 passed. The final documentation commit changes documentation only. Main and the rolling production release remain unchanged.
+
+Delivered APK SHA-256: `dc1376437ee8650a1328d1f3de771db9d02ead03113cc25146baa74b115f73d3` (93,652,478 bytes). Install over 0.12.1; do not uninstall. Next validation is physical-phone microphone, wake-word, latency, battery, heat and ergonomics.
+
+The records below describe earlier releases and are retained for provenance. The current specification and validation report supersede conflicting historical descriptions.
 
 ---
 

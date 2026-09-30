@@ -1,6 +1,15 @@
-# Mirage 0.13.0 — candidate under implementation
+# Mirage 0.13.0 — signed and emulator-tested
 
-Approved usability, recovery, route and contextual-voice upgrade. See [current specification](docs/USABILITY_RECOVERY_VOICE_SPEC_0.13.0.md). This candidate has not yet passed its release gates; 0.12.1 remains the last delivered APK.
+Improves planning and live stop editing, saved content management, interrupted-trip recovery, route/timing controls, backup/sharing and contextual on-device voice. **117 JVM tests and 21 Android emulator tests passed, with no failures, errors or skips.** The signed update from 0.12.1 preserved saved records, API-key preference and install identity. Physical-phone validation remains outstanding.
+
+- [Current specification](docs/USABILITY_RECOVERY_VOICE_SPEC_0.13.0.md)
+- [Quick start](docs/QUICK_START_0.13.0.md)
+- [Implementation report](docs/IMPLEMENTATION_REPORT_0.13.0.md)
+- [Release notes](docs/RELEASE_NOTES_0.13.0.md)
+- [Validation and APK identity](docs/VALIDATION_0.13.0.md)
+- [Voice dependencies and licenses](docs/THIRD_PARTY_VOICE.md)
+
+The records below describe earlier releases and are retained for provenance. The current specification and validation report supersede conflicting historical descriptions.
 
 ---
 

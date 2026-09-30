@@ -1,6 +1,6 @@
 # Mirage 0.13.0 approved specification
 
-Status: implementation in progress; not a passed release. Supersedes conflicting editor requirements in 0.12.1. Existing simulation, permanent signing and data retention requirements remain.
+Status: implemented and passed the automated release gates in [validation](VALIDATION_0.13.0.md). Physical-phone validation remains outstanding. Supersedes conflicting editor requirements in 0.12.1. Existing simulation, permanent signing and data retention requirements remain.
 
 ## Approved scope
 
@@ -21,4 +21,4 @@ Exercise saved endpoints → swap → itinerary composition → reorder → stay
 
 ## Implementation tracking
 
-All items above are approved. Keep unfinished items explicitly identified in validation; do not describe candidate functionality as tested or implemented until supported by code and evidence.
+The implementation report maps approved requirements to code. The quick start describes operating behavior; validation records automated evidence and the remaining phone-only checks.
