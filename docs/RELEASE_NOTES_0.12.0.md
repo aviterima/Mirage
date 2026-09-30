@@ -1,6 +1,6 @@
-# Mirage 0.12.0 candidate release notes
+# Mirage 0.12.0 release notes
 
-Status: source candidate, not yet an approved signed APK. Version code 33. The latest delivered APK remains 0.11.3.
+Status: signed and emulator-tested release. Version code 33. Install over 0.11.3 without uninstalling.
 
 ## User-visible changes
 
@@ -16,9 +16,9 @@ Status: source candidate, not yet an approved signed APK. Version code 33. The l
 
 ## Download and compatibility
 
-The separate Qwen model is about 610 MiB. Download it over Wi-Fi through Talk to Mirage. The APK itself continues to include the existing Vosk speech model. The candidate targets arm64-v8a and x86_64 Android 8.0 or later. Place lookup and road routing still require a Maps connection.
+The separate Qwen model is about 610 MiB. Download it over Wi-Fi through Talk to Mirage. The APK itself continues to include the existing Vosk speech model. This build targets arm64-v8a and x86_64 Android 8.0 or later. Place lookup and road routing still require a Maps connection.
 
-Use an in-place update when a signed build is released. Do not uninstall to work around a signing mismatch. The local development APK uses a different key and is not a suitable update for the previously delivered app.
+Use the supplied signed APK for an in-place update. Do not uninstall to work around a signing mismatch. The local development APK uses a different key and is not a suitable update for the previously delivered app.
 
 ## Limits to understand
 
@@ -28,4 +28,10 @@ Unsaved running edits are not a durable process-recovery checkpoint. Save a name
 
 ## Validation and release status
 
-Local Android app/test packages build, and all 101 JVM tests pass. Emulator execution, signed upgrade, and phone validation remain pending. See VALIDATION_0.12.0.md. Do not transfer previous 0.11.3 pass counts to this candidate. Repository upload and the permanent signing pipeline are blocked by automatic approval review; they require explicit authorization for this source payload and destination.
+The final signed build passed 101 JVM tests and 15 emulator tests, with zero failures or skips. These include live add/save/update/reload, the map-space gate, saved-item continuation, Stop, and real offline native inference. The upgrade from the exact delivered 0.11.3 APK preserved stored records and settings without uninstalling.
+
+Native inference took approximately 12.1 seconds on the four-core acceptance emulator. This is not a phone benchmark. The first two-core run reached the 45-second deadline; inference now caps worker count at the available cores, up to four. The deadline and actual-model assertion remain in force. See VALIDATION_0.12.0.md for both runs.
+
+Tested source: `cde80b4d7a016633ff2f5f5c0f706d4ec7b393c2`.
+APK SHA-256: `a92ed17acf582498f33213d3bc9bd47842ded9d3c349fe6f348edca3a390428d`.
+APK size: 93,537,055 bytes. Physical-phone voice and battery testing is still needed.

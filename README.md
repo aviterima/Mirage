@@ -1,10 +1,11 @@
-# Current candidate: Mirage 0.12.0
+# Current release: Mirage 0.12.0
 
-Candidate validation: Android app/test builds and 101 JVM tests pass locally. Signed upgrade and emulator acceptance are pending.
+Release validation: 101 JVM tests and 15 Android emulator tests pass, with zero failures or skips. The signed in-place upgrade from 0.11.3 preserves stored data.
 
-Updated September 29, 2026 (America/Phoenix). **Source candidate only; latest delivered APK: 0.11.3.**
+Updated September 30, 2026 (America/Phoenix). **Signed and emulator-tested release APK: 0.12.0. Physical-phone validation remains outstanding.**
 
 - [Current live-itinerary and local-voice specification](docs/LIVE_ITINERARY_AND_LOCAL_VOICE_SPEC_0.12.0.md)
+- [Quick start: live saving and advanced voice](docs/QUICK_START_0.12.0.md)
 - [Release notes and installation limits](docs/RELEASE_NOTES_0.12.0.md)
 - [Validation evidence and outstanding gates](docs/VALIDATION_0.12.0.md)
 - [Voice dependencies and licenses](docs/THIRD_PARTY_VOICE.md)

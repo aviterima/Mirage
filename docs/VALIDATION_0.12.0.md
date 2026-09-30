@@ -1,6 +1,21 @@
 # Mirage 0.12.0 validation record
 
-Candidate date: September 29, 2026 (America/Phoenix).
+Release validation date: September 30, 2026 (America/Phoenix).
+
+## Final signed release result
+
+- Tested code commit: `cde80b4d7a016633ff2f5f5c0f706d4ec7b393c2`.
+- Standard build: https://github.com/aviterima/Mirage/actions/runs/36726089619 — success.
+- Signed acceptance: https://github.com/aviterima/Mirage/actions/runs/36726089706 — success.
+- 101 JVM tests: zero failures, errors, or skips.
+- 15 Android API 34 emulator tests: zero failures, errors, or skips. Fourteen cover actual Activity journeys; one calls the actual native Qwen model.
+- The native request returned `add_saved` / `Home` / `NEXT`. Instrumentation recorded 12,146 ms; the test report records approximately 12.142 seconds. These are four-core emulator measurements, not physical-phone latency.
+- The exact previously delivered 0.11.3 APK was installed, representative saved records and settings were seeded, and the new APK was installed with `adb install -r`. Saved records, key, and install identity compared unchanged after the upgrade.
+- The signing certificate SHA-256 is `e51683b8f4161d31fe4e81fe788438640151f8efb9aeba693a4ce21ad72cc8b8`, matching the pinned existing identity.
+- Downloaded artifact ZIP hashes matched GitHub's reported digests. Reassembled APK SHA-256 matches the passing run: `a92ed17acf582498f33213d3bc9bd47842ded9d3c349fe6f348edca3a390428d`; size 93,537,055 bytes. No rebuild or re-signing occurred after testing.
+- Screenshots were reviewed for live saving and clear map/review states. The live-save journey persisted the same record ID while growing the trip and kept the simulation paused.
+
+The first failure and corrective change are retained below. This evidence supports the listed gates, not an assertion that every possible workflow or every physical device is bug-free.
 
 ## Completed locally
 
@@ -14,6 +29,14 @@ Candidate date: September 29, 2026 (America/Phoenix).
 
 The raw results are retained in `verification/voice/host-smoke-results.json`; the Android build/unit summary is `verification/voice/android-local-test-summary.json`. Exact unused-field matching is deliberately reported separately from application behavior.
 
+## First signed CI attempt — September 30
+
+Published source: `3e744f94634029910c6fab19ae56b57839914af6`. Standard Android workflow 36723592557 passed: APK build, 101 unit tests, packaged speech-model verification, and pinned signing certificate verification.
+
+Acceptance workflow 36723592630 verified the in-place upgrade from the exact delivered 0.11.3 APK. Stored records, key, and install identity were preserved. Fourteen UI tests passed, including the new live add/save/update/reload journey and the existing map-space and continuation tests. The fifteenth test, actual native language-model inference, failed after 45.141 seconds on the two-core emulator. This was a deadline failure, not a complete acceptance pass.
+
+The follow-up caps native inference threads at the available logical cores (maximum four), configures four emulator cores, distinguishes timeout from cancellation/decode failure, and records model-test elapsed time. It retains the 45-second deadline and the real inference assertion.
+
 ## Prepared tests and gates
 
 New JVM tests cover persistent save/update with stable IDs, saving a copy without changing the original, duplicate names, dirty-state behavior as stay time elapses, failed writes, strict voice output parsing, and destination grounding.
@@ -22,11 +45,8 @@ The expanded Activity test walks through a paused live simulation, adds a saved 
 
 The pipeline is prepared to test an in-place update from the exact delivered 0.11.3 APK, hash `ec840c038e55ead26fa86dad749c85528a815e96277760d6782485ec0cc707bf`.
 
-## Pending / blocked
+## Remaining physical-device validation
 
-- Signed APK: not built. Automatic approval review rejected the upload to the existing public `aviterima/Mirage` repository, including after the connected account and repository permissions were verified.
-- Android emulator test execution, including actual Android native model inference: not run for this candidate.
-- In-place signed upgrade: not run for 0.12.0.
-- Physical-phone UI, microphone, model download experience, latency, battery, thermal behavior, and large saved collections: not tested.
+Phone UI feel, microphone/proper-name recognition, model download experience, latency, battery, heat, and large saved collections remain untested on the user's physical phone. The model can still misunderstand requests; confirmation and grounding checks remain necessary.
 
-Previous 0.11.3 had 95 passing JVM tests and 13 passing emulator tests on retry. Those historical results are not evidence that this changed candidate passes. The earlier intermittent Compose rendering crash remains a regression risk to watch.
+There is no claim that all historical 72 scenario definitions were executed on a physical phone. Previous intermittent Compose rendering failures remain worth monitoring, although all 14 current UI journeys passed in both signed runs.

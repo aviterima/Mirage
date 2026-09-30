@@ -1,0 +1,18 @@
+{
+  "version": "0.12.0",
+  "versionCode": 33,
+  "tested_source": "cde80b4d7a016633ff2f5f5c0f706d4ec7b393c2",
+  "acceptance_run": 36726089706,
+  "standard_build_run": 36726089619,
+  "unit_tests": 101,
+  "emulator_tests": 15,
+  "failures": 0,
+  "skipped": 0,
+  "native_inference_elapsed_ms": 12146,
+  "measurement_device": "Android API 34 x86_64 emulator, four cores",
+  "upgrade_from": "0.11.3",
+  "upgrade_preserved_data": true,
+  "apk_sha256": "a92ed17acf582498f33213d3bc9bd47842ded9d3c349fe6f348edca3a390428d",
+  "apk_bytes": 93537055,
+  "physical_phone_validated": false
+}

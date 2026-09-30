@@ -1,8 +1,9 @@
-# Current candidate: Mirage 0.12.0
+# Current release: Mirage 0.12.0
 
-Updated September 29, 2026 (America/Phoenix). **Source candidate only; latest delivered APK: 0.11.3.**
+Updated September 30, 2026 (America/Phoenix). **Signed and emulator-tested release APK: 0.12.0. Physical-phone validation remains outstanding.**
 
 - [Current live-itinerary and local-voice specification](docs/LIVE_ITINERARY_AND_LOCAL_VOICE_SPEC_0.12.0.md)
+- [Quick start: live saving and advanced voice](docs/QUICK_START_0.12.0.md)
 - [Release notes and installation limits](docs/RELEASE_NOTES_0.12.0.md)
 - [Validation evidence and outstanding gates](docs/VALIDATION_0.12.0.md)
 - [Voice dependencies and licenses](docs/THIRD_PARTY_VOICE.md)
@@ -11,11 +12,13 @@ The current specification supersedes conflicting live-save and voice description
 
 ## Resume work
 
-Branch prepared locally: `codex/live-itinerary-voice-0.12.0`, based on the delivered 0.11.3 source (`24fd430c79afc8a15227dc1bbbcfa7631102c022`). No 0.12.0 source upload succeeded. Approval review requires explicit authorization for uploading this source and CI configuration to the public `aviterima/Mirage` repository. Do not bypass the rejection.
+Published branch: `codex/live-itinerary-voice-0.12.0`. The user explicitly authorized the public upload on September 30. Tested code commit: `cde80b4d7a016633ff2f5f5c0f706d4ec7b393c2` (initial implementation `3e744f94634029910c6fab19ae56b57839914af6`, based on delivered 0.11.3 source `24fd430c79afc8a15227dc1bbbcfa7631102c022`).
 
-Local validation completed: both Android APK packages compile, both native ABIs use Release optimization, and all 101 JVM tests pass. Emulator execution and the signed in-place upgrade remain unrun.
+Signed acceptance run https://github.com/aviterima/Mirage/actions/runs/36726089706 passed all 101 unit and 15 emulator tests, with no skips. The in-place upgrade preserved saved records, key, and install identity. The native model test took about 12.1 seconds on the four-core emulator. The original two-core run reached its 45-second deadline; the follow-up adapts native thread count to available cores and gives the acceptance emulator four cores. See the validation report for both attempts.
 
-After authorization: publish the prepared branch, run Android build and workflow acceptance, examine every failure and screenshot, verify the update over the delivered APK, then retrieve and distribute the unchanged tested signed APK. Do not merge main or replace production release assets implicitly.
+Delivered APK SHA-256: `a92ed17acf582498f33213d3bc9bd47842ded9d3c349fe6f348edca3a390428d` (93,537,055 bytes). It is the unchanged APK from the passing acceptance run. The main branch and rolling production release were not replaced.
+
+Next: collect physical-phone feedback on live editing, voice latency, microphone recognition, download behavior, battery, and heat. Do not call the emulator timing a phone benchmark. Keep named saved data intact; never recommend uninstalling to solve an update-signature mismatch.
 
 New code: `ItineraryUi.kt` (live editor), `LocalLanguageModel.kt` (verified download/native lifecycle), `SmartVoice.kt` (review/validation/execution), `VoiceIntent.kt` (bounded schema and grounding), `src/main/cpp` (pinned native runtime), and `voice-intent-prompt.txt` (single-action instructions). LivePlan tracks its saved identity and configuration snapshot; MirageViewModel owns the shared save operation. Conversation binds to the same ViewModel/ContinuationPlanner used by touch.
 

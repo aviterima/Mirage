@@ -1,6 +1,6 @@
 # Mirage 0.12.0 — live itinerary and local voice specification
 
-Updated September 29, 2026 (America/Phoenix). Status: implementation candidate; not a released APK. This document supersedes conflicting live-save and voice behavior in earlier specifications. Existing GPS simulation, routing, signing, and data-retention requirements remain in force.
+Updated September 30, 2026 (America/Phoenix). Status: signed release with passing unit, emulator, and upgrade gates; physical-phone validation remains outstanding. This document supersedes conflicting live-save and voice behavior in earlier specifications. Existing GPS simulation, routing, signing, and data-retention requirements remain in force.
 
 ## Product outcome
 
@@ -40,7 +40,7 @@ The candidate uses Qwen3-0.6B Q8_0 through a pinned llama.cpp native runtime. It
 
 The language-model file is downloaded separately through Talk to Mirage. The pinned official file is 639,446,688 bytes (about 610 MiB). The UI displays download progress, cancellation, retry, and readiness. A download is only installed after size and SHA-256 verification. Partial files are discarded on failure. The APK does not repeatedly carry the language model. A normal in-place APK upgrade preserves the downloaded file.
 
-The model runs locally after download, with thinking disabled, a 2,048-token context ceiling, four CPU threads, a 220-output-token limit, and a 45-second inference deadline. Work runs off the UI thread. Idle model weights are released after one minute. These are implementation limits, not promised phone latency. The first download uses the network; place search and road routing continue to use the configured Maps services.
+The model runs locally after download, with thinking disabled, a 2,048-token context ceiling, up to four CPU threads, capped by available logical cores, a 220-output-token limit, and a 45-second inference deadline. Work runs off the UI thread. Idle model weights are released after one minute. These are implementation limits, not promised phone latency. The first download uses the network; place search and road routing continue to use the configured Maps services.
 
 Existing Vosk speech recognition and Android text-to-speech remain. The language model does not itself improve acoustic transcription. Microphone, wake-word, and physical-device battery measurements require device validation. Runtime ABIs in this candidate are arm64-v8a and x86_64; 32-bit Android devices are not supported by this build.
 
