@@ -52,6 +52,8 @@ import androidx.compose.material.icons.filled.Flight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Place
@@ -521,6 +523,8 @@ fun MapScreen(
                                 )
                             }
                         }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
                         // START (Route and Itinerary)
                         if (vm.planMode != PlanMode.SNAP) {
                             LocationBox(
@@ -542,22 +546,18 @@ fun MapScreen(
                         if (vm.planMode == PlanMode.ITINERARY && vm.stops.isNotEmpty()) {
                             val stopsNow = vm.stops.toList()
                             val tl = remember(stopsNow, vm.start, status.running) { vm.timeline() }
-                            Column(
-                                Modifier.heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.30f).dp)
-                                    .verticalScroll(rememberScrollState()).padding(horizontal = 4.dp),
-                                verticalArrangement = Arrangement.spacedBy(2.dp),
-                            ) {
-                                stopsNow.forEachIndexed { i, stop ->
-                                    ChainRow(
-                                        index = i, stop = stop, entry = tl.getOrNull(i),
-                                        current = status.running && status.legIndex == i,
-                                        done = status.running && status.legIndex > i,
-                                        onMode = { m -> vm.setStopMode(i, m) },
-                                        onStay = { vm.dwellEditIndex = i },
-                                        onMove = { d -> vm.moveStop(i, d) },
-                                        onRemove = { vm.removeStop(i) },
-                                    )
-                                }
+                            ReorderableStopList(stopsNow, onMove = vm::moveStopTo) { i, stop, handle ->
+                                ChainRow(
+                                    index = i, stop = stop, entry = tl.getOrNull(i),
+                                    current = status.running && status.legIndex == i,
+                                    done = status.running && status.legIndex > i,
+                                    onMode = { m -> vm.setStopMode(i, m) },
+                                    onStay = { vm.dwellEditIndex = i },
+                                    onMove = { d -> vm.moveStop(i, d) },
+                                    onRemove = { vm.removeStop(i) },
+                                    handleModifier = handle,
+                                    canMoveUp = i > 0, canMoveDown = i < stopsNow.lastIndex,
+                                )
                             }
                             HorizontalDivider(color = MUTED.copy(alpha = 0.15f), modifier = Modifier.padding(horizontal = 8.dp))
                         }
@@ -579,6 +579,17 @@ fun MapScreen(
                             onEnter = { onEnter(endQuery) },
                             trailing = { snapButton(Field.END, false) },
                         )
+                        }
+                        if (vm.planMode == PlanMode.ROUTE) {
+                            IconButton(
+                                onClick = { done(); vm.swapEndpoints() },
+                                enabled = vm.tripStart() != null && vm.dest != null,
+                                modifier = Modifier.size(48.dp),
+                            ) {
+                                Icon(Icons.Filled.SwapVert, contentDescription = "Swap start and destination", tint = if (vm.tripStart() != null && vm.dest != null) ACCENT else MUTED)
+                            }
+                        }
+                        }
                     }
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1151,6 +1162,7 @@ private fun ChainRow(
     index: Int, stop: ItineraryStop, entry: MirageViewModel.TimelineEntry?,
     current: Boolean, done: Boolean,
     onMode: (TravelMode) -> Unit, onStay: () -> Unit, onMove: (Int) -> Unit, onRemove: () -> Unit,
+    handleModifier: Modifier, canMoveUp: Boolean, canMoveDown: Boolean,
 ) {
     var modeMenu by remember { mutableStateOf(false) }
     var moreMenu by remember { mutableStateOf(false) }
@@ -1190,12 +1202,12 @@ private fun ChainRow(
                 }
             }
             Box {
-                IconButton(onClick = { moreMenu = true }, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Filled.MoreVert, contentDescription = "More", tint = MUTED)
+                IconButton(onClick = { moreMenu = true }, modifier = handleModifier.size(48.dp)) {
+                    Icon(Icons.Filled.DragHandle, contentDescription = "Reorder stop ${index + 1}: ${stop.name}", tint = MUTED)
                 }
                 DropdownMenu(expanded = moreMenu, onDismissRequest = { moreMenu = false }) {
-                    DropdownMenuItem(text = { Text("Move up") }, onClick = { moreMenu = false; onMove(-1) })
-                    DropdownMenuItem(text = { Text("Move down") }, onClick = { moreMenu = false; onMove(1) })
+                    DropdownMenuItem(text = { Text("Move up") }, enabled = canMoveUp, onClick = { moreMenu = false; onMove(-1) })
+                    DropdownMenuItem(text = { Text("Move down") }, enabled = canMoveDown, onClick = { moreMenu = false; onMove(1) })
                     DropdownMenuItem(text = { Text("Remove", color = RED) }, onClick = { moreMenu = false; onRemove() })
                 }
             }

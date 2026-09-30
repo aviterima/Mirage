@@ -67,6 +67,8 @@ class MirageViewModel(
         private set
     var startName by mutableStateOf("")
         private set
+    private var startAddress = ""
+    private var startPlaceId = ""
     /** True when the start came from the phone's real position (not a pick/pin). */
     var startFromReal by mutableStateOf(false)
         private set
@@ -149,7 +151,7 @@ class MirageViewModel(
     fun editLocationQuery(field: Field, query: String, bias: LatLng?) {
         activeField = field
         if (field == Field.END) { dest = null; destName = ""; destAddress = ""; destPlaceId = "" }
-        else { start = null; startName = ""; startFromReal = false; useSimulatedStart = false; queueAfterCurrent = false }
+        else { startAddress = ""; startPlaceId = ""; start = null; startName = ""; startFromReal = false; useSimulatedStart = false; queueAfterCurrent = false }
         invalidateRoute()
         suggest(query, bias)
     }
@@ -184,13 +186,15 @@ class MirageViewModel(
     }
 
     /** An explicit user choice of start (pin, search pick, ⌖ menu). */
-    fun setStartPoint(p: LatLng, name: String = "Dropped pin") {
+    fun setStartPoint(p: LatLng, name: String = "Dropped pin", address: String = "", placeId: String = "") {
+        startAddress = address; startPlaceId = placeId;
         start = p; startName = name; startFromReal = false; useSimulatedStart = false; queueAfterCurrent = false; invalidateRoute()
     }
 
     /** ⌖ → "My real location" chosen by the user for the Start box. */
     fun pickRealStart(p: LatLng) {
         lastReal = p
+        startAddress = ""; startPlaceId = ""
         start = p; startName = "My location"; startFromReal = true; useSimulatedStart = false; queueAfterCurrent = false; invalidateRoute()
     }
 
@@ -209,6 +213,31 @@ class MirageViewModel(
             st.running && useSimulatedStart -> LatLng(st.lat, st.lng)
             else -> start
         }
+    }
+
+    /** Swap resolved endpoints, never reverse an old road polyline or move the live simulation. */
+    fun swapEndpoints(): Boolean {
+        if (planMode != PlanMode.ROUTE) return false
+        val origin = tripStart() ?: return false
+        val destination = dest ?: return false
+        val dynamicOrigin = MockState.status.value.running && (useSimulatedStart || queueAfterCurrent)
+        val originName = when {
+            dynamicOrigin && queueAfterCurrent -> "Where the current trip ends"
+            dynamicOrigin -> "Current simulated position"
+            else -> startName
+        }
+        val originAddress = if (dynamicOrigin) "" else startAddress
+        val originPlaceId = if (dynamicOrigin) "" else startPlaceId
+        clearSuggestions()
+        autoStartAfterRoute = null
+        setStartPoint(destination, destName, destAddress, destPlaceId)
+        dest = origin; destName = originName
+        destAddress = originAddress; destPlaceId = originPlaceId
+        activeField = Field.END
+        error = null
+        // A return journey may use different roads. Prepare new directions without starting it.
+        if (mode == TravelMode.FLY || hasKey) buildRoute()
+        return true
     }
 
     // ---- Live controls while simulating ----------------------------------------------
@@ -250,6 +279,7 @@ class MirageViewModel(
         lastReal = p
         if (start != null && !startFromReal && routePts.isNotEmpty()) return
         val moved = start?.let { Geo.haversine(it, p) >= 100.0 } ?: true
+        startAddress = ""; startPlaceId = ""
         start = p; startName = "My location"; startFromReal = true
         if (moved) invalidateRoute()
     }
@@ -264,6 +294,7 @@ class MirageViewModel(
         if (!startFromReal) return
         val cur = start
         if (cur != null && (Geo.haversine(cur, p) < 100.0 || MockState.status.value.running)) { start = p; return }
+        startAddress = ""; startPlaceId = ""
         start = p; startName = "My location"; startFromReal = true
         invalidateRoute()
     }
@@ -371,7 +402,7 @@ class MirageViewModel(
         if (suggestedField != activeField || hit !in suggestions) return
         val field = activeField
         clearSuggestions()
-        if (field == Field.START) setStartPoint(hit.latLng, hit.name) else {
+        if (field == Field.START) setStartPoint(hit.latLng, hit.name, hit.address, hit.placeId) else {
             setDestPoint(hit.latLng, hit.name)
             if (planMode == PlanMode.ITINERARY && stops.isNotEmpty()) {
                 stops[stops.lastIndex] = stops.last().copy(address = hit.address, placeId = hit.placeId)
@@ -470,7 +501,12 @@ class MirageViewModel(
 
     // ---- Itinerary ----------------------------------------------------------------
 
-    fun removeStop(index: Int) { if (index in stops.indices) stops.removeAt(index) }
+    fun removeStop(index: Int) {
+        if (index !in stops.indices) return
+        stops.removeAt(index)
+        dwellEditIndex = null
+        invalidateRoute()
+    }
 
     /** Cycle a stop's travel mode (Drive -> Bike -> Walk -> Fly) and give it that mode's speed. */
     fun cycleStopMode(index: Int) {
@@ -487,9 +523,13 @@ class MirageViewModel(
     }
 
     fun moveStop(index: Int, delta: Int) {
-        val j = index + delta
-        if (index !in stops.indices || j !in stops.indices) return
-        val a = stops[index]; stops[index] = stops[j]; stops[j] = a
+        moveStopTo(index, index + delta)
+    }
+
+    fun moveStopTo(from: Int, to: Int) {
+        if (from !in stops.indices || to !in stops.indices || from == to) return
+        stops.add(to, stops.removeAt(from))
+        dwellEditIndex = null
         invalidateRoute()
     }
 
@@ -623,7 +663,7 @@ class MirageViewModel(
     fun useSavedPlaceAsStart(sc: SavedScenario) {
         val point = sc.dest ?: return
         if (planMode == PlanMode.SNAP) choosePlanMode(PlanMode.ROUTE)
-        setStartPoint(point, sc.name)
+        setStartPoint(point, sc.name, sc.destAddress, sc.destPlaceId)
     }
 
     fun useSavedPlaceAsDestination(sc: SavedScenario) {
@@ -674,6 +714,7 @@ class MirageViewModel(
     /** Put a saved plan back on screen. A "real location" start uses today's real position. */
     fun loadScenario(sc: SavedScenario) {
         loadedScenario = sc
+        startAddress = ""; startPlaceId = ""
         queueAfterCurrent = false
         clearSuggestions()
         planMode = runCatching { PlanMode.valueOf(sc.kind) }.getOrDefault(PlanMode.ROUTE)

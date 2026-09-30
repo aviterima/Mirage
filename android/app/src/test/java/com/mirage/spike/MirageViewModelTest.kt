@@ -38,6 +38,40 @@ class MirageViewModelTest {
         vm.buildRoute()
     }
 
+    @Test fun `swap exchanges labels coordinates and metadata and round trips`() {
+        val vm = MirageViewModel()
+        vm.setStartPoint(phx, "Phoenix", "Origin address", "origin-id")
+        vm.setDestPoint(tempe, "Tempe")
+        assertTrue(vm.swapEndpoints())
+        assertEquals(tempe, vm.start); assertEquals("Tempe", vm.startName)
+        assertEquals(phx, vm.dest); assertEquals("Phoenix", vm.destName)
+        assertEquals("Origin address", vm.destAddress); assertEquals("origin-id", vm.destPlaceId)
+        assertFalse(vm.startFromReal); assertFalse(vm.useSimulatedStart)
+        assertTrue(vm.swapEndpoints())
+        assertEquals(phx, vm.start); assertEquals(tempe, vm.dest)
+        assertEquals("", vm.destAddress); assertEquals("", vm.destPlaceId)
+        assertTrue(vm.swapEndpoints())
+        assertEquals("origin-id", vm.destPlaceId)
+    }
+
+    @Test fun `swap requires two route endpoints and never starts playback`() {
+        val vm = MirageViewModel()
+        assertFalse(vm.swapEndpoints())
+        vm.pickRealStart(phx)
+        assertFalse(vm.swapEndpoints())
+        plotFlight(vm, lax)
+        val oldPoints = vm.routePts.toList()
+        assertTrue(vm.swapEndpoints())
+        assertEquals(lax, vm.start); assertEquals(phx, vm.dest)
+        assertFalse(vm.startFromReal)
+        assertTrue(vm.routePts != oldPoints)
+        assertNull(PlaybackSource.current)
+        vm.choosePlanMode(PlanMode.ITINERARY)
+        val stops = vm.stops.toList()
+        assertFalse(vm.swapEndpoints())
+        assertEquals(stops, vm.stops.toList())
+    }
+
     @Test
     fun `fresh app has no start until a real fix arrives, then adopts it`() {
         val vm = MirageViewModel()

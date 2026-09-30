@@ -33,7 +33,12 @@ class WorkflowUiAcceptanceTest {
         val office = snap("fixture-office", "Fixture Office", LatLng(33.60, -112.1))
         val route = home.copy(id = "fixture-route", name = "Fixture commute", kind = "ROUTE",
             start = home.dest, startName = home.name, dest = office.dest, destName = office.name)
-        PrefsScenarioStore(context).save(listOf(home, office, route))
+        val itinerary = route.copy(id = "fixture-day", name = "Fixture day", kind = "ITINERARY",
+            stops = listOf(
+                SavedStop("First", 33.6, -112.1, 15, TravelMode.WALK, 3f),
+                SavedStop("Second", 33.7, -112.2, 30, TravelMode.DRIVE, 45f),
+                SavedStop("Third", 33.8, -112.3, 45, TravelMode.BIKE, 12f)))
+        PrefsScenarioStore(context).save(listOf(home, office, route, itinerary))
         device.executeShellCommand("pm grant com.mirage.app android.permission.ACCESS_FINE_LOCATION")
         device.executeShellCommand("pm grant com.mirage.app android.permission.ACCESS_COARSE_LOCATION")
         device.executeShellCommand("pm grant com.mirage.app android.permission.POST_NOTIFICATIONS")
@@ -97,6 +102,47 @@ class WorkflowUiAcceptanceTest {
         compose.onNode(hasSetTextAction() and hasText("Fixture Home")).assertIsDisplayed()
         compose.onNode(hasSetTextAction() and hasText("Fixture Office")).assertIsDisplayed()
         screenshot("saved-snaps-route-endpoints")
+    }
+
+    @Test fun swapButtonReversesTheVisibleRouteFields() {
+        saved()
+        compose.onNodeWithContentDescription("Load Fixture commute").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Swap start and destination").performClick()
+        val home = compose.onNode(hasSetTextAction() and hasText("Fixture Home")).fetchSemanticsNode().boundsInRoot
+        val office = compose.onNode(hasSetTextAction() and hasText("Fixture Office")).fetchSemanticsNode().boundsInRoot
+        assertTrue("Office should now be above Home", office.top < home.top)
+        screenshot("route-swapped")
+        compose.onNodeWithContentDescription("Swap start and destination").performClick()
+        assertTrue(compose.onNode(hasSetTextAction() and hasText("Fixture Home")).fetchSemanticsNode().boundsInRoot.top <
+            compose.onNode(hasSetTextAction() and hasText("Fixture Office")).fetchSemanticsNode().boundsInRoot.top)
+    }
+
+    @Test fun dragStopThenSaveAndReloadPreservesNewOrder() {
+        saved()
+        compose.onNodeWithContentDescription("Load Fixture day").performScrollTo().performClick()
+        val first = compose.onNodeWithContentDescription("Reorder stop 1: First")
+        val second = compose.onNodeWithContentDescription("Reorder stop 2: Second")
+        val dy = second.fetchSemanticsNode().boundsInRoot.center.y - first.fetchSemanticsNode().boundsInRoot.center.y
+        first.performTouchInput { swipe(center, center + androidx.compose.ui.geometry.Offset(0f, dy), 600) }
+        compose.onNodeWithContentDescription("Reorder stop 1: Second").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Reorder stop 2: First").assertIsDisplayed()
+        screenshot("itinerary-dragged")
+        // The same handle offers a tap menu for people who prefer buttons to dragging.
+        compose.onNodeWithContentDescription("Reorder stop 2: First").performClick()
+        compose.onNodeWithText("Move up").assertIsDisplayed()
+        compose.onNodeWithText("Move down").performClick()
+        compose.onNodeWithContentDescription("Reorder stop 3: First").performScrollTo().assertIsDisplayed()
+        saved()
+        compose.onNodeWithText("Name, e.g. Lunch run").performTextInput("Reordered fixture")
+        compose.onNodeWithText("Save", useUnmergedTree = false).performClick()
+        compose.waitUntil(5_000) { PrefsScenarioStore(context).load().any { it.name == "Reordered fixture" } }
+        val stored = PrefsScenarioStore(context).load().first { it.name == "Reordered fixture" }
+        assertEquals(listOf("Second", "Third", "First"), stored.stops.map { it.name })
+        assertEquals(15, stored.stops.last().dwellMinutes)
+        assertEquals(TravelMode.WALK, stored.stops.last().mode)
+        compose.onNodeWithContentDescription("Load Reordered fixture").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Reorder stop 1: Second").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("Reorder stop 3: First").performScrollTo().assertIsDisplayed()
     }
 
     @Test fun savedRouteCompositionPromptsForDisconnectedLeg() {

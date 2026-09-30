@@ -55,6 +55,24 @@ class ItineraryBuilderTest {
         assertEquals(3f, vm.stops[0].avgMph, 0.01f)
     }
 
+    @Test fun `drag inserts across multiple stops and saved order keeps stop settings`() {
+        val vm = vmWithDay()
+        vm.setDwell(0, 75)
+        vm.setStopMode(0, TravelMode.WALK)
+        vm.setDestPoint(LatLng(33.7, -111.8), "Third")
+        vm.setDestPoint(LatLng(33.8, -111.7), "Fourth")
+        val original = vm.stops.toList()
+        vm.moveStopTo(0, 3)
+        assertEquals(listOf(original[1], original[2], original[3], original[0]), vm.stops.toList())
+        assertTrue(vm.saveScenario("Reordered day"))
+        vm.loadScenario(vm.savedScenarios.first())
+        assertEquals(listOf(original[1], original[2], original[3], original[0]), vm.stops.toList())
+        vm.moveStopTo(3, 0)
+        assertEquals(original, vm.stops.toList())
+        vm.moveStopTo(-1, 2); vm.moveStopTo(0, 99)
+        assertEquals(original, vm.stops.toList())
+    }
+
     @Test fun `return to start appends the start as the last stop`() {
         val vm = vmWithDay()
         vm.addReturnToStart()
