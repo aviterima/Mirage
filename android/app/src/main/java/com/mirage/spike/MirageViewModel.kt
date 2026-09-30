@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.mirage.spike.engine.ActivityKind
 import com.mirage.spike.engine.ApiCheck
 import com.mirage.spike.engine.DriveModel
 import com.mirage.spike.engine.Signal
@@ -628,7 +629,7 @@ class MirageViewModel(
     fun draftSnapshot(): SavedScenario? {
         if (!canSaveScenario) return null
         return SavedScenario(loadedScenario?.id ?: "draft",loadedScenario?.name ?: "Recovered draft",planMode.name,0L,false,start,startName,dest,destName,
-            mode,modeSpeeds.toMap(),realism,transitPref,stops.map{it.toSavedStop()},destAddress,destPlaceId,departureMillis=departureMillis)
+            mode,modeSpeeds.toMap(),realism,transitPref,stops.map{it.toSavedStop()},destAddress,destPlaceId,frozenRoute=if(replayExactRoute)lastRoute else null,departureMillis=departureMillis)
     }
     fun recoverLive(record: RecoveredTrip, onStart: () -> Unit) {
         if(MockState.status.value.running) { error="Stop the current simulation before recovering another"; return }
@@ -639,7 +640,10 @@ class MirageViewModel(
         val held=record.activity in setOf(ActivityKind.STAYING,ActivityKind.HOLDING)
         val first=if(held) PreparedLeg(kotlinx.coroutines.flow.flow { emit(com.mirage.spike.engine.Fix(record.position.lat,record.position.lng,0f,0f,4f)) },listOf(record.position)) else null
         val cfg=api
-        val plan=LivePlan(sc.name,sc.start ?: record.position,all,{from,to->prepareLeg(cfg,from,to,sc.realism,sc.transitPref)},first,
+        val plan=LivePlan(sc.name,sc.start ?: record.position,all,{from,to->
+            val resumed=if(to.frozenRoute!=null && Geo.haversine(from,to.frozenRoute.points.first())>=100.0) to.copy(frozenRoute=com.mirage.spike.engine.RouteArchive.remaining(to.frozenRoute,from)) else to
+            prepareLeg(cfg,from,resumed,sc.realism,sc.transitPref)
+        },first,
             resumePosition=record.position,resumeIndex=index,resumeStaySeconds=if(held)record.remainingStay else null,departureMillis=if(record.activity==ActivityKind.WAITING)sc.departureMillis else null)
         savedScenarios.firstOrNull{it.id==record.savedId}?.let { saved -> plan.markSaved(saved.id,saved.name,saved.stops.map{it.toStop()}) }
         PlaybackSource.paused=false
@@ -656,6 +660,7 @@ class MirageViewModel(
     fun saveScenario(name: String, replace: Boolean = false): Boolean {
         val replacing=if(replace)loadedScenario?.id else null
         val n = name.trim()
+        if(replace && savedScenarios.none{it.id==replacing}) {error="The saved original no longer exists. Save a copy instead.";return false}
         if (n.isBlank() || !canSaveScenario) return false
         if (savedScenarios.any { it.name.equals(n, true) && it.id!=replacing }) { error = "That name already exists. Choose a different name."; return false }
         val effectiveStart = tripStart()
@@ -782,6 +787,12 @@ class MirageViewModel(
         libraryUndo = null; libraryUndoAvailable = false
         notice = "Saved items restored"; return true
     }
+    fun appendResolvedStop(hit: PlaceHit, minutes: Int = 0) {
+        choosePlanMode(PlanMode.ITINERARY)
+        rememberDraftEdit()
+        stops.add(ItineraryStop(hit.name,hit.latLng,minutes,mode,avgMph,hit.address,hit.placeId))
+        invalidateRoute()
+    }
     fun appendSavedItinerary(item: SavedScenario) {
         if (planMode != PlanMode.ITINERARY) choosePlanMode(PlanMode.ITINERARY)
         if (start == null) item.start?.let { setStartPoint(it,item.startName) }
@@ -802,7 +813,12 @@ class MirageViewModel(
             error = "Choose a unique, nonblank name"; return false
         }
         val updated = item.copy(id = if(copy) java.util.UUID.randomUUID().toString() else id, name = n, createdAt = System.currentTimeMillis())
-        return writeLibrary(if(copy) listOf(updated) + savedScenarios else savedScenarios.map { if(it.id == id) updated else it })
+        val ok=writeLibrary(if(copy) listOf(updated) + savedScenarios else savedScenarios.map { if(it.id == id) updated else it })
+        if(ok && !copy) {
+            if(loadedScenario?.id==id) loadedScenario=updated
+            if(LiveSession.state.value.savedId==id) LiveSession.plan?.renameSaved(n)
+        }
+        return ok
     }
     fun setAliases(id: String, text: String): Boolean {
         val aliases = text.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinctBy { it.lowercase() }

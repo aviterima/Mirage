@@ -60,10 +60,11 @@ class LivePlan(
     @Synchronized fun undoEdit(): Boolean {
         val previous = undoEntries ?: return false
         if (index != undoIndex) { undoEntries = null; return false }
-        entries.clear(); entries.addAll(previous); undoEntries = null; publish(); return true
+        val currentPrefix=entries.take(index+1); entries.clear(); entries.addAll(currentPrefix+previous.drop(index+1)); undoEntries = null; publish(); return true
     }
     private var savedId: String? = null
     private var savedName = ""
+    @Synchronized fun renameSaved(name: String) { savedName=name;publish() }
     private var savedStops: List<ItineraryStop>? = null
     @Synchronized fun markSaved(id: String, name: String, snapshot: List<ItineraryStop>) {
         savedId = id; savedName = name; savedStops = snapshot.toList(); publish()

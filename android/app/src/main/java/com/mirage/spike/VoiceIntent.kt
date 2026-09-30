@@ -3,9 +3,9 @@ package com.mirage.spike
 import org.json.JSONObject
 
 data class VoiceIntent(val action: String, val target: String = "", val placement: Placement = Placement.NEXT,
-    val minutes: Int = 0, val position: Int = 0) {
+    val minutes: Int = 0, val position: Int = 0, val travelMode: com.mirage.spike.engine.TravelMode? = null) {
     fun groundedIn(text: String): Boolean {
-        if (action !in setOf("add_saved","add_place","save_new","move","remove")) return true
+        if (action !in setOf("add_saved","add_place","save_new","move","remove") && !(action=="stay" && target.isNotBlank())) return true
         val words = Regex("[\\p{L}\\p{N}]+").findAll(text.lowercase()).map { it.value }.toSet()
         val targetWords = Regex("[\\p{L}\\p{N}]+").findAll(target.lowercase()).map { it.value }.toList()
         return targetWords.isNotEmpty() && targetWords.all { it in words }
@@ -26,7 +26,7 @@ data class VoiceIntent(val action: String, val target: String = "", val placemen
             if (action in setOf("add_saved","add_place","save_new","move","remove")) require(target.isNotBlank()) { "Name the destination or itinerary." }
             if (action in setOf("stay","extend")) require(minutes > 0) { "Say how many minutes." }
             if (action == "move") require(position > 0) { "Say the new stop position." }
-            return VoiceIntent(action,if (action in setOf("add_saved","add_place","save_new","move","remove")) target else "",Placement.valueOf(obj.getString("placement")),minutes,position)
+            return VoiceIntent(action,if (action in setOf("add_saved","add_place","save_new","move","remove","stay")) target else "",Placement.valueOf(obj.getString("placement")),minutes,position)
         }
     }
 }

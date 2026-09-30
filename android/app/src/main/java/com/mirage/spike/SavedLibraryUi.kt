@@ -105,7 +105,18 @@ internal fun SavedPlansDialog(vm: MirageViewModel, active: Boolean = false, onDi
                                 DropdownMenu(menu,{menu=false}) {
                                     DropdownMenuItem(text={Text(if(item.favorite) "Remove favorite" else "Add favorite")},onClick={menu=false;vm.favoriteScenario(item.id)})
                                     listOf("Rename","Duplicate","Voice aliases").forEach { action -> DropdownMenuItem(text={Text(action)},onClick={menu=false;edit=item to action;editText=if(action=="Voice aliases") item.aliases.joinToString(", ") else if(action=="Duplicate") item.name+" copy" else item.name}) }
-                                    DropdownMenuItem(text={Text("Export / share this item")},onClick={menu=false;exportText=BackupCodec.encode(listOf(item));export.launch("Mirage-itinerary.json")})
+                                    DropdownMenuItem(text={Text("Share this item")},onClick={
+                                        menu=false
+                                        scope.launch {
+                                            runCatching {
+                                                val file=withContext(Dispatchers.IO) {java.io.File(context.cacheDir,"shared-trips").apply{mkdirs()}.let {dir->java.io.File(dir,"Mirage-${java.util.UUID.randomUUID()}.json").apply{writeText(BackupCodec.encode(listOf(item)))}}}
+                                                val uri=androidx.core.content.FileProvider.getUriForFile(context,context.packageName+".sharing",file)
+                                                val intent=android.content.Intent(android.content.Intent.ACTION_SEND).setType("application/json").putExtra(android.content.Intent.EXTRA_STREAM,uri).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                context.startActivity(android.content.Intent.createChooser(intent,"Share ${item.name}"))
+                                            }.onFailure{message="Could not share: ${it.message}"}
+                                        }
+                                    })
+                                    DropdownMenuItem(text={Text("Export this item")},onClick={menu=false;exportText=BackupCodec.encode(listOf(item));export.launch("Mirage-itinerary.json")})
                                     DropdownMenuItem(text={Text("Delete")},onClick={menu=false;message=if(vm.deleteScenario(item.id))"Deleted ${item.name}. Undo is available." else vm.error.orEmpty()})
                                 }
                             }

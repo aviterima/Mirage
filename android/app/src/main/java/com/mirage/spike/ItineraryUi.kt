@@ -41,12 +41,13 @@ fun MyItinerarySheet(vm: MirageViewModel, onDismiss: () -> Unit, onAdd: () -> Un
             var showVisited by remember { mutableStateOf(false) }
             var stayId by remember { mutableStateOf<String?>(null) }
             if (session.index > 0) TextButton(onClick={showVisited=!showVisited}) { Text(if(showVisited) "Hide visited stops" else "Show ${session.index} visited stops") }
-            if(showVisited) session.stops.take(session.index.coerceAtLeast(0)).forEach { Text("✓ ${it.stop.name}") }
+            if(showVisited) Column(Modifier.heightIn(max=100.dp).verticalScroll(rememberScrollState())) {session.stops.take(session.index.coerceAtLeast(0)).forEach { Text("✓ ${it.stop.name}") }}
             session.stops.getOrNull(session.index)?.let { current ->
                 Text("Current: ${current.stop.name}", fontWeight=FontWeight.Bold)
                 Text(if(session.activity==ActivityKind.STAYING) "${(session.remainingStaySeconds+59)/60} min remaining" else session.activity.name.lowercase())
             }
             val future=session.stops.drop((session.index+1).coerceAtLeast(0))
+            Box(Modifier.weight(1f,fill=false)) {
             ReorderableStopList(future.map{it.stop}, onMove={from,to ->
                 val entry=future.getOrNull(from)
                 if(entry != null && LiveSession.plan?.move(entry.id,to-from)!=true) message="The trip advanced; review the remaining stops"
@@ -56,6 +57,7 @@ fun MyItinerarySheet(vm: MirageViewModel, onDismiss: () -> Unit, onAdd: () -> Un
                     onMode={LiveSession.plan?.setMode(entry.id,it)},onStay={stayId=entry.id},
                     onMove={LiveSession.plan?.move(entry.id,it)},onRemove={LiveSession.plan?.remove(entry.id)},
                     handleModifier=handle,canMoveUp=i>0,canMoveDown=i<future.lastIndex)
+            }
             }
             stayId?.let { id ->
                 session.stops.firstOrNull{it.id==id}?.let { entry -> DwellDialog(entry.stop.name,entry.stop.dwellMinutes,

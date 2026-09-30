@@ -31,7 +31,7 @@ class ContinuationUiAcceptanceTest {
         val h = snap("home", "Fixture Home", home)
         val o = snap("office", "Fixture Office", office)
         val route = snap("route", "Fixture Route", cafe).copy(kind = "ROUTE", start = office, startName = "Fixture Office")
-        val itinerary = h.copy(id = "itinerary", name = "Fixture Day", kind = "ITINERARY", start = home, startName = "Fixture Home",
+        val itinerary = h.copy(id = "itinerary", name = "Fixture Day", aliases=listOf("daytrip"), kind = "ITINERARY", start = home, startName = "Fixture Home",
             stops = listOf(SavedStop("Fixture Office", office.lat, office.lng, 17, TravelMode.FLY, 550f),
                 SavedStop("Fixture Cafe", cafe.lat, cafe.lng, 23, TravelMode.FLY, 550f)))
         PrefsScenarioStore(context).save(listOf(h, o, route, itinerary))
@@ -86,6 +86,28 @@ class ContinuationUiAcceptanceTest {
         compose.onNodeWithText("fly").performScrollTo().performClick()
         ready()
     }
+    @Test fun contextualVoiceUsesAliasThenEditsConfirmedUpcomingStop() {
+        compose.onNodeWithText("Pause").performClick()
+        compose.onNodeWithContentDescription("Talk").performClick()
+        fun say(words:String) {
+            compose.onNode(hasSetTextAction()).performScrollTo().performTextInput(words)
+            compose.onNodeWithText("Send").performScrollTo().performClick()
+            compose.waitUntil(15000) { !Conversation.state.value.busy && SmartVoice.needsReply() }
+        }
+        say("Add daytrip next")
+        compose.onNodeWithText("Confirm").performScrollTo().performClick()
+        compose.waitUntil(5000) {LiveSession.state.value.stops.size==3}
+        assertTrue(PlaybackSource.paused)
+        say("Make its stay forty five minutes")
+        assertEquals(23,LiveSession.state.value.stops.last().stop.dwellMinutes)
+        compose.onNodeWithText("Confirm").performScrollTo().performClick()
+        compose.waitUntil(5000) {LiveSession.state.value.stops.last().stop.dwellMinutes==45}
+        assertEquals("Fixture Cafe",LiveSession.state.value.stops.last().stop.name)
+        assertEquals(17,LiveSession.state.value.stops[1].stop.dwellMinutes)
+        assertTrue(PlaybackSource.paused)
+        screenshot("contextual-voice-review")
+    }
+
     @Test fun heldSimulationContinuesToSavedSnapFromCurrentPointWithClearMap() {
         chooseSnap()
         compose.onNode(hasText("Fixture Office, Scottsdale, Arizona") and

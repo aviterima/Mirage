@@ -37,7 +37,7 @@ object TripRecovery {
             plan.origin,"Trip start",last.point,last.name,last.mode,emptyMap(),Realism.REALISTIC,null,view.stops.map{it.stop.toSavedStop()},departureMillis=plan.departureMillis)
         val json=JSONObject().put("scenario",scenario.toJson()).put("lat",status.lat).put("lng",status.lng)
             .put("index",view.index).put("activity",view.activity.name).put("stay",view.remainingStaySeconds).put("savedId",view.savedId)
-        if(prefs?.edit()?.putString("live",json.toString())?.commit()!=true) failure="Could not preserve the latest trip checkpoint"
+        failure=if(prefs?.edit()?.putString("live",json.toString())?.commit()==true) null else "Could not preserve the latest trip checkpoint"
     }
     @Synchronized fun clearLive() { suppressedEpoch=LiveSession.epoch; prefs?.edit()?.remove("live")?.commit() }
     fun live(): RecoveredTrip? = runCatching {
@@ -46,5 +46,5 @@ object TripRecovery {
             json.getInt("index"),ActivityKind.valueOf(json.getString("activity")),json.getInt("stay"),json.optString("savedId").takeIf {it.isNotBlank() && it!="null"})
     }.getOrNull()
     fun draft(): SavedScenario? = prefs?.getString("draft",null)?.let {runCatching{SavedScenario.fromJson(JSONObject(it))}.getOrNull()}
-    fun saveDraft(item: SavedScenario) { if(prefs?.edit()?.putString("draft",item.toJson().toString())?.commit()!=true) failure="Could not preserve the latest draft" }
+    fun saveDraft(item: SavedScenario) { failure=if(prefs?.edit()?.putString("draft",item.toJson().toString())?.commit()==true) null else "Could not preserve the latest draft" }
 }

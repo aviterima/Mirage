@@ -672,12 +672,17 @@ fun MapScreen(
             shape = RoundedCornerShape(16.dp),
         ) {
             Column(Modifier.padding(8.dp)) {
+                vm.notice?.let {Text(it,style=MaterialTheme.typography.bodySmall)}
+                TripRecovery.failure?.let {Text(it,color=RED)}
                 vm.error?.let { Text(it,color=RED);TextButton(onClick={vm.clearError()}){Text("Dismiss")}}
                 PrimaryAction(vm, false, actions)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    TextButton(onClick = { showSaved = true }) { Text("Save / Saved") }
-                    TextButton(onClick = { showPlannerSettings = true }) { Text("Settings") }
-                    TextButton(onClick = { showChat = true }) { Text("Talk") }
+                    TextButton(onClick = {
+                        val name=vm.draftSavedName
+                        if(name==null)showSaved=true else if(vm.saveScenario(name,true))vm.notice="Changes saved"
+                    },modifier=Modifier.weight(1f)) { Text(if(vm.draftSavedName==null) "Save" else "Save changes") }
+                    TextButton(onClick = { showPlannerSettings = true },modifier=Modifier.weight(1f)) { Text("Settings") }
+                    TextButton(onClick = { showChat = true },modifier=Modifier.weight(1f)) { Text("Talk") }
                 }
                 if (status.running) TextButton(onClick=onStop) { Text("Stop simulation") }
             }

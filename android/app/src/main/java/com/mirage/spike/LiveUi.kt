@@ -129,6 +129,8 @@ fun ChatPanel(onDismiss: () -> Unit) {
     val language by LocalLanguageModel.state.collectAsState()
     val context = LocalContext.current
     var text by remember { mutableStateOf("") }
+    val keyboard=androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val focus=androidx.compose.ui.platform.LocalFocusManager.current
     var requestedAction by remember { mutableStateOf(VoiceService.LISTEN) }
     val launchVoice: (String) -> Unit = { action ->
         runCatching { ContextCompat.startForegroundService(context, Intent(context, VoiceService::class.java).setAction(action)) }
@@ -168,10 +170,6 @@ fun ChatPanel(onDismiss: () -> Unit) {
                 Text("Heard: ${voice.transcript}")
                 TextButton(onClick={SmartVoice.cancel();Conversation.cancelPending();text=voice.transcript}) {Text("Correct these words")}
             }
-            if(Conversation.needsReply() && chat.choices.isEmpty()) Row {
-                Button(onClick={Conversation.submit("yes")}) {Text("Confirm")}
-                TextButton(onClick={Conversation.submit("cancel")}) {Text("Cancel")}
-            }
             val scroll = rememberScrollState()
             LaunchedEffect(chat.lines.size, chat.choices.size) { scroll.animateScrollTo(scroll.maxValue) }
             Column(Modifier.fillMaxWidth().heightIn(min = 100.dp, max = 300.dp).verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -185,10 +183,14 @@ fun ChatPanel(onDismiss: () -> Unit) {
                     OutlinedButton(onClick = { Conversation.choose(i) }, modifier = Modifier.fillMaxWidth()) { Text("${i + 1}. ${place.name}\n${place.address}") }
                 }
             }
+            if(Conversation.needsReply() && chat.choices.isEmpty() && !chat.busy) Row {
+                Button(onClick={Conversation.submit("yes")}) {Text("Confirm")}
+                TextButton(onClick={Conversation.submit("cancel")}) {Text("Cancel")}
+            }
             if (chat.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(value = text, onValueChange = { text = it }, placeholder = { Text("Tell Mirage what to do…") }, modifier = Modifier.weight(1f), maxLines = 3)
-                Button(onClick = { Conversation.submit(text); text = "" }, enabled = text.isNotBlank()) { Text("Send") }
+                Button(onClick = { keyboard?.hide();focus.clearFocus();Conversation.submit(text); text = "" }, enabled = text.isNotBlank()) { Text("Send") }
             }
             Text("Voice is processed on this phone. Place search and routing use your Maps connection. Hands-free stays enabled until you turn the microphone off.", style = MaterialTheme.typography.bodySmall)
         }

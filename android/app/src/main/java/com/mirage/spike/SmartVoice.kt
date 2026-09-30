@@ -2,6 +2,7 @@ package com.mirage.spike
 
 import android.content.Context
 import com.mirage.spike.engine.*
+import com.mirage.spike.store.SavedScenario
 import kotlinx.coroutines.*
 import org.json.JSONArray
 import org.json.JSONObject
@@ -22,6 +23,10 @@ object SmartVoice {
     private var hits = emptyList<PlaceHit>()
     private var spoken = false
     private val followUp = VoiceFollowUp()
+    private var planningRequest=false
+    private var planningSnapshot: SavedScenario?=null
+    private var planningSaved: SavedScenario?=null
+    private var planningHit: PlaceHit?=null
     fun needsReply() = pending != null || hits.isNotEmpty()
     fun hasChoices() = hits.isNotEmpty()
     fun bind(context: Context, model: MirageViewModel, onStart: () -> Unit) {
@@ -33,7 +38,7 @@ object SmartVoice {
     fun cancel() {
         generation++; job?.cancel(); job=null; LocalLanguageModel.cancel()
         if (pendingDraft != null && vm?.continuation?.state === pendingDraft) vm?.continuation?.cancel()
-        pending=null; pendingDraft=null; hits=emptyList()
+        pending=null; pendingDraft=null; hits=emptyList();planningRequest=false;planningSnapshot=null;planningSaved=null;planningHit=null
         Conversation.smartChoices(emptyList()); Conversation.smartBusy(false)
     }
     private fun say(text: String) = Conversation.smartReply(text,spoken)
@@ -60,11 +65,12 @@ object SmartVoice {
         }
         val adding=Regex("^(?:please )?(?:add|take me to|go to|after this|next|drive to|walk to)",RegexOption.IGNORE_CASE).containsMatchIn(text.trim())
         val savedIntent=if(adding && savedMatches.size==1 && !Regex("(?i)\\b(and|then|also)\\b").containsMatchIn(text)) VoiceIntent("add_saved",savedMatches.single().name,
-            if(Regex("(?i)\\b(now|immediately)\\b").containsMatchIn(text)) Placement.NOW else if(text.contains("end",true)) Placement.END else Placement.NEXT) else null
+            if(Regex("(?i)\\b(now|immediately)\\b").containsMatchIn(text)) Placement.NOW else if(text.contains("end",true)) Placement.END else Placement.NEXT,minutes=(parsed as? SpokenCommand.Journey)?.legs?.singleOrNull()?.minutes ?: 0,travelMode=(parsed as? SpokenCommand.Journey)?.legs?.singleOrNull()?.mode) else null
         val save = Regex("^(?:save (?:this |the )?(?:whole )?(?:trip|itinerary) as) (.+)$", RegexOption.IGNORE_CASE).matchEntire(text.trim())
         val direct = contextIntent ?: savedIntent ?: if (save != null) VoiceIntent("save_new",save.groupValues[1].trim())
             else if (normalized in setOf("save changes","save my itinerary","save this itinerary")) VoiceIntent("save_changes")
             else when(parsed) {
+                is SpokenCommand.Journey -> if(parsed.legs.size==1 && !parsed.snap) VoiceIntent("add_place",parsed.legs.single().query,if(normalized.contains("now"))Placement.NOW else Placement.NEXT,minutes=parsed.legs.single().minutes,travelMode=parsed.legs.single().mode) else null
                 is SpokenCommand.Stay -> VoiceIntent("stay",minutes=parsed.minutes)
                 is SpokenCommand.Extend -> VoiceIntent("extend",minutes=parsed.minutes)
                 else -> null
@@ -104,7 +110,8 @@ object SmartVoice {
         if (intent.action in setOf("status","pause","resume")) {
             Conversation.executeBasic(intent.action,spoken); return
         }
-        check(MockState.status.value.running && LiveSession.plan != null) { "Start a simulation before editing or saving its itinerary." }
+        if(!MockState.status.value.running) {preparePlanning(intent);return}
+        check(LiveSession.plan != null) { "Open your itinerary before editing it." }
         pending=intent
         epoch=LiveSession.epoch; stopSnapshot=LiveSession.state.value.stops
         pendingIndex=LiveSession.state.value.index
@@ -113,16 +120,18 @@ object SmartVoice {
                 val matches=model.savedScenarios.filter { it.name.equals(intent.target,true) }
                 check(matches.size==1) { "I couldn't identify one saved item called ${intent.target}. Choose it from Add destination." }
                 model.continuation.begin(intent.placement)
+                intent.travelMode?.let{model.continuation.mode(it)}
                 model.continuation.saved(matches.single())
                 finishPreview()
             }
             "add_place" -> {
                 model.continuation.begin(intent.placement)
+                intent.travelMode?.let{model.continuation.mode(it)}
                 val origin=model.continuation.origin()
                 check(model.hasKey) { "Add your Maps key in Setup to search." }
                 hits=model.placeSearch(model.api,intent.target,origin).take(5)
                 check(hits.isNotEmpty()) { "No match. Try the full place name and city." }
-                if (hits.size==1) { model.continuation.pickResolved(hits.single()); hits=emptyList(); finishPreview() }
+                if (hits.size==1) { model.continuation.pickResolved(hits.single()); if(intent.minutes>0)model.continuation.stay(intent.minutes); hits=emptyList(); finishPreview() }
                 else {
                     model.continuation.edit(false)
                     pendingDraft=model.continuation.state
@@ -147,6 +156,45 @@ object SmartVoice {
             }
         }
     }
+    private suspend fun preparePlanning(intent: VoiceIntent) {
+        val model=vm ?: return
+        planningRequest=true;planningSnapshot=model.draftSnapshot();pending=intent;epoch=LiveSession.epoch
+        when(intent.action) {
+            "add_saved" -> {
+                planningSaved=model.savedScenarios.singleOrNull{it.name.equals(intent.target,true)} ?: error("Name one saved item")
+                say("Add ${intent.target} to the planned itinerary, including a connecting leg if needed? Simulation stays off. Say yes or cancel.")
+            }
+            "add_place" -> {
+                check(model.hasKey){"Add a Maps key to search"}
+                hits=model.placeSearch(model.api,intent.target,model.tripStart()).take(5)
+                check(hits.isNotEmpty()){"No match; name the place and city"}
+                if(hits.size==1){planningHit=hits.single();hits=emptyList();say("Add ${planningHit!!.name}, ${planningHit!!.address}, to the planned itinerary? Simulation stays off. Say yes or cancel.")}
+                else {Conversation.smartChoices(hits);say("Choose the correct place by number, then review its address.")}
+            }
+            "save_new" -> say("Save the planned itinerary as ${intent.target}? Say yes or cancel.")
+            "save_changes" -> {check(model.draftSavedName!=null){"Name this itinerary first: save this trip as followed by a name"};say("Update ${model.draftSavedName} with the current plan? Say yes or cancel.")}
+            else -> {cancel();say("This command needs a running trip. You can add a saved place or save the plan before starting.")}
+        }
+    }
+    private fun confirmPlanning(action: VoiceIntent) {
+        val model=vm ?: return
+        check(!MockState.status.value.running && epoch==LiveSession.epoch && planningSnapshot==model.draftSnapshot()) {"The plan changed. Repeat the instruction before confirming."}
+        when(action.action) {
+            "add_saved" -> {
+                val item=planningSaved ?: error("Choose an item")
+                check(model.savedScenarios.any{it==item}){"The saved item changed; review it again"}
+                when(item.kind) {
+                    "ROUTE" -> check(model.appendSavedRoute(item,true)){model.error ?: "Could not add route"}
+                    "ITINERARY" -> model.appendSavedItinerary(item)
+                    else -> {action.travelMode?.let{model.chooseMode(it)};model.addSavedPlaceStop(item)}
+                }
+            }
+            "add_place" -> {action.travelMode?.let{model.chooseMode(it)};model.appendResolvedStop(planningHit ?: error("Choose a place"),action.minutes)}
+            "save_new" -> check(model.saveScenario(action.target)){model.error ?: "Could not save"}
+            "save_changes" -> check(model.saveScenario(model.draftSavedName ?: error("Name the itinerary"),true)){model.error ?: "Could not save"}
+        }
+        cancel();say("Done. The plan is updated; simulation is still off.")
+    }
     private suspend fun finishPreview() {
         val model=vm ?: return
         model.continuation.edit(false)
@@ -161,10 +209,18 @@ object SmartVoice {
         val hit=hits.getOrNull(index) ?: return
         val model=vm ?: return
         hits=emptyList(); Conversation.smartChoices(hits)
+        if(planningRequest) {
+            planningHit=hit
+            say("Add ${hit.name}, ${hit.address}, to the planned itinerary? Simulation stays off. Say yes or cancel.")
+            return
+        }
         val serial=generation
         job=scope.launch {
-            try { check(epoch==LiveSession.epoch); model.continuation.pickResolved(hit); finishPreview() }
+            Conversation.smartBusy(true)
+            try { check(epoch==LiveSession.epoch); model.continuation.pickResolved(hit);pending?.minutes?.takeIf{it>0}?.let{model.continuation.stay(it)}; finishPreview() }
+            catch(e: CancellationException) { throw e }
             catch(e: Exception) { if(serial==generation) say(e.message ?: "Please choose the location again.") }
+            finally {if(serial==generation)Conversation.smartBusy(false)}
         }
     }
     private fun confirm() {
@@ -172,6 +228,7 @@ object SmartVoice {
         if(hits.isNotEmpty()) { say("Choose a location by number first."); return }
         val model=vm ?: return
         try {
+            if(planningRequest) {confirmPlanning(action);return}
             check(MockState.status.value.running && epoch==LiveSession.epoch && stopSnapshot==LiveSession.state.value.stops) { "The itinerary changed. Please repeat your instruction before confirming." }
             val plan=LiveSession.plan ?: error("No live itinerary")
             if (action.action in setOf("stay","extend") && action.target.isBlank()) check(plan.view().index == pendingIndex) { "The current stop changed. Please repeat your instruction." }
