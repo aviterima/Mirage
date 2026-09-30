@@ -133,6 +133,9 @@ class WorkflowUiAcceptanceTest {
             compose.waitUntil(15000){compose.onAllNodesWithContentDescription("Saved plans").fetchSemanticsNodes().isNotEmpty()}
             compose.onNodeWithContentDescription("Saved plans").performClick()
             compose.onNodeWithContentDescription("Load Long day").performScrollTo().performClick()
+            compose.onNodeWithText("Suggest order").performScrollTo().performClick()
+            compose.onNodeWithText("24. Stop 24").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithText("Keep current order").performClick()
             val add=compose.onNodeWithText("Add a stop · search, tap the map, or ⌖")
             add.performScrollTo().assertIsDisplayed()
             val action=compose.onNodeWithText("Start itinerary")

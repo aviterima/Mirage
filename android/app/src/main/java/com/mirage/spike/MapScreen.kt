@@ -690,7 +690,7 @@ fun MapScreen(
     }
 
     orderProposal?.let { proposed -> AlertDialog(onDismissRequest={orderProposal=null},title={Text("Review suggested order")},
-        text={Column {Text("Geometric estimate only; actual road travel may differ. Final destination stays fixed.");proposed.forEachIndexed{i,stop->Text("${i+1}. ${stop.name}")}}},
+        text={Column(Modifier.heightIn(max=320.dp).verticalScroll(rememberScrollState())) {Text("Geometric estimate only; actual road travel may differ. Final destination stays fixed.");proposed.forEachIndexed{i,stop->Text("${i+1}. ${stop.name}")}}},
         confirmButton={TextButton(onClick={vm.applyStopOrder(proposed);orderProposal=null}){Text("Use this order")}},dismissButton={TextButton(onClick={orderProposal=null}){Text("Keep current order")}}) }
     if(showRecovery) AlertDialog(onDismissRequest={showRecovery=false},title={Text("Restore your previous trip?")},
         text={Text(if(recovery!=null) "Your interrupted trip and stop settings are available. Restore for editing, or explicitly resume from the checkpoint. Resuming turns simulation on." else "An automatically preserved draft is available. Restoring does not start simulation.")},

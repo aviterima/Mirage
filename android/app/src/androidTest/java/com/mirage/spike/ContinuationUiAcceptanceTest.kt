@@ -158,7 +158,9 @@ class ContinuationUiAcceptanceTest {
         confirm()
         compose.waitUntil(10_000) { LiveSession.state.value.stops.size == 3 }
         assertEquals(listOf(0, 17, 23), LiveSession.state.value.stops.map { it.stop.dwellMinutes })
-        assertEquals(original, PrefsScenarioStore(context).load().first { it.id == "itinerary" })
+        val after=PrefsScenarioStore(context).load().first { it.id == "itinerary" }
+        assertTrue("Using a saved item records recent use", after.lastUsedAt > original.lastUsedAt)
+        assertEquals("Trip content and identity remain unchanged", original, after.copy(lastUsedAt=original.lastUsedAt))
         assertTrue(PlaybackSource.paused)
         assertPausedOutput()
         screenshot("continuation-itinerary-added")
