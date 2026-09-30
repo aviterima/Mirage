@@ -13,7 +13,7 @@ Release validation date: September 30, 2026 (America/Phoenix).
 - The exact previously delivered 0.11.3 APK was installed, representative saved records and settings were seeded, and the new APK was installed with `adb install -r`. Saved records, key, and install identity compared unchanged after the upgrade.
 - The signing certificate SHA-256 is `e51683b8f4161d31fe4e81fe788438640151f8efb9aeba693a4ce21ad72cc8b8`, matching the pinned existing identity.
 - Downloaded artifact ZIP hashes matched GitHub's reported digests. Reassembled APK SHA-256 matches the passing run: `a92ed17acf582498f33213d3bc9bd47842ded9d3c349fe6f348edca3a390428d`; size 93,537,055 bytes. No rebuild or re-signing occurred after testing.
-- Screenshots were reviewed for live saving and clear map/review states. The live-save journey persisted the same record ID while growing the trip and kept the simulation paused.
+- Screenshots were reviewed for live saving and clear map/review states. The live-save journey persisted the same record ID while growing the trip and kept the simulation paused. One screenshot in the final run was obscured by a “Pixel Launcher isn’t responding” system dialog; it names the emulator launcher, not Mirage. The same unchanged itinerary UI is unobscured in the first run, and the final map screenshot is clear. The screenshot limitation is retained in the evidence and is not presented as a clean visual pass for that frame.
 
 The first failure and corrective change are retained below. This evidence supports the listed gates, not an assertion that every possible workflow or every physical device is bug-free.
 
