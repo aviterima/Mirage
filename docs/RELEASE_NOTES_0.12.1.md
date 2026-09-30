@@ -10,4 +10,6 @@
 
 Version code: 34. This is an additive update to 0.12.0; local voice and live itinerary saving are retained. The planning form has drag reordering; live My itinerary continues to use its existing move buttons.
 
-Validation: candidate under test. Do not describe this candidate as a passed release until VALIDATION_0.12.1.md records the actual results.
+Validation: 104 JVM tests and 17 Android emulator tests passed, with zero failures or skips. Signed in-place upgrade from 0.12.0 preserved stored records and settings. See VALIDATION_0.12.1.md for exact evidence and limitations.
+
+The expanded planning settings panel can cover Add a stop; collapse it with its chevron. Physical-phone ergonomics and long-list edge scrolling remain to be validated manually.

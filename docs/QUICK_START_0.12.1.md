@@ -8,7 +8,7 @@ Use the tested signed 0.12.1 APK supplied with this release. Install it over Mir
 
 Select both route locations, then tap the **double-arrow to the right of Start and Destination**. The fields exchange places. Mirage prepares fresh directions when available; tap **Get route** if needed, then start when ready.
 
-When building an itinerary, **drag the handle at the right of a stop** up or down. Hold near an edge to scroll. The stop's stay time and travel settings move with it. Prefer buttons? Tap the same handle and choose **Move up** or **Move down**. Save the revised itinerary through **Saved plans**. The starting point stays fixed.
+When building an itinerary, **drag the handle at the right of a stop** up or down. Hold near an edge to scroll. The stop's stay time and travel settings move with it. Prefer buttons? Tap the same handle and choose **Move up** or **Move down**. Save the revised itinerary through **Saved plans**. The starting point stays fixed. If the lower settings panel covers **Add a stop**, tap its downward chevron to collapse it.
 
 ## Add and save while simulating
 

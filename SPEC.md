@@ -1,6 +1,6 @@
-# Mirage 0.12.1 editor update — candidate
+# Current release: Mirage 0.12.1
 
-Adds a route endpoint swap button and visible itinerary drag handles. Signed acceptance validation is pending.
+Adds a route endpoint swap button and visible itinerary drag handles. 104 JVM tests and 17 Android emulator tests passed. Signed upgrade from 0.12.0 preserved stored data. Physical-phone validation remains outstanding.
 
 - [Route and stop editor specification](docs/ROUTE_AND_STOP_EDITOR_SPEC_0.12.1.md)
 - [Quick start](docs/QUICK_START_0.12.1.md)
