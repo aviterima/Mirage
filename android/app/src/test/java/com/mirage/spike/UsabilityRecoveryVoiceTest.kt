@@ -21,6 +21,7 @@ class UsabilityRecoveryVoiceTest {
         assertEquals(listOf(item),BackupCodec.decode(json));assertFalse(json.contains("api_key"));assertFalse(json.contains("install_id"))
     }
     @Test fun malformedBackupCannotPartiallyImport(){
+        assertThrows(IllegalArgumentException::class.java){BackupCodec.decode(BackupCodec.encode(listOf(scenario())).replace("WALK","HOVERCRAFT"))}
         val json=BackupCodec.encode(listOf(scenario())).replace("33.1","133.1")
         assertThrows(IllegalArgumentException::class.java){BackupCodec.decode(json)}
         assertThrows(IllegalArgumentException::class.java){BackupCodec.decode(BackupCodec.encode(listOf(scenario())).replace("\"version\": 1","\"version\": 99"))}
@@ -40,6 +41,7 @@ class UsabilityRecoveryVoiceTest {
     @Test fun namedDraftUpdatePreservesIdentityAndFavorite(){
         val store=InMemoryScenarioStore();store.save(listOf(scenario()))
         val vm=MirageViewModel().apply{configureApi(ApiConfig(null,"","test"));attachStore(store);loadScenario(scenario())}
+        assertNull(vm.dest);assertEquals("",vm.destName)
         vm.setDwell(0,75);assertTrue(vm.saveScenario("Day",true))
         assertEquals(1,store.load().size);assertEquals("id",store.load().single().id);assertTrue(store.load().single().favorite)
         assertEquals(listOf("work"),store.load().single().aliases);assertEquals(75,store.load().single().stops.single().dwellMinutes)
@@ -55,6 +57,39 @@ class UsabilityRecoveryVoiceTest {
         assertEquals(route,RouteArchive.decode(RouteArchive.encode(route)))
         val saved=scenario().copy(stops=listOf(scenario().stops.first().copy(frozenRoute=route,arriveByMillis=10000)))
         assertEquals(saved,BackupCodec.decode(BackupCodec.encode(listOf(saved))).single())
+    }
+    @Test fun archivedRouteResumeUsesRemainingGeometryAndRejectsOffRouteCheckpoint(){
+        val end=LatLng(33.2,-112.0)
+        val route=RouteResult(listOf(origin,LatLng(33.1,-112.0),end),22000.0,1200.0)
+        val point=LatLng(33.05,-112.0)
+        val remaining=RouteArchive.remaining(route,point)
+        assertEquals(point,remaining.points.first());assertEquals(end,remaining.points.last())
+        assertTrue(remaining.durationSeconds<route.durationSeconds)
+        assertThrows(IllegalArgumentException::class.java){RouteArchive.remaining(route,LatLng(34.0,-113.0))}
+    }
+    @Test fun recoveryKeepsCompletedStopsAndResumesAtCheckpointWithoutStartingUntilRequested() = runTest {
+        val original=scenario().copy(stops=listOf(stop("Visited",33.1).toSavedStop(),stop("Current",33.2).toSavedStop(),stop("Future",33.3).toSavedStop()),realism=Realism.BUSY)
+        val record=RecoveredTrip(original,LatLng(33.2,-112.0),1,ActivityKind.STAYING,300,null,timeScale=5.0,speedOffset=3.0)
+        val vm=MirageViewModel().apply{configureApi(ApiConfig(null,"","test"))}
+        var started=false
+        assertFalse(MockState.status.value.running)
+        vm.recoverLive(record){started=true}
+        assertTrue(started)
+        val fixes=PlaybackSource.current!!.take(1).toList()
+        assertEquals(record.position.lat,fixes.single().lat,0.0)
+        assertEquals(original.stops.map{it.name},LiveSession.state.value.stops.map{it.stop.name})
+        assertEquals(1,LiveSession.state.value.index)
+        assertEquals(Realism.BUSY,LiveSession.plan!!.defaultsRealism)
+        assertEquals(5.0,PlaybackSource.timeScale,0.0)
+        PlaybackSource.timeScale=1.0;PlaybackSource.speedOverLimitMph=0.0;PlaybackSource.current=null
+    }
+    @Test fun futureDepartureHoldsOriginWithoutRequestingRoute()=runTest {
+        var routed=false
+        val plan=LivePlan("Later",origin,listOf(stop("Office",33.1)),{_,to -> routed=true;PreparedLeg(flowOf(Fix(to.point.lat,to.point.lng,0f,0f,4f)),listOf(to.point))},departureMillis=System.currentTimeMillis()+60_000)
+        val fix=plan.fixes().take(1).toList().single()
+        assertFalse(routed);assertEquals(ActivityKind.WAITING,plan.view().activity)
+        assertEquals(origin.lat,fix.lat,0.0);assertEquals(origin.lng,fix.lng,0.0)
+        assertEquals(-1,plan.view().index)
     }
     @Test fun liveUndoOnlyChangesFutureStopsAndExpiresAfterProgress()= runTest {
         val stops=listOf(stop("Current",33.1),stop("Office",33.2),stop("Lunch",33.3))

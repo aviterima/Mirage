@@ -51,6 +51,8 @@ class LivePlan(
     private val resumeIndex: Int = 0,
     private val resumeStaySeconds: Int? = null,
     val departureMillis: Long? = null,
+    val defaultsRealism: Realism = Realism.REALISTIC,
+    val defaultsTransitPref: String? = null,
 ) {
     private val entries = stops.map { LiveStop(stop = it) }.toMutableList()
     private var undoEntries: List<LiveStop>? = null

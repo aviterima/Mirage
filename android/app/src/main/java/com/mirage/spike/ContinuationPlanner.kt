@@ -39,6 +39,7 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
     var state by mutableStateOf<ContinuationDraft?>(null)
         private set
     private var serial = 0L
+    private var selectedSavedId: String? = null
     private var searchJob: Job? = null
     private var previewJob: Job? = null
 
@@ -52,7 +53,7 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
         state = ContinuationDraft(LiveSession.epoch, current?.id, choice, source,
             mode = current?.stop?.mode ?: vm.mode)
     }
-    fun cancel() { serial++; searchJob?.cancel(); previewJob?.cancel(); state = null }
+    fun cancel() { selectedSavedId=null; serial++; searchJob?.cancel(); previewJob?.cancel(); state = null }
     fun edit(open: Boolean) { state = state?.copy(editorOpen = open) }
     fun source(value: DestinationSource) {
         val d = state ?: return
@@ -131,6 +132,7 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
     }
     fun pickResolved(hit: PlaceHit) { state=state?.copy(hits=listOf(hit));pick(hit) }
     fun pick(hit: PlaceHit) {
+        selectedSavedId=null
         val d = state ?: return
         if (hit !in d.hits) return
         serial++; searchJob?.cancel()
@@ -140,6 +142,7 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
         refresh()
     }
     fun saved(sc: SavedScenario, destinationOnly: Boolean = false) {
+        selectedSavedId=sc.id
         val d = state ?: return
         serial++; searchJob?.cancel()
         val selected = when {
@@ -221,13 +224,14 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
                 val remaining = if (d.keepRemaining) old?.remainingForContinuation().orEmpty() else emptyList()
                 val all = additions + remaining
                 val cfg = vm.api; val realism = vm.realism; val transit = vm.transitPref
-                val plan = LivePlan(d.title, from, all, { a, b -> prepareLeg(cfg, a, b, realism, transit) })
+                val plan = LivePlan(d.title, from, all, { a, b -> prepareLeg(cfg, a, b, realism, transit) },defaultsRealism=realism,defaultsTransitPref=transit)
                 PlaybackSource.current = plan.fixes(); PlaybackSource.routePoints = listOf(from)
                 PlaybackSource.label = d.title; PlaybackSource.endPoint = all.last().point
                 if (!d.keepRemaining) PlaybackSource.clearQueue()
                 vm.notice = "Continuing to ${additions.first().name}"
                 onStart()
             }
+            selectedSavedId?.let{vm.recordSavedUse(it)}
             cancel()
             return true
         } catch (e: Exception) {

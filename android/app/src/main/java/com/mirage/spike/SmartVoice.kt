@@ -122,6 +122,10 @@ object SmartVoice {
                 model.continuation.begin(intent.placement)
                 intent.travelMode?.let{model.continuation.mode(it)}
                 model.continuation.saved(matches.single())
+                if(intent.minutes>0) {
+                    check(model.continuation.state?.stops?.size==1) { "Add the itinerary first, then name the stop whose stay should change." }
+                    model.continuation.stay(intent.minutes)
+                }
                 finishPreview()
             }
             "add_place" -> {
@@ -186,7 +190,7 @@ object SmartVoice {
                 when(item.kind) {
                     "ROUTE" -> check(model.appendSavedRoute(item,true)){model.error ?: "Could not add route"}
                     "ITINERARY" -> model.appendSavedItinerary(item)
-                    else -> {action.travelMode?.let{model.chooseMode(it)};model.addSavedPlaceStop(item)}
+                    else -> {action.travelMode?.let{model.chooseMode(it)};model.appendResolvedStop(PlaceHit(item.dest ?: error("Missing destination"),item.name,item.destAddress,item.destPlaceId),action.minutes)}
                 }
             }
             "add_place" -> {action.travelMode?.let{model.chooseMode(it)};model.appendResolvedStop(planningHit ?: error("Choose a place"),action.minutes)}

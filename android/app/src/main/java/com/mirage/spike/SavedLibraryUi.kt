@@ -85,10 +85,7 @@ internal fun SavedPlansDialog(vm: MirageViewModel, active: Boolean = false, onDi
             }
             Text("Favorites first, then recently used",style=MaterialTheme.typography.bodySmall)
             if(message.isNotBlank()) Text(message)
-            val items=vm.savedScenarios.filter { item ->
-                (!favorites || item.favorite) && (kind=="All" || item.kind==mapOf("Places" to "SNAP","Routes" to "ROUTE","Itineraries" to "ITINERARY")[kind]) &&
-                    (item.name+" "+item.destAddress+" "+item.aliases.joinToString()).contains(query,true)
-            }.sortedWith(compareByDescending<SavedScenario>{it.favorite}.thenByDescending{it.lastUsedAt}.thenByDescending{it.createdAt})
+            val items=savedItemSearch(vm.savedScenarios,query,mapOf("Places" to "SNAP","Routes" to "ROUTE","Itineraries" to "ITINERARY")[kind],favorites)
             if(items.isEmpty()) Text("No saved items match. Try another tab or search.")
             items.forEach { item ->
                 Card(Modifier.fillMaxWidth()) {
@@ -142,6 +139,6 @@ internal fun SavedPlansDialog(vm: MirageViewModel, active: Boolean = false, onDi
         OutlinedTextField(editText,{editText=it},label={Text(if(action=="Voice aliases") "Comma-separated names" else "Name")})
         vm.error?.let { Text(it) }
     }},confirmButton={TextButton(onClick={val ok=if(action=="Voice aliases")vm.setAliases(item.id,editText) else vm.renameScenario(item.id,editText,action=="Duplicate");if(ok)edit=null}){Text("Save")}},dismissButton={TextButton(onClick={edit=null}){Text("Cancel")}}) }
-    incoming?.let { items -> AlertDialog(onDismissRequest={incoming=null},title={Text("Import ${items.size} saved items?")},text={Text("Existing items stay unchanged. Matching names receive a numbered suffix; exact matching records are skipped. No credentials are imported.")},confirmButton={TextButton(onClick={if(vm.importScenarios(items)){incoming=null;message=vm.notice.orEmpty()}}){Text("Import")}},dismissButton={TextButton(onClick={incoming=null}){Text("Cancel")}}) }
+    incoming?.let { items -> AlertDialog(onDismissRequest={incoming=null},title={Text("Import ${items.size} saved items?")},text={Column(Modifier.heightIn(max=320.dp).verticalScroll(rememberScrollState())) { Text("Existing items stay unchanged. Matching names receive a numbered suffix; exact matching records are skipped. No credentials are imported.");items.forEach { item -> Text("${item.name} · ${if(item.kind=="ITINERARY") "${item.stops.size} stops" else item.destName}",Modifier.padding(vertical=4.dp)) } }},confirmButton={TextButton(onClick={if(vm.importScenarios(items)){incoming=null;message=vm.notice.orEmpty()}}){Text("Import")}},dismissButton={TextButton(onClick={incoming=null}){Text("Cancel")}}) }
     connector?.let { item -> AlertDialog(onDismissRequest={connector=null},title={Text("Connect these routes?")},text={Text("Add a connecting leg to ${item.startName}? Review its mode and timing before starting.")},confirmButton={TextButton(onClick={if(vm.appendSavedRoute(item,true)){connector=null;onLoaded(item)}}){Text("Add connecting leg")}},dismissButton={TextButton(onClick={connector=null}){Text("Cancel")}}) }
 }

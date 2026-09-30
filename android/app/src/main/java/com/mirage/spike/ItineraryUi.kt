@@ -14,7 +14,7 @@ import com.mirage.spike.engine.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MyItinerarySheet(vm: MirageViewModel, onDismiss: () -> Unit, onAdd: () -> Unit) {
-    val session by LiveSession.state.collectAsState()
+    val session by LiveSession.state.collectAsState(context = kotlinx.coroutines.Dispatchers.Main.immediate)
     var saveNew by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
     var message by remember { mutableStateOf("") }
@@ -45,6 +45,7 @@ fun MyItinerarySheet(vm: MirageViewModel, onDismiss: () -> Unit, onAdd: () -> Un
             session.stops.getOrNull(session.index)?.let { current ->
                 Text("Current: ${current.stop.name}", fontWeight=FontWeight.Bold)
                 Text(if(session.activity==ActivityKind.STAYING) "${(session.remainingStaySeconds+59)/60} min remaining" else session.activity.name.lowercase())
+                TextButton(onClick={stayId=current.id}) {Text(if(session.activity in setOf(ActivityKind.STAYING,ActivityKind.HOLDING)) "Set remaining stay" else "Set stay on arrival")}
             }
             val future=session.stops.drop((session.index+1).coerceAtLeast(0))
             Box(Modifier.weight(1f,fill=false)) {
@@ -60,8 +61,17 @@ fun MyItinerarySheet(vm: MirageViewModel, onDismiss: () -> Unit, onAdd: () -> Un
             }
             }
             stayId?.let { id ->
-                session.stops.firstOrNull{it.id==id}?.let { entry -> DwellDialog(entry.stop.name,entry.stop.dwellMinutes,
-                    onSet={LiveSession.plan?.setStay(id,it);stayId=null},onDismiss={stayId=null},deadline=entry.stop.arriveByMillis,onDeadline={LiveSession.plan?.setDeadline(id,it)}) }
+                session.stops.firstOrNull{it.id==id}?.let { entry ->
+                    val isCurrent=session.stops.getOrNull(session.index)?.id==id
+                    DwellDialog(entry.stop.name,if(isCurrent && session.activity==ActivityKind.STAYING)(session.remainingStaySeconds+59)/60 else entry.stop.dwellMinutes,
+                    onSet={minutes ->
+                        val plan=LiveSession.plan
+                        val view=plan?.view()
+                        val updated=if(isCurrent && plan!=null && view!=null && view.stops.getOrNull(view.index)?.id==id) plan.setCurrentStay(minutes) else plan?.setStay(id,minutes)==true
+                        if(!updated)message="The trip advanced; review the current stop"
+                        stayId=null
+                    },onDismiss={stayId=null},deadline=entry.stop.arriveByMillis,onDeadline=if(isCurrent)null else {time -> LiveSession.plan?.setDeadline(id,time);Unit})
+                }
             }
             TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Back to map") }
         }

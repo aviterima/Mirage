@@ -90,12 +90,12 @@ fun ContinuationSheet(planner: ContinuationPlanner, saved: List<SavedScenario>, 
                 } else {
                     OutlinedTextField(value = filter, onValueChange = { filter = it }, label = { Text("Find a saved item") },
                         modifier = Modifier.fillMaxWidth(), singleLine = true)
-                    val items = saved.filter { it.kind == d.source.name &&
-                        (it.name + " " + it.destName + " " + it.destAddress).contains(filter, true) }
+                    val items = com.mirage.spike.store.savedItemSearch(saved,filter,d.source.name)
+                    Text("Favorites first, then recently used",style=MaterialTheme.typography.bodySmall)
                     if (items.isEmpty()) Text("No saved ${d.source.label.lowercase()} match.")
                     items.forEach { item ->
                         Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-                            Text(item.name, fontWeight = FontWeight.SemiBold)
+                            Text((if(item.favorite) "★ " else "")+item.name, fontWeight = FontWeight.SemiBold)
                             Text(when (d.source) {
                                 DestinationSource.ROUTE -> "${item.startName.ifBlank { "Saved start" }} → ${item.destName}"
                                 DestinationSource.ITINERARY -> "${item.stops.size} stops · " + item.stops.joinToString(" → ") { it.name }
@@ -103,7 +103,7 @@ fun ContinuationSheet(planner: ContinuationPlanner, saved: List<SavedScenario>, 
                             }, style = MaterialTheme.typography.bodySmall)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Button(onClick = { keyboard?.hide(); planner.saved(item) }, modifier = Modifier.testTag("continueSaved-${item.id}")) {
-                                    Text(when(d.source) { DestinationSource.ITINERARY -> "Use itinerary"; DestinationSource.ROUTE -> "Use route"; else -> "Use snap" })
+                                    Text(when(d.source) { DestinationSource.ITINERARY -> "Use itinerary"; DestinationSource.ROUTE -> "Use route"; else -> "Add place" })
                                 }
                                 if (d.source == DestinationSource.ROUTE) TextButton(onClick = { keyboard?.hide(); planner.saved(item, true) }) { Text("Destination only") }
                             }

@@ -26,7 +26,7 @@ import com.mirage.spike.engine.*
 fun LiveControls(status: MockStatus, session: SessionView, onNow: () -> Unit, onNext: () -> Unit, onStop: () -> Unit, onChat: () -> Unit, onStops: () -> Unit, onAdvanced: () -> Unit) {
     val current = session.stops.getOrNull(session.index)?.stop
     val next = session.stops.getOrNull(session.index + 1)?.stop
-    val estimate by DriveTiming.estimate.collectAsState()
+    val estimate by DriveTiming.estimate.collectAsState(context = kotlinx.coroutines.Dispatchers.Main.immediate)
     val title = when {
         status.paused -> "Paused here"
         session.activity == ActivityKind.ROUTING -> "Finding your route"
@@ -124,9 +124,9 @@ fun AdvancedDialog(status: MockStatus, onDismiss: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatPanel(onDismiss: () -> Unit) {
-    val chat by Conversation.state.collectAsState()
-    val voice by VoiceState.state.collectAsState()
-    val language by LocalLanguageModel.state.collectAsState()
+    val chat by Conversation.state.collectAsState(context = kotlinx.coroutines.Dispatchers.Main.immediate)
+    val voice by VoiceState.state.collectAsState(context = kotlinx.coroutines.Dispatchers.Main.immediate)
+    val language by LocalLanguageModel.state.collectAsState(context = kotlinx.coroutines.Dispatchers.Main.immediate)
     val context = LocalContext.current
     var text by remember { mutableStateOf("") }
     val keyboard=androidx.compose.ui.platform.LocalSoftwareKeyboardController.current

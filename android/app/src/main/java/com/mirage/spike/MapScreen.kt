@@ -196,8 +196,8 @@ fun MapScreen(
     hasLocPerm: Boolean,
 ) {
     val vm: MirageViewModel = viewModel()
-    val status by MockState.status.collectAsState()
-    val session by LiveSession.state.collectAsState()
+    val status by MockState.status.collectAsState(context = kotlinx.coroutines.Dispatchers.Main.immediate)
+    val session by LiveSession.state.collectAsState(context = kotlinx.coroutines.Dispatchers.Main.immediate)
     val addition = vm.continuation.state
     LaunchedEffect(status.running) { if (!status.running) vm.continuation.cancel() }
     LaunchedEffect(vm.notice) { if (vm.notice != null) { delay(5000); vm.notice = null } }
@@ -232,7 +232,7 @@ fun MapScreen(
     val keyStore = remember { PrefsKeyStore(context) }
     val recovery = remember { TripRecovery.configure(context); TripRecovery.live() }
     val recoveredDraft = remember { TripRecovery.draft() }
-    var showRecovery by remember { mutableStateOf(!status.running && (recovery != null || recoveredDraft != null)) }
+    var showRecovery by remember { mutableStateOf(!status.running && !vm.canSaveScenario && (recovery != null || recoveredDraft != null)) }
     LaunchedEffect(Unit) {
         androidx.compose.runtime.snapshotFlow { vm.draftSnapshot() }.filterNotNull().debounce(400).collect { draft ->
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { TripRecovery.saveDraft(draft) }
@@ -1052,7 +1052,7 @@ private fun Controls(
 @Composable
 private fun PrimaryAction(vm: MirageViewModel, running: Boolean, a: SimActions) {
     val fly = vm.mode == TravelMode.FLY
-    if (MockState.status.collectAsState().value.starting) { BusyRow("Starting…"); return }
+    if (MockState.status.collectAsState(context = kotlinx.coroutines.Dispatchers.Main.immediate).value.starting) { BusyRow("Starting…"); return }
     when (vm.planMode) {
         PlanMode.SNAP -> BigButton(
             if (vm.dest != null) "Snap to “${vm.destName}”" else "Pick a place to snap to",
@@ -1140,7 +1140,7 @@ private fun SetupDialog(
                 )
                 HorizontalDivider()
                 Text("Google Maps access", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                val credits by CreditsState.credits.collectAsState()
+                val credits by CreditsState.credits.collectAsState(context = kotlinx.coroutines.Dispatchers.Main.immediate)
                 if (vm.api.mode == ApiConfig.Mode.HOSTED) {
                     Text(
                         "Mirage hosted · " + (if (credits >= 0) "$credits credits left" else "credits shown after the first search"),
@@ -1289,7 +1289,7 @@ internal fun DwellDialog(stopName: String, minutes: Int, onSet: (Int) -> Unit, o
         title = { Text("Stay at $stopName") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("How long to stay before continuing the itinerary.", fontSize = 12.sp, color = MUTED)
+                Text("How long to stay before continuing the itinerary (0–1,440 minutes).", fontSize = 12.sp, color = MUTED)
                 if(onDeadline!=null) {
                     TextButton(onClick={chooseTripTime(context,deadline ?: System.currentTimeMillis()){onDeadline(it)}}){Text(deadline?.let{"Arrive by ${tripTime(it)}"} ?: "Set arrival target")}
                     if(deadline!=null)TextButton(onClick={onDeadline(null)}){Text("Clear arrival target")}
@@ -1307,7 +1307,7 @@ internal fun DwellDialog(stopName: String, minutes: Int, onSet: (Int) -> Unit, o
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { value?.let(onSet) }, enabled = value != null) { Text("Set") } },
+        confirmButton = { TextButton(onClick = { value?.let(onSet) }, enabled = value != null && value in 0..1440) { Text("Set") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

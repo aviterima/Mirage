@@ -323,7 +323,7 @@ class MirageViewModel(
         // Carry a chosen End into the itinerary as a stop, and a single stop back out as the End.
         if (m == PlanMode.ITINERARY) {
             val d = dest
-            if (d != null && stops.lastOrNull()?.point != d) stops.add(ItineraryStop(destName, d, 30, mode, avgMph))
+            if (d != null && stops.lastOrNull()?.point != d) stops.add(ItineraryStop(destName, d, 30, mode, avgMph,destAddress,destPlaceId,frozenRoute=if(replayExactRoute)lastRoute else null))
             dest = null; destName = ""
         } else if (planMode == PlanMode.ITINERARY && stops.size == 1) {
             val st = stops[0]; dest = st.point; destName = st.name
@@ -468,7 +468,7 @@ class MirageViewModel(
         val pref = transitPref
         val plan = LivePlan(destName, origin, listOf(stop), { from, to ->
             prepareLeg(cfg, from, to, realismNow, pref)
-        }, departureMillis=departureMillis)
+        }, departureMillis=departureMillis,defaultsRealism=realismNow,defaultsTransitPref=pref)
         linkLoadedPlan(plan)
         arm(plan.fixes(), listOf(origin), when (mode) { TravelMode.FLY -> "Flight"; TravelMode.TRANSIT -> "Transit"; TravelMode.DRIVE -> "Drive"; else -> "Route" }, destination, onStart)
     }
@@ -579,9 +579,9 @@ class MirageViewModel(
                 TravelMode.TRANSIT -> straight * 1.3 to straight * 1.3 / (12 * 0.44704) + 8 * 60.0   // incl. a wait
                 else -> straight * 1.3 to straight * 1.3 / (st.avgMph.coerceAtLeast(1f) * 0.44704)
             }
-            val arrive = t + (secs * 1000).toLong()
-            val leave = arrive + st.dwellMinutes * 60_000L
-            out += TimelineEntry(i, arrive, leave, (secs / 60).toInt(), meters / 1609.344)
+            val arrive = t + (secs * 1000 / timeScale.coerceAtLeast(1f)).toLong()
+            val leave = arrive + (st.dwellMinutes * 60_000L / timeScale.coerceAtLeast(1f)).toLong()
+            out += TimelineEntry(i, arrive, leave, (secs / 60 / timeScale.coerceAtLeast(1f)).toInt(), meters / 1609.344)
             t = leave; from = st.point
         }
         return out
@@ -613,6 +613,7 @@ class MirageViewModel(
         private set
     fun setExactReplay(value: Boolean) {
         if(value && (lastRoute==null || mode !in setOf(TravelMode.DRIVE,TravelMode.BIKE,TravelMode.WALK))) {error="Calculate a road route first";return}
+        if(value){startFromReal=false;useSimulatedStart=false;queueAfterCurrent=false}
         replayExactRoute=value
     }
     private var loadedScenario: SavedScenario? = null
@@ -628,7 +629,7 @@ class MirageViewModel(
 
     fun draftSnapshot(): SavedScenario? {
         if (!canSaveScenario) return null
-        return SavedScenario(loadedScenario?.id ?: "draft",loadedScenario?.name ?: "Recovered draft",planMode.name,0L,false,start,startName,dest,destName,
+        return SavedScenario(loadedScenario?.id ?: "draft",loadedScenario?.name ?: "Recovered draft",planMode.name,0L,startFromReal && !useSimulatedStart && !queueAfterCurrent,start,startName,dest,destName,
             mode,modeSpeeds.toMap(),realism,transitPref,stops.map{it.toSavedStop()},destAddress,destPlaceId,frozenRoute=if(replayExactRoute)lastRoute else null,departureMillis=departureMillis)
     }
     fun recoverLive(record: RecoveredTrip, onStart: () -> Unit) {
@@ -641,12 +642,14 @@ class MirageViewModel(
         val first=if(held) PreparedLeg(kotlinx.coroutines.flow.flow { emit(com.mirage.spike.engine.Fix(record.position.lat,record.position.lng,0f,0f,4f)) },listOf(record.position)) else null
         val cfg=api
         val plan=LivePlan(sc.name,sc.start ?: record.position,all,{from,to->
-            val resumed=if(to.frozenRoute!=null && Geo.haversine(from,to.frozenRoute.points.first())>=100.0) to.copy(frozenRoute=com.mirage.spike.engine.RouteArchive.remaining(to.frozenRoute,from)) else to
+            val resumed=if(to.frozenRoute!=null && Geo.haversine(from,to.frozenRoute.points.first())>1.0) to.copy(frozenRoute=com.mirage.spike.engine.RouteArchive.remaining(to.frozenRoute,from)) else to
             prepareLeg(cfg,from,resumed,sc.realism,sc.transitPref)
         },first,
-            resumePosition=record.position,resumeIndex=index,resumeStaySeconds=if(held)record.remainingStay else null,departureMillis=if(record.activity==ActivityKind.WAITING)sc.departureMillis else null)
+            resumePosition=record.position,resumeIndex=index,resumeStaySeconds=if(held)record.remainingStay else null,departureMillis=if(record.activity==ActivityKind.WAITING)sc.departureMillis else null,defaultsRealism=sc.realism,defaultsTransitPref=sc.transitPref)
         savedScenarios.firstOrNull{it.id==record.savedId}?.let { saved -> plan.markSaved(saved.id,saved.name,saved.stops.map{it.toStop()}) }
         PlaybackSource.paused=false
+        timeScale=record.timeScale.toFloat();speedOverLimit=record.speedOffset.toFloat()
+        PlaybackSource.timeScale=record.timeScale;PlaybackSource.speedOverLimitMph=record.speedOffset
         arm(plan.fixes(),listOf(record.position),sc.name,all.last().point,onStart)
     }
 
@@ -703,7 +706,8 @@ class MirageViewModel(
             createdAt = System.currentTimeMillis(), startIsReal = false,
             start = plan.origin, startName = "Saved trip start",
             dest = last.point, destName = last.name, travelMode = last.mode, destAddress = last.address, destPlaceId = last.placeId,
-            speeds = modeSpeeds.toMap(), realism = realism, transitPref = transitPref,
+            speeds = modeSpeeds.toMap(), realism = plan.defaultsRealism, transitPref = plan.defaultsTransitPref,
+            departureMillis=plan.departureMillis,
             stops = activeStops.map { SavedStop(it.name, it.point.lat, it.point.lng, it.dwellMinutes, it.mode, it.avgMph, it.address, it.placeId, it.routingRealism, it.routingTransitPref, it.ownRoutingPreferences, it.frozenRoute, it.arriveByMillis) },
         )
         error = null
@@ -805,6 +809,10 @@ class MirageViewModel(
         if(ok) notice="Deleted saved item · Undo is available"
         return ok
     }
+    fun recordSavedUse(id: String) {
+        val next=savedScenarios.map{if(it.id==id)it.copy(lastUsedAt=System.currentTimeMillis()) else it}
+        try {store.save(next);savedScenarios.clear();savedScenarios.addAll(next)} catch (_: Exception) { /* Last-used metadata must not block travel. */ }
+    }
     fun favoriteScenario(id: String) = writeLibrary(savedScenarios.map { if(it.id == id) it.copy(favorite = !it.favorite) else it })
     fun renameScenario(id: String, name: String, copy: Boolean = false): Boolean {
         val item = savedScenarios.firstOrNull { it.id == id } ?: return false
@@ -862,7 +870,10 @@ class MirageViewModel(
         } else {
             start = sc.start; startName = sc.startName; startFromReal = false; useSimulatedStart = false
         }
-        dest = sc.dest; destName = sc.destName; destAddress = sc.destAddress; destPlaceId = sc.destPlaceId
+        dest = if(planMode==PlanMode.ITINERARY)null else sc.dest
+        destName = if(planMode==PlanMode.ITINERARY)"" else sc.destName
+        destAddress = if(planMode==PlanMode.ITINERARY)"" else sc.destAddress
+        destPlaceId = if(planMode==PlanMode.ITINERARY)"" else sc.destPlaceId
         invalidateRoute()
         error = null
         // Routes can be prepared straight away; the user then just taps Start.
@@ -888,7 +899,7 @@ class MirageViewModel(
             PlaybackSource.speedOverLimitMph = speedOverLimit.toDouble()
         }
         val cfg = api; val realismNow = realism; val pref = transitPref
-        val plan = LivePlan("Itinerary", origin, snapshot, { from, to -> prepareLeg(cfg, from, to, realismNow, pref) }, departureMillis=departureMillis)
+        val plan = LivePlan("Itinerary", origin, snapshot, { from, to -> prepareLeg(cfg, from, to, realismNow, pref) }, departureMillis=departureMillis,defaultsRealism=realismNow,defaultsTransitPref=pref)
         linkLoadedPlan(plan)
         arm(plan.fixes(), listOf(origin), "Itinerary", snapshot.last().point, onStart)
     }

@@ -122,6 +122,30 @@ class WorkflowUiAcceptanceTest {
         assertFalse(MockState.status.value.running)
     }
 
+    @Test fun longItineraryAndLargerTextKeepAddFieldAbovePlaybackControls() {
+        val store=PrefsScenarioStore(context)
+        val base=store.load().first{it.id=="fixture-day"}
+        store.save(store.load()+base.copy(id="long-day",name="Long day",createdAt=2,
+            stops=(1..24).map{SavedStop("Stop $it",33.5+it*0.001,-112.0,15,TravelMode.WALK,3f)}))
+        try {
+            device.executeShellCommand("settings put system font_scale 1.3")
+            activity.recreate()
+            compose.waitUntil(15000){compose.onAllNodesWithContentDescription("Saved plans").fetchSemanticsNodes().isNotEmpty()}
+            compose.onNodeWithContentDescription("Saved plans").performClick()
+            compose.onNodeWithContentDescription("Load Long day").performScrollTo().performClick()
+            val add=compose.onNodeWithText("Add a stop · search, tap the map, or ⌖")
+            add.performScrollTo().assertIsDisplayed()
+            val action=compose.onNodeWithText("Start itinerary")
+            action.assertIsDisplayed()
+            assertTrue(add.fetchSemanticsNode().boundsInRoot.bottom <= action.fetchSemanticsNode().boundsInRoot.top)
+            add.performClick()
+            compose.onNode(hasSetTextAction() and hasText("Add a stop · search, tap the map, or ⌖")).performTextInput("Library")
+            compose.onNode(hasSetTextAction() and hasText("Library")).assertIsDisplayed()
+            screenshot("large-text-keyboard-planner")
+            device.pressBack()
+        } finally {device.executeShellCommand("settings put system font_scale 1.0")}
+    }
+
     @Test fun savedBrowserFiltersFavoritesAndOffersRecoverableDeletion() {
         saved()
         compose.onNodeWithContentDescription("Options for Fixture Home").performScrollTo().performClick()

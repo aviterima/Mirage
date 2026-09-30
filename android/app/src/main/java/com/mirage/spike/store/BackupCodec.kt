@@ -15,7 +15,20 @@ object BackupCodec {
         val items = root.getJSONArray("items")
         require(items.length() <= 1000) { "Import at most 1,000 items at a time" }
         return (0 until items.length()).map { index ->
-            val item = SavedScenario.fromJson(items.getJSONObject(index))
+            val raw=items.getJSONObject(index)
+            val modes=com.mirage.spike.engine.TravelMode.values().map{it.name}.toSet()
+            val realism=com.mirage.spike.engine.Realism.values().map{it.name}.toSet()
+            require(raw.getString("travelMode") in modes && raw.getString("realism") in realism) { "Invalid travel settings" }
+            raw.optJSONObject("speeds")?.let { speeds -> speeds.keys().forEach { key ->
+                val speed=speeds.getDouble(key)
+                require(key in modes && speed.isFinite() && speed in 1.0..1000.0) { "Invalid speed" }
+            } }
+            raw.optJSONArray("stops")?.let { stops -> (0 until stops.length()).forEach { i ->
+                val stop=stops.getJSONObject(i)
+                require(stop.getString("mode") in modes) { "Invalid stop mode" }
+                if(stop.has("routingRealism")) require(stop.getString("routingRealism") in realism) { "Invalid routing settings" }
+            } }
+            val item = SavedScenario.fromJson(raw)
             require(item.name.isNotBlank() && item.name.length <= 160 && item.kind in setOf("SNAP", "ROUTE", "ITINERARY")) { "Invalid item ${index + 1}" }
             require(item.stops.size <= 100 && item.aliases.size <= 12 && item.aliases.all { it.length <= 80 }) { "Too many stops or aliases" }
             val points = listOfNotNull(item.start, item.dest) + item.stops.map { com.mirage.spike.engine.LatLng(it.lat, it.lng) }
