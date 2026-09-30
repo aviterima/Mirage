@@ -16,7 +16,9 @@ class LocalModelAcceptanceTest {
         val instructions=context.assets.open("voice-intent-prompt.txt").bufferedReader().use { it.readText() }
         val user="Saved catalog: [\"Home\"]\nUpcoming stops: []\nInstruction: "+JSONObject.quote("After this take me to my saved home location.")
         val prompt="<|im_start|>system\n$instructions<|im_end|>\n<|im_start|>user\n$user<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+        val began=android.os.SystemClock.elapsedRealtime()
         val result=VoiceIntent.parse(LocalLanguageModel.interpret(prompt))
+        android.util.Log.i("MirageModelTest", "Native inference elapsed_ms=${android.os.SystemClock.elapsedRealtime()-began}; action=${result.action}")
         assertEquals("add_saved",result.action);assertEquals("Home",result.target);assertEquals(Placement.NEXT,result.placement)
     }
 }

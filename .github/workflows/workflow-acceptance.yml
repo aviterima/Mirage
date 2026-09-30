@@ -65,7 +65,7 @@ jobs:
           profile: pixel_7_pro
           ram-size: 4096M
           heap-size: 512M
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -cores 2
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -cores 4
           disable-animations: true
           script: bash .github/scripts/check-upgrade.sh && bash .github/scripts/prepare-language-model.sh && bash .github/scripts/run-workflow-acceptance.sh
       - name: Print structured test results

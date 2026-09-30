@@ -6,5 +6,5 @@ set +e
 ./gradlew --no-daemon connectedDebugAndroidTest
 test_result=$?
 adb pull /sdcard/Download/mirage-acceptance ../acceptance-evidence/
-adb logcat -d -s AndroidRuntime TestRunner > ../acceptance-evidence/logcat.txt
+adb logcat -d -s AndroidRuntime TestRunner MirageModelTest > ../acceptance-evidence/logcat.txt
 exit "$test_result"

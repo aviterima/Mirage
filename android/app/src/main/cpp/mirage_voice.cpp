@@ -1,5 +1,7 @@
 #include "llama.h"
 #include <atomic>
+#include <algorithm>
+#include <thread>
 #include <chrono>
 #include <memory>
 #include <mutex>
@@ -45,7 +47,8 @@ static std::string infer(const std::string & path, const std::string & prompt) {
     std::vector<llama_token> tokens(count);
     llama_tokenize(vocab, prompt.data(), prompt.size(), tokens.data(), count, true, true);
     auto cp = llama_context_default_params(); cp.n_ctx = 2048; cp.n_batch = 512; cp.n_ubatch = 256;
-    cp.n_threads = 4; cp.n_threads_batch = 4; cp.abort_callback = abortInference;
+    const int threads = std::min(4u, std::max(1u, std::thread::hardware_concurrency()));
+    cp.n_threads = threads; cp.n_threads_batch = threads; cp.abort_callback = abortInference;
     std::unique_ptr<llama_context, decltype(&llama_free)> ctx(llama_init_from_model(model, cp), llama_free);
     if (!ctx) throw std::runtime_error("Not enough memory for offline understanding");
     for (int i = 0; i < count; i += 512) {
@@ -65,7 +68,8 @@ static std::string infer(const std::string & path, const std::string & prompt) {
         char piece[2048]; int n = llama_token_to_piece(vocab, token, piece, sizeof(piece), 0, false);
         if (n < 0) throw std::runtime_error("Invalid language-model output");
         out.append(piece,n);
-        if (llama_decode(ctx.get(), llama_batch_get_one(&token,1)) != 0) throw std::runtime_error("Offline understanding interrupted");
+        if (llama_decode(ctx.get(), llama_batch_get_one(&token,1)) != 0) throw std::runtime_error(cancelled.load() ? "Offline understanding cancelled" :
+                (std::chrono::steady_clock::now() > deadline ? "Offline understanding timed out after 45 seconds" : "Offline understanding decode failed"));
     }
     throw std::runtime_error("Instruction is too complex; try one change at a time");
 }
