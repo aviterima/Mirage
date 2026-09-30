@@ -54,7 +54,7 @@ object CommandParser {
             "stop" -> SpokenCommand.ClarifyStop
             "stop simulation", "end simulation", "return to real location", "return to my real location", "stop simulation and return to my real location" -> SpokenCommand.Stop
             "leave now", "skip ahead", "jump to arrival", "end this stay" -> SpokenCommand.Skip
-            "status", "what happens next", "what is next", "where am i", "what are you doing" -> SpokenCommand.Status
+            "status", "tell me what happens next", "what’s next", "what's next", "what happens next", "what is next", "where am i", "what are you doing" -> SpokenCommand.Status
             "cancel", "never mind", "nevermind" -> SpokenCommand.Cancel
             "help", "what can i say" -> SpokenCommand.Help
             else -> parseDetails(t)

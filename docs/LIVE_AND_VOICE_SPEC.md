@@ -1,3 +1,5 @@
+> Superseded where conflicting by [0.12.0 live-itinerary and local-voice specification](LIVE_ITINERARY_AND_LOCAL_VOICE_SPEC_0.12.0.md). The new version is a source candidate; see its validation report.
+
 # Mirage 0.11 — Live operation and conversational control
 
 Specification revision: 2026-09-22

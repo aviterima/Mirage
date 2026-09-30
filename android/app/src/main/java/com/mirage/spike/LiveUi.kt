@@ -126,6 +126,7 @@ fun AdvancedDialog(status: MockStatus, onDismiss: () -> Unit) {
 fun ChatPanel(onDismiss: () -> Unit) {
     val chat by Conversation.state.collectAsState()
     val voice by VoiceState.state.collectAsState()
+    val language by LocalLanguageModel.state.collectAsState()
     val context = LocalContext.current
     var text by remember { mutableStateOf("") }
     var requestedAction by remember { mutableStateOf(VoiceService.LISTEN) }
@@ -144,6 +145,14 @@ fun ChatPanel(onDismiss: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().imePadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Talk to Mirage", style = MaterialTheme.typography.titleLarge)
+            Text(language, style = MaterialTheme.typography.bodySmall)
+            if (!LocalLanguageModel.ready) {
+                Row {
+                    TextButton(onClick = { LocalLanguageModel.download() }) { Text("Download advanced voice · 610 MB") }
+                    if (language.startsWith("Downloading")) TextButton(onClick = { LocalLanguageModel.cancelDownload() }) { Text("Cancel download") }
+                }
+                Text("One-time download, preferably on Wi-Fi. Afterwards, language understanding runs offline.", style = MaterialTheme.typography.bodySmall)
+            }
             Text(voice.status, color = if (voice.listening) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
             Row {
                 TextButton(onClick = { requestVoice(VoiceService.LISTEN) }) { Text("🎙 Speak now") }

@@ -1,0 +1,122 @@
+[
+  {
+    "instruction": "After this take me to my saved home location.",
+    "passed": true,
+    "seconds": 4.64,
+    "output": {
+      "action": "add_saved",
+      "target": "Home",
+      "placement": "NEXT",
+      "minutes": 0,
+      "position": 0
+    }
+  },
+  {
+    "instruction": "Put my Weekend route at the end of this trip.",
+    "passed": false,
+    "seconds": 4.73,
+    "output": {
+      "action": "add_place",
+      "target": "Weekend",
+      "placement": "END",
+      "minutes": 0,
+      "position": 0
+    }
+  },
+  {
+    "instruction": "Save this whole trip as Tuesday errands.",
+    "passed": true,
+    "seconds": 4.67,
+    "output": {
+      "action": "save_new",
+      "target": "Tuesday errands",
+      "placement": "NEXT",
+      "minutes": 0,
+      "position": 0
+    }
+  },
+  {
+    "instruction": "Stay here another twenty minutes.",
+    "passed": true,
+    "seconds": 4.47,
+    "output": {
+      "action": "extend",
+      "target": "",
+      "placement": "NEXT",
+      "minutes": 20,
+      "position": 0
+    }
+  },
+  {
+    "instruction": "Put Moxy Scottsdale at the end of this trip.",
+    "passed": true,
+    "seconds": 4.4,
+    "output": {
+      "action": "add_place",
+      "target": "Moxy Scottsdale",
+      "placement": "END",
+      "minutes": 0,
+      "position": 0
+    }
+  },
+  {
+    "instruction": "Save the changes I made to this itinerary.",
+    "passed": false,
+    "seconds": 4.62,
+    "output": {
+      "action": "save_changes",
+      "target": "Office",
+      "placement": "NEXT",
+      "minutes": 0,
+      "position": 0
+    }
+  },
+  {
+    "instruction": "Please tell me what happens next.",
+    "passed": false,
+    "seconds": 4.08,
+    "output": {
+      "action": "clarify",
+      "target": "",
+      "placement": "NEXT",
+      "minutes": 0,
+      "position": 0
+    }
+  },
+  {
+    "instruction": "Remove Coffee from the upcoming stops.",
+    "passed": true,
+    "seconds": 3.81,
+    "output": {
+      "action": "remove",
+      "target": "Coffee",
+      "placement": "NEXT",
+      "minutes": 0,
+      "position": 0
+    }
+  },
+  {
+    "instruction": "Take me there.",
+    "passed": true,
+    "seconds": 3.71,
+    "output": {
+      "action": "clarify",
+      "target": "",
+      "placement": "NEXT",
+      "minutes": 0,
+      "position": 0
+    }
+  },
+  {
+    "instruction": "Open my email and send a message.",
+    "passed": true,
+    "seconds": 3.98,
+    "output": {
+      "action": "clarify",
+      "target": "",
+      "placement": "NEXT",
+      "minutes": 0,
+      "position": 0
+    }
+  }
+]

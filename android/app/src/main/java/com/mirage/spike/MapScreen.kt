@@ -199,6 +199,7 @@ fun MapScreen(
     val simulationLabel = simulationStatusText(status, session.activity, maxOf(statusClock, System.currentTimeMillis()))
     var planning by remember { mutableStateOf(false) }
     var showChat by remember { mutableStateOf(false) }
+    var showItinerary by remember { mutableStateOf(false) }
     var showUpcoming by remember { mutableStateOf(false) }
     var showAdvanced by remember { mutableStateOf(false) }
     var showLiveDetails by remember { mutableStateOf(false) }
@@ -225,7 +226,7 @@ fun MapScreen(
         vm.automationToken = keyStore.installId.take(8)
         CommandBus.commands.collect { args -> vm.runCommand(args["cmd"] ?: "", args, onStartService, onStopService) }
     }
-    LaunchedEffect(vm.api, vm.lastReal, vm.start) { Conversation.configure(context, vm.api, vm.lastReal ?: vm.start) }
+    LaunchedEffect(vm.api, vm.lastReal, vm.start) { Conversation.configure(context, vm.api, vm.lastReal ?: vm.start); SmartVoice.bind(context, vm, onStartService) }
     LaunchedEffect(session.title) {
         if (session.title.isNotBlank()) planning = false
     }
@@ -487,7 +488,7 @@ fun MapScreen(
                         Text(simulationLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1,
                             overflow = TextOverflow.Ellipsis, color = if (simulationLabel.startsWith("NEEDS")) RED else ACCENT)
                     }
-                    IconButton(onClick = { vm.continuation.begin(source = DestinationSource.SNAP) }) { Icon(Icons.Filled.Bookmark, "Saved plans") }
+                    TextButton(onClick = { showItinerary = true }) { Text("My itinerary") }
                 }
             }
         }
@@ -685,13 +686,14 @@ fun MapScreen(
                         onNow = { showLiveDetails = false; planNow() },
                         onNext = { showLiveDetails = false; planNext() }, onStop = onStop,
                         onChat = { showLiveDetails = false; showChat = true },
-                        onStops = { showLiveDetails = false; showUpcoming = true },
+                        onStops = { showLiveDetails = false; showItinerary = true },
                         onAdvanced = { showLiveDetails = false; showAdvanced = true })
                 }
             },
             confirmButton = { TextButton(onClick = { showLiveDetails = false }) { Text("Back to map") } },
         )
     }
+    if (showItinerary) MyItinerarySheet(vm, onDismiss = { showItinerary = false }, onAdd = { showItinerary = false; addDestination() })
     if (showChat) ChatPanel { showChat = false }
     if (showUpcoming) UpcomingDialog(session, onDismiss = { showUpcoming = false }, onAdd = { showUpcoming = false; planNext() })
     if (showAdvanced) AdvancedDialog(status) { showAdvanced = false }

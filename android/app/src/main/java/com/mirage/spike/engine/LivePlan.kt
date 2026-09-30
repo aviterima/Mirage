@@ -18,6 +18,7 @@ data class SessionView(
     val activity: ActivityKind = ActivityKind.IDLE, val points: List<LatLng> = emptyList(),
     val remainingStaySeconds: Int = 0,
     val routeFailure: String? = null,
+    val savedId: String? = null, val savedName: String = "", val dirty: Boolean = true,
 )
 
 /** Execution is separate from the editable draft. All edits target stable stop IDs. */
@@ -48,6 +49,12 @@ class LivePlan(
     private val firstLeg: PreparedLeg? = null,
 ) {
     private val entries = stops.map { LiveStop(stop = it) }.toMutableList()
+    private var savedId: String? = null
+    private var savedName = ""
+    private var savedStops: List<ItineraryStop>? = null
+    @Synchronized fun markSaved(id: String, name: String, snapshot: List<ItineraryStop>) {
+        savedId = id; savedName = name; savedStops = snapshot.toList(); publish()
+    }
     private var index = -1
     private var kind = ActivityKind.IDLE
     private var points = firstLeg?.points.orEmpty()
@@ -72,7 +79,7 @@ class LivePlan(
         entries.addAll(at, added.map { LiveStop(stop = it) }); publish(); return true
     }
     @Synchronized fun appendAll(stops: List<ItineraryStop>) { entries.addAll(stops.map { LiveStop(stop = it) }); publish() }
-    @Synchronized fun view() = SessionView(title, entries.toList(), index, kind, points, staySeconds.toInt(), routeFailure)
+    @Synchronized fun view() = SessionView(title, entries.toList(), index, kind, points, staySeconds.toInt(), routeFailure, savedId, savedName, savedStops != entries.map { it.stop })
     private fun publish() = LiveSession.publish(this, view())
     /** Full replay template: elapsed time never changes configured durations. */
     @Synchronized fun stopsForSave(): List<ItineraryStop> = entries.map { it.stop }

@@ -1,0 +1,21 @@
+{
+  "tasks": [
+    "assembleDebug",
+    "assembleDebugAndroidTest",
+    "testDebugUnitTest"
+  ],
+  "result": "BUILD SUCCESSFUL",
+  "unit_tests": {
+    "tests": 101,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "native_abis": [
+    "arm64-v8a",
+    "x86_64"
+  ],
+  "native_optimization": "Release -O3",
+  "signed_upgrade": "not run",
+  "instrumentation_execution": "not run"
+}

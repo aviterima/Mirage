@@ -436,6 +436,7 @@ class MirageViewModel(
         val plan = LivePlan(destName, origin, listOf(stop), { from, to ->
             prepareLeg(cfg, from, to, realismNow, pref)
         })
+        linkLoadedPlan(plan)
         arm(plan.fixes(), listOf(origin), when (mode) { TravelMode.FLY -> "Flight"; TravelMode.TRANSIT -> "Transit"; TravelMode.DRIVE -> "Drive"; else -> "Route" }, destination, onStart)
     }
 
@@ -543,6 +544,7 @@ class MirageViewModel(
 
     // ---- Saved plans (Snap / Route / Itinerary by name) --------------------------
 
+    private var loadedScenario: SavedScenario? = null
     private var store: ScenarioStore = InMemoryScenarioStore()
     val savedScenarios = mutableStateListOf<SavedScenario>()
 
@@ -582,21 +584,20 @@ class MirageViewModel(
     }
 
     /** Save the active plan including live stop edits, independent of the draft form. */
-    fun saveActiveScenario(name: String): Boolean {
+    fun saveActiveScenario(name: String, replace: Boolean = false): Boolean {
         val n = name.trim()
         val plan = LiveSession.plan ?: return false
         val view = plan.view()
         if (n.isBlank() || view.stops.isEmpty()) return false
-        if (savedScenarios.any { it.name.equals(n, true) }) { error = "That name already exists. Choose a different name."; return false }
+        val existingId = if (replace) view.savedId else null
+        if (replace && existingId == null) { error = "Save this trip under a name first."; return false }
+        if (replace && savedScenarios.none { it.id == existingId }) { error = "The saved original no longer exists. Save as new instead."; return false }
+        if (savedScenarios.any { it.name.equals(n, true) && it.id != existingId }) { error = "That name already exists. Choose a different name."; return false }
         val activeStops = plan.stopsForSave()
         val last = activeStops.last()
-        val kind = when {
-            activeStops.size > 1 || activeStops.any { it.dwellMinutes > 0 } -> PlanMode.ITINERARY
-            Geo.haversine(plan.origin, last.point) < 1.0 -> PlanMode.SNAP
-            else -> PlanMode.ROUTE
-        }
+        val kind = PlanMode.ITINERARY
         val sc = SavedScenario(
-            id = java.util.UUID.randomUUID().toString(), name = n, kind = kind.name,
+            id = existingId ?: java.util.UUID.randomUUID().toString(), name = n, kind = kind.name,
             createdAt = System.currentTimeMillis(), startIsReal = false,
             start = plan.origin, startName = "Saved trip start",
             dest = last.point, destName = last.name, travelMode = last.mode, destAddress = last.address, destPlaceId = last.placeId,
@@ -604,9 +605,19 @@ class MirageViewModel(
             stops = activeStops.map { SavedStop(it.name, it.point.lat, it.point.lng, it.dwellMinutes, it.mode, it.avgMph, it.address, it.placeId, it.routingRealism, it.routingTransitPref, it.ownRoutingPreferences) },
         )
         error = null
-        savedScenarios.add(0, sc)
-        store.save(savedScenarios.toList())
+        val updated = savedScenarios.filterNot { it.id == sc.id }.toMutableList().apply { add(0, sc) }
+        try { store.save(updated) } catch (e: Exception) { error = "Could not save: ${e.message}"; return false }
+        savedScenarios.clear(); savedScenarios.addAll(updated)
+        plan.markSaved(sc.id, sc.name, activeStops)
+        notice = "Saved ${sc.name}"
         return true
+    }
+
+    private fun linkLoadedPlan(plan: LivePlan) {
+        val sc = loadedScenario ?: return
+        val original = if (sc.stops.isNotEmpty()) sc.stops.map { ItineraryStop(it.name, LatLng(it.lat, it.lng), it.dwellMinutes, it.mode, it.avgMph, it.address, it.placeId, it.routingRealism, it.routingTransitPref, it.ownRoutingPreferences) }
+            else listOfNotNull(sc.dest?.let { ItineraryStop(sc.destName, it, 0, sc.travelMode, sc.speeds[sc.travelMode] ?: defaultSpeed(sc.travelMode), sc.destAddress, sc.destPlaceId) })
+        plan.markSaved(sc.id, sc.name, original)
     }
 
     fun useSavedPlaceAsStart(sc: SavedScenario) {
@@ -662,6 +673,7 @@ class MirageViewModel(
 
     /** Put a saved plan back on screen. A "real location" start uses today's real position. */
     fun loadScenario(sc: SavedScenario) {
+        loadedScenario = sc
         queueAfterCurrent = false
         clearSuggestions()
         planMode = runCatching { PlanMode.valueOf(sc.kind) }.getOrDefault(PlanMode.ROUTE)
@@ -703,6 +715,7 @@ class MirageViewModel(
         }
         val cfg = api; val realismNow = realism; val pref = transitPref
         val plan = LivePlan("Itinerary", origin, snapshot, { from, to -> prepareLeg(cfg, from, to, realismNow, pref) })
+        linkLoadedPlan(plan)
         arm(plan.fixes(), listOf(origin), "Itinerary", snapshot.last().point, onStart)
     }
 

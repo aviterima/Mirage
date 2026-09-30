@@ -23,10 +23,13 @@ android {
 
     defaultConfig {
         applicationId = "com.mirage.app"
+        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+        // Native inference must be optimized even in the signed debug-distribution APK.
+        externalNativeBuild { cmake { arguments += "-DCMAKE_BUILD_TYPE=Release" } }
         minSdk = 26
         targetSdk = 34
-        versionCode = 32
-        versionName = "0.11.3"
+        versionCode = 33
+        versionName = "0.12.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
         buildConfigField("String", "MAPS_API_KEY", "\"$mapsApiKey\"")
@@ -44,6 +47,9 @@ android {
             keyPassword = "android"
         }
     }
+
+    ndkVersion = "27.2.12479018"
+    externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt"); version = "3.22.1" } }
 
     buildTypes {
         release {

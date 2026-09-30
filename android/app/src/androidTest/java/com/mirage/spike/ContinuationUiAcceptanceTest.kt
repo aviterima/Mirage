@@ -149,4 +149,35 @@ class ContinuationUiAcceptanceTest {
         assertTrue(MockState.status.value.running)
         screenshot("continuation-cancelled")
     }
+    @Test fun addSaveUpdateAndReloadLiveItineraryWithoutStopping() {
+        compose.onNodeWithText("Pause").performClick()
+        compose.waitUntil(10_000) { PlaybackSource.paused }
+        chooseSnap()
+        compose.onNodeWithText("At end of trip").performScrollTo().performClick()
+        confirm()
+        compose.onNodeWithText("My itinerary").performClick()
+        compose.onNodeWithTag("itinerarySaveStatus").assertTextEquals("Unsaved changes")
+        compose.onNodeWithTag("saveTripAsNew").performClick()
+        compose.onNodeWithTag("itineraryName").performTextInput("My Tuesday")
+        compose.onNodeWithTag("confirmSaveItinerary").performClick()
+        compose.onNodeWithTag("itinerarySaveStatus").assertTextEquals("All changes saved")
+        val saved=PrefsScenarioStore(context).load().single { it.name=="My Tuesday" }
+        assertEquals(2,saved.stops.size)
+        compose.onNodeWithText("Back to map").performClick()
+        open("Routes")
+        compose.onNodeWithTag("continueSaved-route").performScrollTo().performClick()
+        compose.onNodeWithText("At end of trip").performScrollTo().performClick()
+        confirm()
+        compose.onNodeWithText("My itinerary").performClick()
+        compose.onNodeWithTag("itinerarySaveStatus").assertTextEquals("Unsaved changes")
+        compose.onNodeWithTag("saveTripChanges").performClick()
+        compose.onNodeWithTag("itinerarySaveStatus").assertTextEquals("All changes saved")
+        val updated=PrefsScenarioStore(context).load().single { it.name=="My Tuesday" }
+        assertEquals(saved.id,updated.id)
+        assertTrue(updated.stops.size>saved.stops.size)
+        assertTrue(MockState.status.value.running)
+        assertTrue(PlaybackSource.paused)
+        screenshot("itinerary-saved-during-simulation")
+    }
+
 }

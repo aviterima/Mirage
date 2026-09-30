@@ -1,3 +1,28 @@
+# Current candidate: Mirage 0.12.0
+
+Updated September 29, 2026 (America/Phoenix). **Source candidate only; latest delivered APK: 0.11.3.**
+
+- [Current live-itinerary and local-voice specification](docs/LIVE_ITINERARY_AND_LOCAL_VOICE_SPEC_0.12.0.md)
+- [Release notes and installation limits](docs/RELEASE_NOTES_0.12.0.md)
+- [Validation evidence and outstanding gates](docs/VALIDATION_0.12.0.md)
+- [Voice dependencies and licenses](docs/THIRD_PARTY_VOICE.md)
+
+The current specification supersedes conflicting live-save and voice descriptions below. Historical implementation and validation notes are retained for provenance; they are not the status of 0.12.0.
+
+## Resume work
+
+Branch prepared locally: `codex/live-itinerary-voice-0.12.0`, based on the delivered 0.11.3 source (`24fd430c79afc8a15227dc1bbbcfa7631102c022`). No 0.12.0 source upload succeeded. Approval review requires explicit authorization for uploading this source and CI configuration to the public `aviterima/Mirage` repository. Do not bypass the rejection.
+
+Local validation completed: both Android APK packages compile, both native ABIs use Release optimization, and all 101 JVM tests pass. Emulator execution and the signed in-place upgrade remain unrun.
+
+After authorization: publish the prepared branch, run Android build and workflow acceptance, examine every failure and screenshot, verify the update over the delivered APK, then retrieve and distribute the unchanged tested signed APK. Do not merge main or replace production release assets implicitly.
+
+New code: `ItineraryUi.kt` (live editor), `LocalLanguageModel.kt` (verified download/native lifecycle), `SmartVoice.kt` (review/validation/execution), `VoiceIntent.kt` (bounded schema and grounding), `src/main/cpp` (pinned native runtime), and `voice-intent-prompt.txt` (single-action instructions). LivePlan tracks its saved identity and configuration snapshot; MirageViewModel owns the shared save operation. Conversation binds to the same ViewModel/ContinuationPlanner used by touch.
+
+---
+
+## Historical documentation
+
 # Mirage — 0.11.0 implementation handoff
 
 ## Build validation update — 2026-09-23

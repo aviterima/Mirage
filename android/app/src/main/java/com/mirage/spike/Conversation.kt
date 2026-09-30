@@ -30,7 +30,7 @@ object Conversation {
     private var resolved = mutableListOf<ItineraryStop>()
     private var pendingSpoken = false
     private var clarifyStop = false
-    fun needsReply() = clarifyStop || mutable.value.choices.isNotEmpty()
+    fun needsReply() = clarifyStop || mutable.value.choices.isNotEmpty() || SmartVoice.needsReply()
     private var lastRequest: SpokenCommand.Journey? = null
 
     fun configure(ctx: Context, cfg: ApiConfig, realPosition: LatLng?) {
@@ -45,10 +45,23 @@ object Conversation {
         mutable.update { it.copy(lines = (it.lines + ChatLine(false, text)).takeLast(100)) }
         if (spoken) speech.tryEmit(text)
     }
+    fun smartReply(text: String, spoken: Boolean) { reply(text, spoken) }
+    fun smartBusy(busy: Boolean) { mutable.update { it.copy(busy = busy) } }
+    fun smartChoices(choices: List<PlaceHit>) { mutable.update { it.copy(choices = choices) } }
+    fun executeBasic(action: String, spoken: Boolean) {
+        when(action) {
+            "pause" -> { if (MockState.status.value.running) PlaybackSource.paused = true; reply(describeStatus(), spoken) }
+            "resume" -> { if (MockState.status.value.running) PlaybackSource.paused = false; reply(describeStatus(), spoken) }
+            else -> reply(describeStatus(), spoken)
+        }
+    }
     fun submit(text: String, spoken: Boolean = false) {
         if (text.isBlank()) return
         mutable.update { it.copy(lines = (it.lines + ChatLine(true, text)).takeLast(100)) }
         val normalized = CommandParser.normalize(text)
+        val fast = CommandParser.parse(text)
+        if (fast in listOf(SpokenCommand.Stop, SpokenCommand.Pause, SpokenCommand.Resume, SpokenCommand.Cancel, SpokenCommand.ClarifyStop, SpokenCommand.Status)) SmartVoice.cancel()
+        else if (SmartVoice.handle(text, spoken)) return
         if (normalized in listOf("go there now instead", "go there now", "go there next")) {
             val prior = pending ?: lastRequest
             if (prior == null) { reply("Name a destination first.", spoken); return }
@@ -98,6 +111,7 @@ object Conversation {
         }
     }
     fun choose(index: Int, spoken: Boolean = pendingSpoken) {
+        if (SmartVoice.hasChoices()) { SmartVoice.choose(index); return }
         val hit = mutable.value.choices.getOrNull(index) ?: run { reply("Choose one of the listed places by number.", spoken); return }
         val request = pending ?: return
         val leg = request.legs.getOrNull(resolved.size) ?: return

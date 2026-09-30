@@ -1,3 +1,20 @@
+# Current candidate: Mirage 0.12.0
+
+Candidate validation: Android app/test builds and 101 JVM tests pass locally. Signed upgrade and emulator acceptance are pending.
+
+Updated September 29, 2026 (America/Phoenix). **Source candidate only; latest delivered APK: 0.11.3.**
+
+- [Current live-itinerary and local-voice specification](docs/LIVE_ITINERARY_AND_LOCAL_VOICE_SPEC_0.12.0.md)
+- [Release notes and installation limits](docs/RELEASE_NOTES_0.12.0.md)
+- [Validation evidence and outstanding gates](docs/VALIDATION_0.12.0.md)
+- [Voice dependencies and licenses](docs/THIRD_PARTY_VOICE.md)
+
+The current specification supersedes conflicting live-save and voice descriptions below. Historical implementation and validation notes are retained for provenance; they are not the status of 0.12.0.
+
+---
+
+## Historical documentation
+
 > **2026-09-22 update:** [Live operation and conversational control](docs/LIVE_AND_VOICE_SPEC.md)
 > is the authoritative specification for the 0.11.0 source candidate. It supersedes
 > conflicting live UI/planning behavior below. The candidate is not yet an assembled
