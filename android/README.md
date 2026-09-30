@@ -5,6 +5,12 @@ name, get a real **Google Directions** route, and simulate a realistic trip alon
 a target average speed — or plan a whole day as an itinerary with a stay at each stop —
 from a **never-drop** location service validated against Google Maps.
 
+## 0.12.1 editor update
+
+The route fields now have a **Swap start and destination** double-arrow on their right. The itinerary planning list has **drag handles** for rearranging stops, with tap-menu and accessibility alternatives. Stop order, stays and travel settings are preserved when saved. Live itinerary saving and the local voice interpreter introduced in 0.12.0 are retained.
+
+See the [editor specification](../docs/ROUTE_AND_STOP_EDITOR_SPEC_0.12.1.md), [quick start](../docs/QUICK_START_0.12.1.md), and [validation record](../docs/VALIDATION_0.12.1.md).
+
 ## Features
 
 - **Map-first UI** (Jetpack Compose + Google Maps): the map is always visible; the

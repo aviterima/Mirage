@@ -39,7 +39,7 @@ class MirageViewModelTest {
     }
 
     @Test fun `swap exchanges labels coordinates and metadata and round trips`() {
-        val vm = MirageViewModel()
+        val vm = MirageViewModel().apply { configureApi(com.mirage.spike.engine.ApiConfig(null, "", "unit-test")) }
         vm.setStartPoint(phx, "Phoenix", "Origin address", "origin-id")
         vm.setDestPoint(tempe, "Tempe")
         assertTrue(vm.swapEndpoints())
