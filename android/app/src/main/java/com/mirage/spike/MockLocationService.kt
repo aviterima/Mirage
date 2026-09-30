@@ -96,6 +96,7 @@ class MockLocationService : Service() {
             return START_NOT_STICKY
         }
         if (intent.action == ACTION_STOP) {
+            TripRecovery.configure(this); TripRecovery.clearLive()
             stopEverything()
             return START_NOT_STICKY
         }

@@ -35,33 +35,31 @@ fun MyItinerarySheet(vm: MirageViewModel, onDismiss: () -> Unit, onAdd: () -> Un
                 Text(if (session.savedId == null) "Save itinerary" else "Save as new itinerary")
             }
             if (message.isNotBlank()) Text(message)
-            Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                session.stops.forEachIndexed { i, entry ->
-                    val editable = i > session.index
-                    Text("${i + 1}. ${entry.stop.name}", fontWeight = FontWeight.Bold)
-                    Text(when { i < session.index -> "Visited"; i == session.index -> "Current stop"; else -> "Upcoming" })
-                    if (entry.stop.address.isNotBlank()) Text(entry.stop.address, style = MaterialTheme.typography.bodySmall)
-                    Text("${entry.stop.mode.name.lowercase()} · stay ${entry.stop.dwellMinutes} minutes")
-                    if (editable) {
-                        Row {
-                            TextButton(onClick = { LiveSession.plan?.move(entry.id, -1) }, enabled = i > session.index + 1) { Text("Move up") }
-                            TextButton(onClick = { LiveSession.plan?.move(entry.id, 1) }, enabled = i < session.stops.lastIndex) { Text("Move down") }
-                            TextButton(onClick = { LiveSession.plan?.remove(entry.id) }) { Text("Remove") }
-                        }
-                        Row {
-                            TextButton(onClick = { LiveSession.plan?.setStay(entry.id, entry.stop.dwellMinutes - 15) }) { Text("−15 min") }
-                            TextButton(onClick = { LiveSession.plan?.setStay(entry.id, entry.stop.dwellMinutes + 15) }) { Text("+15 min") }
-                            var modes by remember(entry.id) { mutableStateOf(false) }
-                            Box {
-                                TextButton(onClick = { modes = true }) { Text("Travel mode") }
-                                DropdownMenu(expanded = modes, onDismissRequest = { modes = false }) {
-                                    TravelMode.entries.forEach { mode -> DropdownMenuItem(text = { Text(mode.name.lowercase()) }, onClick = { LiveSession.plan?.setMode(entry.id, mode); modes = false }) }
-                                }
-                            }
-                        }
-                    }
-                    HorizontalDivider()
-                }
+            if (LiveSession.plan?.canUndo() == true) TextButton(onClick = {
+                message = if (LiveSession.plan?.undoEdit() == true) "Edit undone" else "The trip advanced; completed movement cannot be undone"
+            }) { Text("Undo last edit") }
+            var showVisited by remember { mutableStateOf(false) }
+            var stayId by remember { mutableStateOf<String?>(null) }
+            if (session.index > 0) TextButton(onClick={showVisited=!showVisited}) { Text(if(showVisited) "Hide visited stops" else "Show ${session.index} visited stops") }
+            if(showVisited) session.stops.take(session.index.coerceAtLeast(0)).forEach { Text("✓ ${it.stop.name}") }
+            session.stops.getOrNull(session.index)?.let { current ->
+                Text("Current: ${current.stop.name}", fontWeight=FontWeight.Bold)
+                Text(if(session.activity==ActivityKind.STAYING) "${(session.remainingStaySeconds+59)/60} min remaining" else session.activity.name.lowercase())
+            }
+            val future=session.stops.drop((session.index+1).coerceAtLeast(0))
+            ReorderableStopList(future.map{it.stop}, onMove={from,to ->
+                val entry=future.getOrNull(from)
+                if(entry != null && LiveSession.plan?.move(entry.id,to-from)!=true) message="The trip advanced; review the remaining stops"
+            }) { i,stop,handle ->
+                val entry=future[i]
+                ChainRow(index=session.index+1+i,stop=stop,entry=null,current=false,done=false,
+                    onMode={LiveSession.plan?.setMode(entry.id,it)},onStay={stayId=entry.id},
+                    onMove={LiveSession.plan?.move(entry.id,it)},onRemove={LiveSession.plan?.remove(entry.id)},
+                    handleModifier=handle,canMoveUp=i>0,canMoveDown=i<future.lastIndex)
+            }
+            stayId?.let { id ->
+                session.stops.firstOrNull{it.id==id}?.let { entry -> DwellDialog(entry.stop.name,entry.stop.dwellMinutes,
+                    onSet={LiveSession.plan?.setStay(id,it);stayId=null},onDismiss={stayId=null},deadline=entry.stop.arriveByMillis,onDeadline={LiveSession.plan?.setDeadline(id,it)}) }
             }
             TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Back to map") }
         }

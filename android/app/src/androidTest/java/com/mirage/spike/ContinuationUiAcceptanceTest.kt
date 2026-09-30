@@ -25,6 +25,7 @@ class ContinuationUiAcceptanceTest {
         null, "", at, name, TravelMode.FLY, emptyMap(), Realism.REALISTIC, null, emptyList(), "$name, Scottsdale, Arizona")
     @Before fun launch() {
         context.stopService(Intent(context, MockLocationService::class.java))
+        context.getSharedPreferences("mirage_recovery",android.content.Context.MODE_PRIVATE).edit().clear().commit()
         MockState.reset(); LiveSession.clear(); PlaybackSource.clearQueue(); PlaybackSource.paused = false
         PlaybackSource.signal = Signal.GOOD; PlaybackSource.timeScale = 1.0
         val h = snap("home", "Fixture Home", home)
@@ -48,6 +49,7 @@ class ContinuationUiAcceptanceTest {
     @After fun close() {
         context.stopService(Intent(context, MockLocationService::class.java))
         if (::activity.isInitialized) activity.close()
+        context.getSharedPreferences("mirage_recovery",android.content.Context.MODE_PRIVATE).edit().clear().commit()
         MockState.reset(); LiveSession.clear(); PlaybackSource.clearQueue(); PlaybackSource.paused = false
     }
     private fun screenshot(name: String) {
@@ -56,7 +58,7 @@ class ContinuationUiAcceptanceTest {
         device.executeShellCommand("screencap -p /sdcard/Download/mirage-acceptance/$name.png")
     }
     private fun open(source: String) {
-        compose.onNodeWithText("Add destination").performClick()
+        compose.onNodeWithText("Add stop").performClick()
         compose.onNodeWithText(source).performClick()
     }
     private fun ready() {
@@ -79,7 +81,7 @@ class ContinuationUiAcceptanceTest {
         }
     }
     private fun chooseSnap() {
-        open("Snaps")
+        open("Places")
         compose.onNodeWithTag("continueSaved-office").performScrollTo().performClick()
         compose.onNodeWithText("fly").performScrollTo().performClick()
         ready()
@@ -144,7 +146,7 @@ class ContinuationUiAcceptanceTest {
         chooseSnap()
         compose.onNodeWithText("Review on map").performScrollTo().performClick()
         compose.onNodeWithText("Cancel").performClick()
-        compose.onNodeWithText("Add destination").assertIsDisplayed()
+        compose.onNodeWithText("Add stop").assertIsDisplayed()
         assertEquals(before, LiveSession.state.value.stops)
         assertTrue(MockState.status.value.running)
         screenshot("continuation-cancelled")

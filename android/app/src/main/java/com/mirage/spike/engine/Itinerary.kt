@@ -19,6 +19,8 @@ data class ItineraryStop(
     val routingRealism: Realism? = null,
     val routingTransitPref: String? = null,
     val ownRoutingPreferences: Boolean = false,
+    val frozenRoute: RouteResult? = null,
+    val arriveByMillis: Long? = null,
 )
 
 /**

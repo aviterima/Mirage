@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flow
 import java.util.UUID
 
-enum class ActivityKind { IDLE, ROUTING, TRAVELING, STAYING, HOLDING }
+enum class ActivityKind { IDLE, WAITING, ROUTING, TRAVELING, STAYING, HOLDING }
 data class LiveStop(val id: String = UUID.randomUUID().toString(), val stop: ItineraryStop)
 data class SessionView(
     val title: String = "", val stops: List<LiveStop> = emptyList(), val index: Int = -1,
@@ -47,15 +47,28 @@ class LivePlan(
     stops: List<ItineraryStop>,
     private val route: suspend (LatLng, ItineraryStop) -> PreparedLeg,
     private val firstLeg: PreparedLeg? = null,
+    private val resumePosition: LatLng? = null,
+    private val resumeIndex: Int = 0,
+    private val resumeStaySeconds: Int? = null,
+    val departureMillis: Long? = null,
 ) {
     private val entries = stops.map { LiveStop(stop = it) }.toMutableList()
+    private var undoEntries: List<LiveStop>? = null
+    private var undoIndex = -2
+    private fun rememberEdit() { undoEntries = entries.toList(); undoIndex = index }
+    @Synchronized fun canUndo(): Boolean = undoEntries != null && undoIndex == index
+    @Synchronized fun undoEdit(): Boolean {
+        val previous = undoEntries ?: return false
+        if (index != undoIndex) { undoEntries = null; return false }
+        entries.clear(); entries.addAll(previous); undoEntries = null; publish(); return true
+    }
     private var savedId: String? = null
     private var savedName = ""
     private var savedStops: List<ItineraryStop>? = null
     @Synchronized fun markSaved(id: String, name: String, snapshot: List<ItineraryStop>) {
         savedId = id; savedName = name; savedStops = snapshot.toList(); publish()
     }
-    private var index = -1
+    private var index = resumeIndex - 1
     private var kind = ActivityKind.IDLE
     private var points = firstLeg?.points.orEmpty()
     private var staySeconds = 0.0
@@ -76,34 +89,41 @@ class LivePlan(
             if (i < index || i < 0) return false
             i + 1
         }
+        rememberEdit()
         entries.addAll(at, added.map { LiveStop(stop = it) }); publish(); return true
     }
-    @Synchronized fun appendAll(stops: List<ItineraryStop>) { entries.addAll(stops.map { LiveStop(stop = it) }); publish() }
+    @Synchronized fun appendAll(stops: List<ItineraryStop>) { rememberEdit(); entries.addAll(stops.map { LiveStop(stop = it) }); publish() }
     @Synchronized fun view() = SessionView(title, entries.toList(), index, kind, points, staySeconds.toInt(), routeFailure, savedId, savedName, savedStops != entries.map { it.stop })
     private fun publish() = LiveSession.publish(this, view())
     /** Full replay template: elapsed time never changes configured durations. */
     @Synchronized fun stopsForSave(): List<ItineraryStop> = entries.map { it.stop }
-    @Synchronized fun append(stop: ItineraryStop) { entries += LiveStop(stop = stop); publish() }
+    @Synchronized fun append(stop: ItineraryStop) { rememberEdit(); entries += LiveStop(stop = stop); publish() }
     @Synchronized fun remove(id: String): Boolean {
         val i = entries.indexOfFirst { it.id == id }
         if (i <= index || i < 0) return false
-        entries.removeAt(i); publish(); return true
+        rememberEdit(); entries.removeAt(i); publish(); return true
     }
     @Synchronized fun move(id: String, delta: Int): Boolean {
         val i = entries.indexOfFirst { it.id == id }; val j = i + delta
         if (i <= index || j <= index || i !in entries.indices || j !in entries.indices) return false
-        val item = entries.removeAt(i); entries.add(j, item); publish(); return true
+        rememberEdit(); val item = entries.removeAt(i); entries.add(j, item); publish(); return true
     }
     @Synchronized fun setStay(id: String, minutes: Int): Boolean {
         val i = entries.indexOfFirst { it.id == id }
         if (i <= index || i < 0) return false
+        rememberEdit()
         entries[i] = entries[i].copy(stop = entries[i].stop.copy(dwellMinutes = minutes.coerceIn(0, 1440)))
         publish(); return true
+    }
+    @Synchronized fun setDeadline(id: String, time: Long?): Boolean {
+        val i=entries.indexOfFirst{it.id==id};if(i<=index || i<0)return false
+        rememberEdit();entries[i]=entries[i].copy(stop=entries[i].stop.copy(arriveByMillis=time));publish();return true
     }
     @Synchronized fun setMode(id: String, mode: TravelMode): Boolean {
         val i = entries.indexOfFirst { it.id == id }
         if (i <= index || i < 0) return false
-        entries[i] = entries[i].copy(stop = entries[i].stop.copy(mode = mode, avgMph = when(mode) {
+        rememberEdit()
+        entries[i] = entries[i].copy(stop = entries[i].stop.copy(mode = mode, frozenRoute=null, avgMph = when(mode) {
             TravelMode.WALK -> 3f; TravelMode.BIKE -> 12f; TravelMode.FLY -> 550f; TravelMode.TRANSIT -> 20f; else -> 45f
         }))
         publish(); return true
@@ -133,7 +153,7 @@ class LivePlan(
     }
     @Synchronized private fun traveling(p: List<LatLng>) { points = p; kind = ActivityKind.TRAVELING; publish() }
     @Synchronized private fun beginStay(stop: ItineraryStop) {
-        kind = ActivityKind.STAYING; staySeconds = entries[index].stop.dwellMinutes * 60.0 + extraOnArrivalSeconds
+        kind = ActivityKind.STAYING; staySeconds = if(index == resumeIndex && resumeStaySeconds != null) resumeStaySeconds.toDouble() else entries[index].stop.dwellMinutes * 60.0 + extraOnArrivalSeconds
         extraOnArrivalSeconds = 0.0; publish()
     }
     @Synchronized private fun tickStay(dt: Double): Double { staySeconds = (staySeconds - dt).coerceAtLeast(0.0); publish(); return staySeconds }
@@ -143,7 +163,13 @@ class LivePlan(
 
     fun fixes(): Flow<Fix> = flow {
         LiveSession.activate(this@LivePlan)
-        var last = Fix(origin.lat, origin.lng, 0f, 0f, 4f)
+        var last = Fix((resumePosition ?: origin).lat, (resumePosition ?: origin).lng, 0f, 0f, 4f)
+        while(departureMillis!=null && System.currentTimeMillis()<departureMillis) {
+            synchronized(this@LivePlan) {kind=ActivityKind.WAITING;publish()}
+            MockState.update {it.copy(stepLabel="Waiting for scheduled departure",legIndex=-1)}
+            emit(last.copy(speedMps=0f,remainingSec=((departureMillis-System.currentTimeMillis())/1000).toInt().coerceAtLeast(0)))
+            delay(200)
+        }
         while (true) {
             val stop = next()
             if (stop == null) {
@@ -165,7 +191,7 @@ class LivePlan(
                 try {
                     routeFailure = null
                     synchronized(this@LivePlan) { kind = ActivityKind.ROUTING; publish() }
-                    prepared = if (index == 0 && firstLeg != null) firstLeg else coroutineScope {
+                    prepared = if (index == resumeIndex && firstLeg != null) firstLeg else coroutineScope {
                         MockState.update { it.copy(stepLabel = "Finding route to ${stop.name}", legIndex = index) }
                         val task = async { route(LatLng(last.lat, last.lng), stop) }
                         while (!task.isCompleted) {
@@ -194,7 +220,7 @@ class LivePlan(
             leg.flow.collect { last = it; emit(it) }
             beginStay(stop)
             val dwell = DwellModel(last.copy(speedMps = 0f), 12.0)
-            MockState.update { it.copy(stepLabel = "At ${stop.name}") }
+            MockState.update { it.copy(stepLabel = "At ${stop.name}" + if(stop.arriveByMillis!=null && System.currentTimeMillis()>stop.arriveByMillis) " · arrival target missed" else "") }
             while (remaining() > 0) {
                 if (PlaybackSource.consumeSkip()) { tickStay(86400.0); break }
                 emit(dwell.next(0.2 * PlaybackSource.timeScale).copy(remainingSec = (remaining() / PlaybackSource.timeScale).toInt()))
@@ -213,7 +239,9 @@ suspend fun prepareLeg(cfg: ApiConfig, from: LatLng, stop: ItineraryStop, realis
     }
     val effectiveRealism = stop.routingRealism ?: realism
     val effectiveTransit = if (stop.ownRoutingPreferences) stop.routingTransitPref else transitPreference
-    val r = GoogleDirectionsRouteEngine(cfg).route(RouteSpec(from, stop.point, mode = stop.mode, transitPreference = effectiveTransit))
+    val archived=stop.frozenRoute
+    if(archived!=null) require(stop.mode!=TravelMode.TRANSIT && Geo.haversine(from,archived.points.first())<100.0) { "Exact route starts elsewhere. Add a connecting leg or recalculate this route." }
+    val r = archived ?: GoogleDirectionsRouteEngine(cfg).route(RouteSpec(from, stop.point, mode = stop.mode, transitPreference = effectiveTransit))
     val flow = when {
         stop.mode == TravelMode.TRANSIT -> TransitModel(r).fixes()
         stop.mode == TravelMode.DRIVE && r.segments.isNotEmpty() -> DriveModel(r, effectiveRealism).fixes()

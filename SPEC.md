@@ -1,3 +1,9 @@
+# Mirage 0.13.0 — candidate under implementation
+
+Approved usability, recovery, route and contextual-voice upgrade. See [current specification](docs/USABILITY_RECOVERY_VOICE_SPEC_0.13.0.md). This candidate has not yet passed its release gates; 0.12.1 remains the last delivered APK.
+
+---
+
 # Current release: Mirage 0.12.1
 
 Adds a route endpoint swap button and visible itinerary drag handles. 104 JVM tests and 17 Android emulator tests passed. Signed upgrade from 0.12.0 preserved stored data. Physical-phone validation remains outstanding.

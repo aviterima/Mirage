@@ -8,7 +8,7 @@ import com.mirage.spike.store.SavedScenario
 import kotlinx.coroutines.*
 
 enum class Placement(val label: String) { NOW("Go now"), NEXT("After current stop"), END("At end of trip") }
-enum class DestinationSource(val label: String) { SEARCH("Search"), SNAP("Snaps"), ROUTE("Routes"), ITINERARY("Itineraries") }
+enum class DestinationSource(val label: String) { SEARCH("Search"), SNAP("Places"), ROUTE("Routes"), ITINERARY("Itineraries") }
 
 data class ContinuationDraft(
     val epoch: Long,
@@ -129,6 +129,7 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
             catch (e: Exception) { if (generation == serial) state = state?.copy(searching = false, error = e.message) }
         }
     }
+    fun pickResolved(hit: PlaceHit) { state=state?.copy(hits=listOf(hit));pick(hit) }
     fun pick(hit: PlaceHit) {
         val d = state ?: return
         if (hit !in d.hits) return
@@ -145,13 +146,13 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
             sc.kind == "ITINERARY" && !destinationOnly -> sc.stops.map {
                 ItineraryStop(it.name, LatLng(it.lat, it.lng), it.dwellMinutes, it.mode, it.avgMph,
                     it.address, it.placeId, it.routingRealism ?: sc.realism,
-                    if (it.ownRoutingPreferences) it.routingTransitPref else sc.transitPref, true)
+                    if (it.ownRoutingPreferences) it.routingTransitPref else sc.transitPref, true,it.frozenRoute,it.arriveByMillis)
             }
             else -> sc.dest?.let {
                 val mode = if (sc.kind == "SNAP") d.mode else sc.travelMode
                 listOf(ItineraryStop(if (sc.kind == "SNAP") sc.name else sc.destName.ifBlank { sc.name },
                     it, 0, mode, sc.speeds[mode] ?: defaultSpeed(mode), sc.destAddress, sc.destPlaceId,
-                    sc.realism, sc.transitPref, true))
+                    sc.realism, sc.transitPref, true,if(destinationOnly)null else sc.frozenRoute))
             }.orEmpty()
         }
         if (selected.isEmpty()) {
@@ -188,6 +189,9 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
                 if (first.mode == TravelMode.FLY) {
                     val flight = FlightModel(from, first.point)
                     points = flight.pathPoints; summary = "Flight · ${fmtMiles(flight.totalMeters)}"
+                } else if(first.frozenRoute!=null) {
+                    check(Geo.haversine(from,first.frozenRoute.points.first())<100.0) {"Exact route starts elsewhere; keep its connecting leg"}
+                    points=first.frozenRoute.points;summary="Exact saved path · ${fmtMiles(first.frozenRoute.distanceMeters)}"
                 } else {
                     check(vm.hasKey) { "A Maps key is needed to prepare this route. Your existing trip is unchanged." }
                     val route = GoogleDirectionsRouteEngine(vm.api).route(RouteSpec(from, first.point, mode = first.mode,

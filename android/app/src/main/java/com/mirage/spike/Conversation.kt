@@ -60,7 +60,7 @@ object Conversation {
         mutable.update { it.copy(lines = (it.lines + ChatLine(true, text)).takeLast(100)) }
         val normalized = CommandParser.normalize(text)
         val fast = CommandParser.parse(text)
-        if (fast in listOf(SpokenCommand.Stop, SpokenCommand.Pause, SpokenCommand.Resume, SpokenCommand.Cancel, SpokenCommand.ClarifyStop, SpokenCommand.Status)) SmartVoice.cancel()
+        if (fast in listOf(SpokenCommand.Stop, SpokenCommand.Pause, SpokenCommand.Resume, SpokenCommand.Cancel, SpokenCommand.ClarifyStop, SpokenCommand.Status, SpokenCommand.Skip)) SmartVoice.cancel()
         else if (SmartVoice.handle(text, spoken)) return
         if (normalized in listOf("go there now instead", "go there now", "go there next")) {
             val prior = pending ?: lastRequest

@@ -77,6 +77,7 @@ fun simulationStatusText(status: MockStatus, activity: com.mirage.spike.engine.A
     if (locationOutputIssue(status, nowMillis) != null) return "NEEDS ATTENTION · output not confirmed"
     if (status.paused) return "PAUSED · simulated location held"
     return when (activity) {
+        com.mirage.spike.engine.ActivityKind.WAITING -> "WAITING · scheduled departure"
         com.mirage.spike.engine.ActivityKind.ROUTING -> "HOLDING · preparing next route"
         com.mirage.spike.engine.ActivityKind.TRAVELING -> "ACTIVE · simulated trip running"
         com.mirage.spike.engine.ActivityKind.STAYING -> "STAYING · simulated location held"

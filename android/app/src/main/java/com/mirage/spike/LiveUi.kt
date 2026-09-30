@@ -143,7 +143,7 @@ fun ChatPanel(onDismiss: () -> Unit) {
         else permissions.launch(Manifest.permission.RECORD_AUDIO)
     }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().imePadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.fillMaxWidth().imePadding().padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Talk to Mirage", style = MaterialTheme.typography.titleLarge)
             Text(language, style = MaterialTheme.typography.bodySmall)
             if (!LocalLanguageModel.ready) {
@@ -155,12 +155,23 @@ fun ChatPanel(onDismiss: () -> Unit) {
             }
             Text(voice.status, color = if (voice.listening) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
             Row {
-                TextButton(onClick = { requestVoice(VoiceService.LISTEN) }) { Text("🎙 Speak now") }
+                TextButton(onClick = {
+                    SmartVoice.cancel(); Conversation.cancelPending()
+                    if(voice.listening || chat.busy) context.stopService(Intent(context,VoiceService::class.java)) else requestVoice(VoiceService.LISTEN)
+                }) { Text(if(voice.listening || chat.busy) "Cancel listening / request" else "🎙 Speak now") }
                 TextButton(onClick = {
                     if (voice.enabled) context.stopService(Intent(context, VoiceService::class.java)) else requestVoice(VoiceService.ENABLE)
                 }) { Text(if (voice.enabled) "Microphone off" else "Enable Hello Mirage") }
             }
-            if (voice.listening) Text(voice.transcript.ifBlank { "Speak after the two-note chime…" })
+            Text(when { voice.listening -> "Listening"; chat.busy -> "Understanding your request…"; Conversation.needsReply() -> "Review the proposed change"; else -> "Ready" },style=MaterialTheme.typography.titleSmall)
+            if (voice.transcript.isNotBlank()) {
+                Text("Heard: ${voice.transcript}")
+                TextButton(onClick={SmartVoice.cancel();Conversation.cancelPending();text=voice.transcript}) {Text("Correct these words")}
+            }
+            if(Conversation.needsReply() && chat.choices.isEmpty()) Row {
+                Button(onClick={Conversation.submit("yes")}) {Text("Confirm")}
+                TextButton(onClick={Conversation.submit("cancel")}) {Text("Cancel")}
+            }
             val scroll = rememberScrollState()
             LaunchedEffect(chat.lines.size, chat.choices.size) { scroll.animateScrollTo(scroll.maxValue) }
             Column(Modifier.fillMaxWidth().heightIn(min = 100.dp, max = 300.dp).verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -207,7 +218,7 @@ fun CompactLiveControls(status: MockStatus, session: SessionView, onStop: () -> 
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Button(onClick = onAdd) { Text("Add destination") }
+            Button(onClick = onAdd) { Text("Add stop") }
             TextButton(onClick = { Conversation.submit(if (status.paused) "continue" else "pause") }) { Text(if (status.paused) "Resume" else "Pause") }
             IconButton(onClick = onChat) { Icon(Icons.Filled.Mic, contentDescription = "Talk") }
             Button(onClick = onStop, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Stop") }

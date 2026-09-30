@@ -1,5 +1,7 @@
 package com.mirage.spike.store
 
+import com.mirage.spike.engine.RouteArchive
+import com.mirage.spike.engine.RouteResult
 import com.mirage.spike.engine.LatLng
 import com.mirage.spike.engine.Realism
 import com.mirage.spike.engine.TravelMode
@@ -19,6 +21,8 @@ data class SavedStop(
     val routingRealism: Realism? = null,
     val routingTransitPref: String? = null,
     val ownRoutingPreferences: Boolean = false,
+    val frozenRoute: RouteResult? = null,
+    val arriveByMillis: Long? = null,
 )
 
 /**
@@ -43,8 +47,16 @@ data class SavedScenario(
     val stops: List<SavedStop>,
     val destAddress: String = "",
     val destPlaceId: String = "",
+    val favorite: Boolean = false,
+    val lastUsedAt: Long = 0L,
+    val aliases: List<String> = emptyList(),
+    val frozenRoute: RouteResult? = null,
+    val departureMillis: Long? = null,
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
+        departureMillis?.let {put("departureMillis",it)}
+        frozenRoute?.let { put("frozenRoute", RouteArchive.encode(it)) }
+        put("favorite", favorite); put("lastUsedAt", lastUsedAt); put("aliases", JSONArray(aliases))
         put("id", id); put("name", name); put("kind", kind); put("createdAt", createdAt)
         put("startIsReal", startIsReal)
         start?.let { put("startLat", it.lat); put("startLng", it.lng) }
@@ -64,6 +76,8 @@ data class SavedScenario(
                     s.routingRealism?.let { put("routingRealism", it.name) }
                     s.routingTransitPref?.let { put("routingTransitPref", it) }
                     put("ownRoutingPreferences", s.ownRoutingPreferences)
+                    s.arriveByMillis?.let {put("arriveByMillis",it)}
+                    s.frozenRoute?.let {put("frozenRoute",RouteArchive.encode(it))}
                 })
             }
         })
@@ -84,6 +98,8 @@ data class SavedScenario(
                         s.optString("address"), s.optString("placeId"),
                         runCatching { Realism.valueOf(s.optString("routingRealism")) }.getOrNull(),
                         s.optString("routingTransitPref").takeIf { it.isNotBlank() }, s.optBoolean("ownRoutingPreferences", false),
+                        s.optJSONObject("frozenRoute")?.let { RouteArchive.decode(it) },
+                        if(s.has("arriveByMillis"))s.getLong("arriveByMillis") else null,
                     )
                 }
             }
@@ -100,6 +116,10 @@ data class SavedScenario(
                 realism = runCatching { Realism.valueOf(o.optString("realism")) }.getOrDefault(Realism.REALISTIC),
                 transitPref = o.optString("transitPref").takeIf { it.isNotBlank() },
                 stops = stops, destAddress = o.optString("destAddress"), destPlaceId = o.optString("destPlaceId"),
+                departureMillis=if(o.has("departureMillis"))o.getLong("departureMillis") else null,
+                frozenRoute = o.optJSONObject("frozenRoute")?.let { RouteArchive.decode(it) },
+                favorite = o.optBoolean("favorite"), lastUsedAt = o.optLong("lastUsedAt"),
+                aliases = o.optJSONArray("aliases")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
             )
         }
 
@@ -120,6 +140,7 @@ data class SavedScenario(
 interface ScenarioStore {
     fun load(): List<SavedScenario>
     fun save(list: List<SavedScenario>)
+    fun previous(): List<SavedScenario>? = null
 }
 
 class InMemoryScenarioStore : ScenarioStore {

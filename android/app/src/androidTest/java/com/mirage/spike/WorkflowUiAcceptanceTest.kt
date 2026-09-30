@@ -27,6 +27,7 @@ class WorkflowUiAcceptanceTest {
 
     @Before fun launch() {
         context.stopService(Intent(context, MockLocationService::class.java))
+        context.getSharedPreferences("mirage_recovery",android.content.Context.MODE_PRIVATE).edit().clear().commit()
         MockState.reset(); LiveSession.clear(); PlaybackSource.clearQueue()
         PlaybackSource.paused = false; PlaybackSource.signal = Signal.GOOD
         val home = snap("fixture-home", "Fixture Home", LatLng(33.50, -112.0))
@@ -54,6 +55,7 @@ class WorkflowUiAcceptanceTest {
         screenshot("final-" + System.currentTimeMillis())
         context.stopService(Intent(context, MockLocationService::class.java))
         if (::activity.isInitialized) activity.close()
+        context.getSharedPreferences("mirage_recovery",android.content.Context.MODE_PRIVATE).edit().clear().commit()
         MockState.reset(); LiveSession.clear(); PlaybackSource.clearQueue()
     }
     private fun screenshot(name: String) {
@@ -102,6 +104,35 @@ class WorkflowUiAcceptanceTest {
         compose.onNode(hasSetTextAction() and hasText("Fixture Home")).assertIsDisplayed()
         compose.onNode(hasSetTextAction() and hasText("Fixture Office")).assertIsDisplayed()
         screenshot("saved-snaps-route-endpoints")
+    }
+
+    @Test fun planningActionsRemainVisibleAndDraftRestoresWithoutStarting() {
+        saved()
+        compose.onNodeWithContentDescription("Load Fixture day").performScrollTo().performClick()
+        compose.onNodeWithText("Start itinerary").assertIsDisplayed()
+        compose.onNodeWithText("Add a stop · search, tap the map, or ⌖").performScrollTo().assertIsDisplayed()
+        compose.waitUntil(5000) { context.getSharedPreferences("mirage_recovery",android.content.Context.MODE_PRIVATE).contains("draft") }
+        screenshot("planner-unobstructed")
+        activity.close()
+        activity=ActivityScenario.launch(MainActivity::class.java)
+        compose.onNodeWithText("Restore your previous trip?").assertIsDisplayed()
+        assertFalse(MockState.status.value.running)
+        compose.onNodeWithText("Restore for editing").performClick()
+        compose.onNodeWithContentDescription("Reorder stop 1: First").assertIsDisplayed()
+        assertFalse(MockState.status.value.running)
+    }
+
+    @Test fun savedBrowserFiltersFavoritesAndOffersRecoverableDeletion() {
+        saved()
+        compose.onNodeWithContentDescription("Options for Fixture Home").performScrollTo().performClick()
+        compose.onNodeWithText("Add favorite").performClick()
+        compose.onNodeWithText("Favorites").performClick()
+        compose.onNodeWithText("★ Fixture Home").assertIsDisplayed()
+        compose.onNodeWithText("Fixture Office").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Options for Fixture Home").performClick()
+        compose.onNodeWithText("Delete").performClick()
+        compose.onNodeWithText("Undo library change").performClick()
+        compose.onNodeWithText("★ Fixture Home").assertIsDisplayed()
     }
 
     @Test fun swapButtonReversesTheVisibleRouteFields() {
