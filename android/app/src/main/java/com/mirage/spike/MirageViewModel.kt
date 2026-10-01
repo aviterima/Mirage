@@ -937,14 +937,14 @@ class MirageViewModel(
                 if (s == null) "Unknown preset" else { setSignalPreset(s); "Signal ${s.name}" }
             }
             "drop" -> { dropSignal((d("seconds") ?: 30.0).toInt().coerceIn(1, 3600)); "GPS dropped" }
-            "snap" -> {
+            "place", "snap" -> {
                 val lat = d("lat"); val lng = d("lng")
-                if (lat == null || lng == null) "snap needs lat and lng" else {
+                if (lat == null || lng == null) "Place needs lat and lng" else {
                     planMode = PlanMode.SNAP
-                    dest = LatLng(lat, lng); destName = args["name"] ?: "Snap"
+                    dest = LatLng(lat, lng); destName = args["name"] ?: "Place"
                     PlaybackSource.current = null; PlaybackSource.routePoints = listOf(dest!!); PlaybackSource.label = "Static"
                     PlaybackSource.endPoint = dest; PlaybackSource.clearQueue(); PlaybackSource.paused = false
-                    onSnapStarted(); onStartService(); "Snapped to $lat,$lng"
+                    onSnapStarted(); onStartService(); "Simulating at $lat,$lng"
                 }
             }
             "route" -> {
@@ -963,7 +963,7 @@ class MirageViewModel(
                 if (sc == null) "No saved plan named ${args["name"]}" else {
                     loadScenario(sc)
                     when (planMode) {
-                        PlanMode.SNAP -> { dest?.let { PlaybackSource.current = null; PlaybackSource.routePoints = listOf(it); PlaybackSource.label = "Static"; PlaybackSource.endPoint = it; onSnapStarted(); onStartService() }; "Snapped: ${sc.name}" }
+                        PlanMode.SNAP -> { dest?.let { PlaybackSource.current = null; PlaybackSource.routePoints = listOf(it); PlaybackSource.label = "Static"; PlaybackSource.endPoint = it; onSnapStarted(); onStartService() }; "Place started: ${sc.name}" }
                         PlanMode.ITINERARY -> { startItinerary(onStartService); "Starting itinerary: ${sc.name}" }
                         PlanMode.ROUTE -> { autoStartAfterRoute = onStartService; if (canStart) startSim(onStartService); "Starting route: ${sc.name}" }
                     }

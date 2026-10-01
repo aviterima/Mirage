@@ -474,7 +474,7 @@ fun MapScreen(
         val snapButton: @Composable (Field, Boolean) -> Unit = { field, allowSimulated ->
             Box {
                 IconButton(onClick = { snapMenu = field }) {
-                    Icon(Icons.Filled.MyLocation, contentDescription = "Snap this box", tint = ACCENT)
+                    Icon(Icons.Filled.MyLocation, contentDescription = "Choose place source", tint = ACCENT)
                 }
                 DropdownMenu(expanded = snapMenu == field, onDismissRequest = { snapMenu = null }) {
                     DropdownMenuItem(
@@ -904,7 +904,7 @@ private fun Controls(
     } else {
         Text(
             when (vm.planMode) {
-                PlanMode.SNAP -> if (vm.dest == null) "Pick a place above (or tap the map). Snap puts you there instantly and holds until Stop."
+                PlanMode.SNAP -> if (vm.dest == null) "Pick a place above (or tap the map). Place mode puts you there instantly and holds until Stop."
                     else "Ready — you will be at “${vm.destName}” instantly and stay there until Stop."
                 PlanMode.ROUTE -> when {
                     vm.dest == null -> "Fill Start and End above, or tap the map for the End and long-press for the Start."
@@ -1035,7 +1035,7 @@ private fun Controls(
 
     // Notices
     if (!vm.hasKey) {
-        Text("Search and routing need a Google Maps key — tap ⚙ to paste yours and test it. Snap works without one.", fontSize = 12.sp, color = AMBER)
+        Text("Search and routing need a Google Maps key — tap ⚙ to paste yours and test it. Place mode works without one.", fontSize = 12.sp, color = AMBER)
     }
     if (mockBlocked) {
         Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = RED.copy(alpha = 0.08f))) {
@@ -1065,7 +1065,7 @@ private fun PrimaryAction(vm: MirageViewModel, running: Boolean, a: SimActions) 
     if (MockState.status.collectAsState(context = kotlinx.coroutines.Dispatchers.Main.immediate).value.starting) { BusyRow("Starting…"); return }
     when (vm.planMode) {
         PlanMode.SNAP -> BigButton(
-            if (vm.dest != null) "Snap to “${vm.destName}”" else "Pick a place to snap to",
+            if (vm.dest != null) "Start at “${vm.destName}”" else "Choose a place",
             enabled = vm.dest != null, onClick = { a.holdAt(vm.dest) },
         )
         PlanMode.ITINERARY ->
@@ -1182,7 +1182,7 @@ private fun SetupDialog(
                 Text("Automation (adb)", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 Text("Token: ${vm.automationToken}", fontSize = 12.sp, fontFamily = FontFamily.Monospace)
                 Text(
-                    "adb shell am start -n com.mirage.app/com.mirage.spike.MainActivity --es cmd pause --es token ${vm.automationToken}\nCommands: pause, resume, skip, stop, timescale, speed_over, signal, drop, snap, route, plan — see README.",
+                    "adb shell am start -n com.mirage.app/com.mirage.spike.MainActivity --es cmd pause --es token ${vm.automationToken}\nCommands: pause, resume, skip, stop, timescale, speed_over, signal, drop, place, route, plan — see README.",
                     fontSize = 11.sp, color = MUTED,
                 )
                 Text("Mirage ${BuildConfig.VERSION_NAME}", fontSize = 11.sp, color = MUTED)
@@ -1325,7 +1325,7 @@ internal fun DwellDialog(stopName: String, minutes: Int, onSet: (Int) -> Unit, o
 // ---- Saved plans ------------------------------------------------------------------------
 
 private fun scenarioSummary(sc: SavedScenario, kind: PlanMode): String = when (kind) {
-    PlanMode.SNAP -> "Snap · ${sc.destName}"
+    PlanMode.SNAP -> "Place · ${sc.destName}"
     PlanMode.ROUTE -> "${if (sc.startIsReal) "My location" else sc.startName} → ${sc.destName} · ${sc.travelMode.label()}"
     PlanMode.ITINERARY -> {
         val total = sc.stops.sumOf { it.dwellMinutes }
@@ -1386,7 +1386,7 @@ private fun TransitLegs(segments: List<RouteSegment>) {
 }
 
 private fun PlanMode.label(): String = when (this) {
-    PlanMode.SNAP -> "Snap"
+    PlanMode.SNAP -> "Place"
     PlanMode.ROUTE -> "Route"
     PlanMode.ITINERARY -> "Itinerary"
 }

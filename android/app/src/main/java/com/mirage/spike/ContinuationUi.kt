@@ -32,7 +32,7 @@ fun ContinuationPreviewBar(planner: ContinuationPlanner, onConfirm: () -> Unit) 
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp).testTag("continuationPreview"),
         verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f).clickable { planner.edit(true) }.padding(4.dp)) {
-            Text(d.title.ifBlank { "Add destination" }, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(d.title.ifBlank { "Add stop" }, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text("Review · " + (d.stops.firstOrNull()?.address?.takeIf { it.isNotBlank() } ?: planner.originLabel(d)),
                 style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
@@ -54,19 +54,25 @@ fun ContinuationSheet(planner: ContinuationPlanner, saved: List<SavedScenario>, 
             .verticalScroll(rememberScrollState()).padding(horizontal = 18.dp).testTag("continuationEditor"),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Add destination", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("Add stop", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 TextButton(onClick = planner::cancel) { Text("Cancel") }
+            }
+            // All sources stay visible: no sideways scrolling to discover saved content.
+            DestinationSource.entries.chunked(2).forEach { sources ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    sources.forEach { source ->
+                        FilterChip(selected = source == d.source,
+                            onClick = { keyboard?.hide(); planner.source(source) },
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("destinationSource-${source.name}"),
+                            label = { Text(source.label) })
+                    }
+                }
             }
             Text(planner.originLabel(d), style = MaterialTheme.typography.bodySmall)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Placement.entries.forEach { choice ->
                     FilterChip(selected = choice == d.placement, onClick = { planner.placement(choice) },
                         enabled = choice == Placement.NOW || LiveSession.plan != null, label = { Text(choice.label) })
-                }
-            }
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                DestinationSource.entries.forEach { source ->
-                    FilterChip(selected = source == d.source, onClick = { planner.source(source) }, label = { Text(source.label) })
                 }
             }
             if (d.stops.isEmpty()) {
@@ -92,7 +98,7 @@ fun ContinuationSheet(planner: ContinuationPlanner, saved: List<SavedScenario>, 
                         modifier = Modifier.fillMaxWidth(), singleLine = true)
                     val items = com.mirage.spike.store.savedItemSearch(saved,filter,d.source.name)
                     Text("Favorites first, then recently used",style=MaterialTheme.typography.bodySmall)
-                    if (items.isEmpty()) Text("No saved ${d.source.label.lowercase()} match.")
+                    if (items.isEmpty()) Text("No ${d.source.label.lowercase()} match.")
                     items.forEach { item ->
                         Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
                             Text((if(item.favorite) "★ " else "")+item.name, fontWeight = FontWeight.SemiBold)

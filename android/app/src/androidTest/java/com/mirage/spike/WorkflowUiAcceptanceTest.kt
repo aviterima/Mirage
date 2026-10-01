@@ -72,7 +72,7 @@ class WorkflowUiAcceptanceTest {
     private fun loadHome() {
         saved()
         compose.onNodeWithContentDescription("Load Fixture Home").performClick()
-        compose.onNodeWithText("Snap to “Fixture Home”").performClick()
+        compose.onNodeWithText("Start at “Fixture Home”").performClick()
         compose.waitUntil(20_000) { MockState.status.value.running }
     }
 

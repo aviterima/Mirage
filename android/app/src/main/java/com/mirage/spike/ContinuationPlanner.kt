@@ -8,7 +8,7 @@ import com.mirage.spike.store.SavedScenario
 import kotlinx.coroutines.*
 
 enum class Placement(val label: String) { NOW("Go now"), NEXT("After current stop"), END("At end of trip") }
-enum class DestinationSource(val label: String) { SEARCH("Search"), SNAP("Places"), ROUTE("Routes"), ITINERARY("Itineraries") }
+enum class DestinationSource(val label: String) { SEARCH("Search for a place"), SNAP("Saved places"), ROUTE("Saved routes"), ITINERARY("Saved itineraries") }
 
 data class ContinuationDraft(
     val epoch: Long,
@@ -57,6 +57,7 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
     fun edit(open: Boolean) { state = state?.copy(editorOpen = open) }
     fun source(value: DestinationSource) {
         val d = state ?: return
+        selectedSavedId = null
         serial++; searchJob?.cancel(); previewJob?.cancel()
         state = d.copy(source = value, query = "", hits = emptyList(), searching = false,
             stops = emptyList(), title = "", summary = "", savedOrigin = null, adaptedRealStart = false,
@@ -92,7 +93,7 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
         refresh()
     }
     fun origin(d: ContinuationDraft = state ?: error("No addition")): LatLng {
-        check(MockState.status.value.running && d.epoch == LiveSession.epoch) { "The session changed. Close this addition and choose Add destination again." }
+        check(MockState.status.value.running && d.epoch == LiveSession.epoch) { "The session changed. Close this addition and choose Add stop again." }
         val view = LiveSession.plan?.view()
         return when (d.placement) {
             Placement.NOW -> MockState.status.value.let { LatLng(it.lat, it.lng) }

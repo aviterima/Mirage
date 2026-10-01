@@ -1,3 +1,14 @@
+# Mirage 0.13.1 — saved sources and Place terminology
+
+Live Add stop now presents Search for a place, Saved places, Saved routes and Saved itineraries together, without horizontal scrolling. The visible interface consistently uses Place. Existing saved records remain compatible.
+
+- [Specification, quick start, implementation report and validation](docs/PLACE_AND_LIVE_SOURCES_0.13.1.md)
+- [Underlying 0.13.0 feature specification](docs/USABILITY_RECOVERY_VOICE_SPEC_0.13.0.md)
+
+Validation is pending for 0.13.1. Earlier release records below are retained for provenance and do not describe the current validation status.
+
+---
+
 # Mirage 0.13.0 — signed and emulator-tested
 
 Improves planning and live stop editing, saved content management, interrupted-trip recovery, route/timing controls, backup/sharing and contextual on-device voice. **117 JVM tests and 21 Android emulator tests passed, with no failures, errors or skips.** The signed update from 0.12.1 preserved saved records, API-key preference and install identity. Physical-phone validation remains outstanding.

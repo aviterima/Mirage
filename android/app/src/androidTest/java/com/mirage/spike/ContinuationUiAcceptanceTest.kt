@@ -43,7 +43,7 @@ class ContinuationUiAcceptanceTest {
         compose.waitUntil(15_000) { compose.onAllNodesWithContentDescription("Saved plans").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithContentDescription("Saved plans").performClick()
         compose.onNodeWithContentDescription("Load Fixture Home").performClick()
-        compose.onNodeWithText("Snap to “Fixture Home”").performClick()
+        compose.onNodeWithText("Start at “Fixture Home”").performClick()
         compose.waitUntil(20_000) { MockState.status.value.running && LiveSession.plan != null }
     }
     @After fun close() {
@@ -81,11 +81,59 @@ class ContinuationUiAcceptanceTest {
         }
     }
     private fun chooseSnap() {
-        open("Places")
+        open("Saved places")
         compose.onNodeWithTag("continueSaved-office").performScrollTo().performClick()
         compose.onNodeWithText("fly").performScrollTo().performClick()
         ready()
     }
+    @Test fun movingRouteShowsEverySavedSourceAndAcceptsRouteAndLegacyPlace() {
+        // Start travelling, then enter through the same Add stop control used on a live route.
+        chooseSnap()
+        confirm()
+        compose.waitUntil(15_000) { LiveSession.state.value.activity == ActivityKind.TRAVELING }
+        val origin = LiveSession.plan!!.origin
+        val currentId = LiveSession.state.value.stops.first().id
+        compose.onNodeWithText("Add stop").performClick()
+        DestinationSource.entries.forEach { source ->
+            compose.onNodeWithTag("destinationSource-${source.name}").assertIsDisplayed()
+            compose.onNodeWithText(source.label).assertIsDisplayed()
+        }
+        screenshot("live-route-visible-saved-sources")
+        compose.onNodeWithText("Saved routes").performClick()
+        compose.onNodeWithTag("continueSaved-route").performScrollTo().performClick()
+        confirm()
+        compose.waitUntil(10_000) { LiveSession.state.value.stops.size == 3 }
+        assertEquals(listOf(office, office, cafe), LiveSession.state.value.stops.map { it.stop.point })
+        assertEquals(currentId, LiveSession.state.value.stops.first().id)
+        assertEquals(origin, LiveSession.plan!!.origin)
+        assertFalse(PlaybackSource.paused)
+        open("Saved places")
+        compose.onNodeWithTag("continueSaved-home").performScrollTo().performClick()
+        compose.onNodeWithText("At end of trip").performScrollTo().performClick()
+        confirm()
+        compose.waitUntil(10_000) { LiveSession.state.value.stops.size == 4 }
+        assertEquals(home, LiveSession.state.value.stops.last().stop.point)
+        assertEquals("SNAP", PrefsScenarioStore(context).load().single { it.id == "home" }.kind)
+        assertFalse(PlaybackSource.paused)
+        screenshot("live-route-saved-route-and-place-added")
+    }
+
+    @Test fun savedSourcesRemainVisibleWithLargeText() {
+        try {
+            device.executeShellCommand("settings put system font_scale 1.3")
+            activity.recreate()
+            compose.waitUntil(15_000) { compose.onAllNodesWithText("Add stop").fetchSemanticsNodes().isNotEmpty() }
+            activity.onActivity { assertTrue(it.resources.configuration.fontScale >= 1.29f) }
+            compose.onNodeWithText("Add stop").performClick()
+            DestinationSource.entries.forEach { source ->
+                compose.onNodeWithTag("destinationSource-${source.name}").assertIsDisplayed()
+            }
+            screenshot("large-text-visible-saved-sources")
+            compose.onNodeWithText("Saved itineraries").performClick()
+            compose.onNodeWithTag("continueSaved-itinerary").performScrollTo().assertIsDisplayed()
+        } finally { device.executeShellCommand("settings put system font_scale 1.0") }
+    }
+
     @Test fun contextualVoiceUsesAliasThenEditsConfirmedUpcomingStop() {
         compose.onNodeWithText("Pause").performClick()
         compose.onNodeWithContentDescription("Talk").performClick()
@@ -139,7 +187,7 @@ class ContinuationUiAcceptanceTest {
     }
     @Test fun savedRouteConnectsItsStartWithoutJumpingOrReplacingTheTrip() {
         PlaybackSource.paused = true
-        open("Routes")
+        open("Saved routes")
         compose.onNodeWithTag("continueSaved-route").performScrollTo().performClick()
         compose.onNodeWithText("At end of trip").performScrollTo().performClick()
         confirm()
@@ -152,7 +200,7 @@ class ContinuationUiAcceptanceTest {
     @Test fun savedItineraryAddsAllStopsAndPreservesItsStaysAndOriginal() {
         PlaybackSource.paused = true
         val original = PrefsScenarioStore(context).load().first { it.id == "itinerary" }
-        open("Itineraries")
+        open("Saved itineraries")
         compose.onNodeWithTag("continueSaved-itinerary").performScrollTo().performClick()
         compose.onNodeWithText("After current stop").performScrollTo().performClick()
         confirm()
@@ -190,7 +238,7 @@ class ContinuationUiAcceptanceTest {
         val saved=PrefsScenarioStore(context).load().single { it.name=="My Tuesday" }
         assertEquals(2,saved.stops.size)
         compose.onNodeWithText("Back to map").performClick()
-        open("Routes")
+        open("Saved routes")
         compose.onNodeWithTag("continueSaved-route").performScrollTo().performClick()
         compose.onNodeWithText("At end of trip").performScrollTo().performClick()
         confirm()
