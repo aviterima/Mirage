@@ -5,7 +5,7 @@ Live Add stop now presents Search for a place, Saved places, Saved routes and Sa
 - [Specification, quick start, implementation report and validation](docs/PLACE_AND_LIVE_SOURCES_0.13.1.md)
 - [Underlying 0.13.0 feature specification](docs/USABILITY_RECOVERY_VOICE_SPEC_0.13.0.md)
 
-Validation is pending for 0.13.1. Earlier release records below are retained for provenance and do not describe the current validation status.
+**Validated: 117 unit tests and 23 Android emulator tests passed with no failures, errors or skips.** The signed update from 0.13.0 preserved the saved-data and settings fixture. Physical-phone confirmation remains outstanding. Earlier release records below are retained for provenance.
 
 ---
 
