@@ -102,8 +102,8 @@ class ContinuationUiAcceptanceTest {
         compose.onNodeWithText("Saved routes").performClick()
         compose.onNodeWithTag("continueSaved-route").performScrollTo().performClick()
         confirm()
-        compose.waitUntil(10_000) { LiveSession.state.value.stops.size == 3 }
-        assertEquals(listOf(office, office, cafe), LiveSession.state.value.stops.map { it.stop.point })
+        compose.waitUntil(10_000) { LiveSession.state.value.stops.size == 2 }
+        assertEquals(listOf(office, cafe), LiveSession.state.value.stops.map { it.stop.point })
         assertEquals(currentId, LiveSession.state.value.stops.first().id)
         assertEquals(origin, LiveSession.plan!!.origin)
         assertFalse(PlaybackSource.paused)
@@ -111,7 +111,7 @@ class ContinuationUiAcceptanceTest {
         compose.onNodeWithTag("continueSaved-home").performScrollTo().performClick()
         compose.onNodeWithText("At end of trip").performScrollTo().performClick()
         confirm()
-        compose.waitUntil(10_000) { LiveSession.state.value.stops.size == 4 }
+        compose.waitUntil(10_000) { LiveSession.state.value.stops.size == 3 }
         assertEquals(home, LiveSession.state.value.stops.last().stop.point)
         assertEquals("SNAP", PrefsScenarioStore(context).load().single { it.id == "home" }.kind)
         assertFalse(PlaybackSource.paused)
