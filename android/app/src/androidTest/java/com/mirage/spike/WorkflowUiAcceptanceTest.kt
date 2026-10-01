@@ -144,7 +144,11 @@ class WorkflowUiAcceptanceTest {
             add.performClick()
             compose.onNode(hasSetTextAction() and hasText("Add a stop · search, tap the map, or ⌖")).performTextInput("Library")
             val input=compose.onNode(hasSetTextAction() and hasText("Library"))
-            compose.waitUntil(5000) {
+            // Text injection does not guarantee that the platform IME has opened.
+            // Tap the actual editor and capture it before checking the real insets and bounds.
+            input.performClick()
+            screenshot("large-text-keyboard-before-check")
+            compose.waitUntil(15000) {
                 var imeVisible=false
                 activity.onActivity { imeVisible=it.window.decorView.rootWindowInsets.isVisible(android.view.WindowInsets.Type.ime()) }
                 val field=input.fetchSemanticsNode().boundsInRoot
