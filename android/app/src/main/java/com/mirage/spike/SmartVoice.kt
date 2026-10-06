@@ -227,7 +227,7 @@ object SmartVoice {
         check(d.ready) { d.error ?: "Could not prepare the route." }
         pendingDraft=d
         val names=d.stops.joinToString { it.name + if(it.address.isBlank()) "" else ", ${it.address}" }
-        say("${d.placement.label}: $names. Existing stops stay in your trip. Say yes or cancel.")
+        say("${model.continuation.originLabel(d)}: $names. Existing stops stay in your trip. Say yes or cancel.")
     }
     fun choose(index: Int) {
         val hit=hits.getOrNull(index) ?: return

@@ -1,6 +1,6 @@
 # Mirage 0.14.0 — destination and trip enhancements
 
-Status: local implementation candidate, not a compiled, tested, or released APK. Version code 37. Branch: `codex/saved-destinations-indoor-arrival-20261006`, based on the tested 0.13.1 release.
+Status: published implementation candidate; build and acceptance are in progress. Not yet a tested release. Version code 37. Branch: `codex/saved-destinations-indoor-arrival-20261006`, based on the tested 0.13.1 release.
 
 ## Destination selection during simulation
 
@@ -34,6 +34,6 @@ The compact status distinguishes travel, walking inside/outside, staying and hol
 
 Added/updated source tests cover the active saved-library path and cancellation; continuous indoor walking; stationary table stays; invalid/distant pins; walking back outside, including Go now; manual waits; atomic preference undo; upcoming replacement with stable identity; isolated map-pin selection; saved entrance/stay round trips; rejecting invalid imported entrance coordinates; avoiding stale entrance reuse; and contextual voice follow-up.
 
-Validation status on October 6, 2026: `git diff --check` passes. The tests above have not executed. Local Gradle bootstrap failed because `services.gradle.org` was unreachable. Automatic approval review rejected the public repository push pending explicit authorization naming `aviterima/Mirage`; hosted CI has not started. No new APK is available. The previously verified release remains 0.13.1.
+Validation status on October 6, 2026: `git diff --check` passes. The tests above have not executed. Local Gradle bootstrap failed because `services.gradle.org` was unreachable. The owner explicitly authorized publication to `aviterima/Mirage`. Candidate commit `1cca50d` was published through the connected GitHub app; hosted CI started in runs `37502290414` and `37502290376`. No new APK is available. The previously verified release remains 0.13.1.
 
-After explicit push authorization, run the existing complete JVM and emulator acceptance workflow, fix failures, and verify signing identity and in-place upgrade from 0.13.1 before distributing the APK. Then validate the reported Saved-list flow, pin placement, entrance/interior arrival, manual departure and pause/Stop behavior on the user's phone. The APK should be delivered as a downloadable attachment, not merely a link to a build page.
+Run the existing complete JVM and emulator acceptance workflow, fix failures, and verify signing identity and in-place upgrade from 0.13.1 before distributing the APK. Then validate the reported Saved-list flow, pin placement, entrance/interior arrival, manual departure and pause/Stop behavior on the user's phone. The APK should be delivered as a downloadable attachment, not merely a link to a build page.
