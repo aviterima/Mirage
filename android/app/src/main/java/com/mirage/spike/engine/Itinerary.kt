@@ -21,6 +21,9 @@ data class ItineraryStop(
     val ownRoutingPreferences: Boolean = false,
     val frozenRoute: RouteResult? = null,
     val arriveByMillis: Long? = null,
+    val arrivalActivity: ArrivalActivity = ArrivalActivity.BUILDING,
+    val entrance: LatLng? = null,
+    val stayUntilLeave: Boolean = false,
 )
 
 /**

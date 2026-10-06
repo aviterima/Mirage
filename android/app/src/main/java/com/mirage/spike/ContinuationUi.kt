@@ -29,6 +29,7 @@ private fun actionLabel(d: ContinuationDraft): String = when (d.placement) {
 @Composable
 fun ContinuationPreviewBar(planner: ContinuationPlanner, onConfirm: () -> Unit) {
     val d = planner.state ?: return
+    if(d.pinTarget!=null) return
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp).testTag("continuationPreview"),
         verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f).clickable { planner.edit(true) }.padding(4.dp)) {
@@ -37,7 +38,7 @@ fun ContinuationPreviewBar(planner: ContinuationPlanner, onConfirm: () -> Unit) 
                 style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         TextButton(onClick = planner::cancel) { Text("Cancel") }
-        Button(onClick = onConfirm, enabled = d.ready && !d.previewBusy) { Text(actionLabel(d)) }
+        Button(onClick = onConfirm, enabled = d.ready && !d.previewBusy) { Text(if(d.replaceId!=null) "Replace upcoming stop" else actionLabel(d)) }
     }
 }
 
@@ -48,13 +49,14 @@ fun ContinuationSheet(planner: ContinuationPlanner, saved: List<SavedScenario>, 
     if (!d.editorOpen) return
     val keyboard = LocalSoftwareKeyboardController.current
     var filter by remember(d.source) { mutableStateOf("") }
+    var savedMessage by remember(d.stops) { mutableStateOf("") }
     ModalBottomSheet(onDismissRequest = { if (d.stops.isEmpty()) planner.cancel() else planner.edit(false) },
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().heightIn(max = 590.dp).imePadding().navigationBarsPadding()
             .verticalScroll(rememberScrollState()).padding(horizontal = 18.dp).testTag("continuationEditor"),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Add stop", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(if(d.replaceId!=null) "Replace upcoming stop" else "Add stop", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 TextButton(onClick = planner::cancel) { Text("Cancel") }
             }
             // All sources stay visible: no sideways scrolling to discover saved content.
@@ -68,9 +70,10 @@ fun ContinuationSheet(planner: ContinuationPlanner, saved: List<SavedScenario>, 
                     }
                 }
             }
+            OutlinedButton(onClick={keyboard?.hide();planner.mapPick("destination")},modifier=Modifier.fillMaxWidth()) { Text("Drop a pin on map") }
             Text(planner.originLabel(d), style = MaterialTheme.typography.bodySmall)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Placement.entries.forEach { choice ->
+                if(d.replaceId==null) Placement.entries.forEach { choice ->
                     FilterChip(selected = choice == d.placement, onClick = { planner.placement(choice) },
                         enabled = choice == Placement.NOW || LiveSession.plan != null, label = { Text(choice.label) })
                 }
@@ -145,13 +148,14 @@ fun ContinuationSheet(planner: ContinuationPlanner, saved: List<SavedScenario>, 
                     }
                 }
                 if (d.stops.size == 1) {
-                    Text("Stay at destination", style = MaterialTheme.typography.labelLarge)
-                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf(0, 15, 30, 60).forEach { minutes ->
-                            FilterChip(selected = d.stops.single().dwellMinutes == minutes, onClick = { planner.stay(minutes) },
-                                label = { Text(if (minutes == 0) "No timed stay" else "$minutes min") })
-                        }
-                    }
+                    TextButton(onClick={keyboard?.hide();planner.mapPick("destination")}) {Text("Fine-tune destination pin")}
+                    TextButton(onClick={keyboard?.hide();planner.mapPick("entrance")}) {Text(if(d.stops.single().entrance==null) "Set entrance / parking pin" else "Adjust entrance / parking pin")}
+                    if(d.stops.single().entrance!=null) TextButton(onClick=planner::clearEntrance){Text("Remove entrance pin")}
+                    ArrivalActivityPicker(d.stops.single().arrivalActivity, planner::arrival)
+                    StayChoicePicker(d.stops.single().dwellMinutes,d.stops.single().stayUntilLeave,planner::stay,planner::stayUntilLeave)
+                    TextButton(onClick={savedMessage=if(planner.savePlace()) "Place settings saved" else "Could not save place settings"}) {Text("Save these place settings")}
+                    if(savedMessage.isNotBlank()) Text(savedMessage)
+
                 }
                 if (d.placement == Placement.NOW && LiveSession.plan != null) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -161,6 +165,16 @@ fun ContinuationSheet(planner: ContinuationPlanner, saved: List<SavedScenario>, 
                     Text(if (d.keepRemaining) "The existing unvisited stops follow this addition." else "This replaces all remaining stops.", style = MaterialTheme.typography.bodySmall)
                 }
                 if (d.previewBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                d.stops.singleOrNull()?.let { stop ->
+                    val road=d.points.lastOrNull()
+                    if(road!=null && d.savedOrigin==null && stop.mode!=TravelMode.FLY && stop.arrivalActivity!=ArrivalActivity.OUTDOOR) {
+                        val entrance=stop.entrance ?: road
+                        val gap=Geo.haversine(road,entrance)+Geo.haversine(entrance,stop.point)
+                        Text("Arrival preview: road endpoint → " + (if(stop.entrance!=null) "entrance → " else "") + "destination pin · approximately ${gap.toInt()} m walking")
+                        if(gap<2.0) Text("The route ends at this pin. Check that it is inside the building; no interior location is inferred.",style=MaterialTheme.typography.bodySmall)
+                        if(Geo.haversine(road,entrance)>150 || Geo.haversine(entrance,stop.point)>150) Text("Check these pins: an arrival connection exceeds 150 m. The simulation will hold at the road endpoint.",color=MaterialTheme.colorScheme.error)
+                    }
+                }
                 if (d.summary.isNotBlank()) Text(d.summary + if (d.stops.size > 1 || (d.savedOrigin != null && d.connectStart)) " · first leg; later legs route on departure" else "")
                 if (PlaybackSource.paused && d.placement != Placement.NOW) Text("Adding will keep the simulation paused.")
                 TextButton(onClick = { planner.source(d.source) }) { Text("Choose another destination") }
@@ -172,7 +186,7 @@ fun ContinuationSheet(planner: ContinuationPlanner, saved: List<SavedScenario>, 
             if (d.stops.isNotEmpty()) {
                 OutlinedButton(onClick = { keyboard?.hide(); planner.edit(false) }, modifier = Modifier.fillMaxWidth()) { Text("Review on map") }
                 Button(onClick = { keyboard?.hide(); onConfirm() }, enabled = d.ready && !d.previewBusy,
-                    modifier = Modifier.fillMaxWidth().testTag("confirmContinuation")) { Text(actionLabel(d)) }
+                    modifier = Modifier.fillMaxWidth().testTag("confirmContinuation")) { Text(if(d.replaceId!=null) "Replace upcoming stop" else actionLabel(d)) }
             }
             TextButton(onClick = onStop, modifier = Modifier.fillMaxWidth()) { Text("Stop simulation") }
             Spacer(Modifier.height(12.dp))

@@ -21,10 +21,31 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ScenarioTest {
+    @org.junit.Test fun arrivalProfileSurvivesBackupAndLegacyDefaults() {
+        val legacy = org.json.JSONObject().put("id","a").put("name","Cafe").put("kind","SNAP")
+        val old=com.mirage.spike.store.SavedScenario.fromJson(legacy)
+        org.junit.Assert.assertEquals(com.mirage.spike.engine.ArrivalActivity.BUILDING,old.arrivalActivity)
+        val table=old.copy(arrivalActivity=com.mirage.spike.engine.ArrivalActivity.TABLE,entrance=LatLng(33.0,-112.0),stayUntilLeave=true,defaultStayMinutes=45,stops=listOf(SavedStop("Office",33.1,-112.1,60,TravelMode.DRIVE,30f,entrance=LatLng(33.1001,-112.1),stayUntilLeave=true)))
+        org.junit.Assert.assertEquals(table,com.mirage.spike.store.SavedScenario.fromJson(table.toJson()))
+    }
+
 
     @Before fun main() { Dispatchers.setMain(UnconfinedTestDispatcher()) }
     @After fun reset() { Dispatchers.resetMain() }
 
+    @Test fun savedEntranceIsPreservedButNotReusedForANewPlace() {
+        val vm=MirageViewModel().apply {attachStore(InMemoryScenarioStore())}
+        val place=SavedScenario.fromJson(org.json.JSONObject().put("id","a").put("name","Cafe").put("kind","SNAP"))
+            .copy(dest=LatLng(33.0,-112.0),entrance=LatLng(33.0001,-112.0),defaultStayMinutes=45,stayUntilLeave=true)
+        vm.useSavedPlaceAsDestination(place)
+        assertEquals(place.entrance,vm.arrivalEntrance)
+        assertEquals(45,vm.defaultStayMinutes)
+        vm.setDestPoint(LatLng(34.0,-112.0),"New place")
+        assertNull(vm.arrivalEntrance)
+        vm.addSavedPlaceStop(place)
+        assertEquals(place.entrance,vm.stops.last().entrance)
+        assertTrue(vm.stops.last().stayUntilLeave)
+    }
     @Test fun activeTripSaveIncludesEditsAndIgnoresDraft() {
         val store = InMemoryScenarioStore()
         val vm = MirageViewModel().apply { attachStore(store) }

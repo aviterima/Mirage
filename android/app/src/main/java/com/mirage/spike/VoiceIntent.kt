@@ -3,7 +3,7 @@ package com.mirage.spike
 import org.json.JSONObject
 
 data class VoiceIntent(val action: String, val target: String = "", val placement: Placement = Placement.NEXT,
-    val minutes: Int = 0, val position: Int = 0, val travelMode: com.mirage.spike.engine.TravelMode? = null) {
+    val minutes: Int = 0, val position: Int = 0, val afterStopId: String? = null, val travelMode: com.mirage.spike.engine.TravelMode? = null) {
     fun groundedIn(text: String): Boolean {
         if (action !in setOf("add_saved","add_place","save_new","move","remove") && !(action=="stay" && target.isNotBlank())) return true
         val words = Regex("[\\p{L}\\p{N}]+").findAll(text.lowercase()).map { it.value }.toSet()

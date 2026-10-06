@@ -28,10 +28,11 @@ object BackupCodec {
                 require(stop.getString("mode") in modes) { "Invalid stop mode" }
                 if(stop.has("routingRealism")) require(stop.getString("routingRealism") in realism) { "Invalid routing settings" }
             } }
+            require(raw.optInt("defaultStayMinutes",0) in 0..1440) { "Invalid default stay" }
             val item = SavedScenario.fromJson(raw)
             require(item.name.isNotBlank() && item.name.length <= 160 && item.kind in setOf("SNAP", "ROUTE", "ITINERARY")) { "Invalid item ${index + 1}" }
             require(item.stops.size <= 100 && item.aliases.size <= 12 && item.aliases.all { it.length <= 80 }) { "Too many stops or aliases" }
-            val points = listOfNotNull(item.start, item.dest) + item.stops.map { com.mirage.spike.engine.LatLng(it.lat, it.lng) }
+            val points = listOfNotNull(item.start, item.dest, item.entrance) + item.stops.mapNotNull {it.entrance} + item.stops.map { com.mirage.spike.engine.LatLng(it.lat, it.lng) }
             require(points.all { it.lat.isFinite() && it.lng.isFinite() && it.lat in -90.0..90.0 && it.lng in -180.0..180.0 }) { "Invalid location" }
             require(item.stops.all { it.dwellMinutes in 0..1440 && it.avgMph.isFinite() && it.avgMph in 1f..1000f }) { "Invalid stay or speed" }
             require(if(item.kind == "ITINERARY") item.stops.isNotEmpty() else item.dest != null) { "Missing destination" }

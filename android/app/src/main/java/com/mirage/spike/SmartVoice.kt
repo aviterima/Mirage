@@ -49,6 +49,17 @@ object SmartVoice {
             if (!needsReply()) return false
             spoken=isSpoken; confirm(); return true
         }
+        if(normalized in setOf("add this stop at the end","add this stop at end","put this stop at the end") && pending?.action in setOf("add_place","add_saved") && pendingDraft!=null) {
+            spoken=isSpoken
+            pending=pending?.copy(placement=Placement.END,afterStopId=null)
+            pendingDraft=null
+            model.continuation.placement(Placement.END)
+            job?.cancel()
+            job=scope.launch {
+                try {finishPreview()} catch(e: CancellationException) {throw e} catch(e: Exception) {cancel();say(e.message ?: "Please review the addition again.")}
+            }
+            return true
+        }
         if (normalized in setOf("no","no thanks")) {
             if (!needsReply()) return false
             cancel(); spoken=isSpoken; say("Cancelled. Your trip is unchanged."); return true
@@ -57,17 +68,23 @@ object SmartVoice {
             val choice = CommandParser.parse(text) as? SpokenCommand.Choice
             if (choice != null) { choose(choice.ordinal-1); return true }
         }
-        val parsed=CommandParser.parse(text)
+        val afterMatch=Regex("^after (.+?),? ((?:go|drive|walk) to .+)$",RegexOption.IGNORE_CASE).matchEntire(text.trim())
+        val commandText=afterMatch?.groupValues?.get(2) ?: text
+        val another=Regex("^stay (?:another|an additional) (.+)$",RegexOption.IGNORE_CASE).matchEntire(commandText.trim())
+        val parsed=CommandParser.parse(if(another!=null) "extend stay by "+another.groupValues[1] else commandText)
         val currentView=LiveSession.state.value
         val contextIntent=followUp.resolve(text,currentView.stops,currentView.index,LiveSession.epoch)
+        val afterName=afterMatch?.groupValues?.get(1)?.trim()?.trimEnd(',')
+        val afterId=if(afterName!=null) currentView.stops.drop(currentView.index.coerceAtLeast(0)).singleOrNull { it.stop.name.equals(afterName,true) }?.id else null
+        if(afterName!=null && afterId==null) {spoken=isSpoken;say("Name one current or upcoming stop to add after.");return true}
         val savedMatches=model.savedScenarios.filter { item ->
-            (listOf(item.name)+item.aliases).any { alias -> alias.isNotBlank() && Regex("(?i)(?<![\\p{L}\\p{N}])"+Regex.escape(alias)+"(?![\\p{L}\\p{N}])").containsMatchIn(text) }
+            (listOf(item.name)+item.aliases).any { alias -> alias.isNotBlank() && Regex("(?i)(?<![\\p{L}\\p{N}])"+Regex.escape(alias)+"(?![\\p{L}\\p{N}])").containsMatchIn(commandText) }
         }
-        val adding=Regex("^(?:please )?(?:add|take me to|go to|after this|next|drive to|walk to)",RegexOption.IGNORE_CASE).containsMatchIn(text.trim())
+        val adding=Regex("^(?:please )?(?:add|take me to|go to|after |next|drive to|walk to)",RegexOption.IGNORE_CASE).containsMatchIn(text.trim())
         val savedIntent=if(adding && savedMatches.size==1 && !Regex("(?i)\\b(and|then|also)\\b").containsMatchIn(text)) VoiceIntent("add_saved",savedMatches.single().name,
             if(Regex("(?i)\\b(now|immediately)\\b").containsMatchIn(text)) Placement.NOW else if(text.contains("end",true)) Placement.END else Placement.NEXT,minutes=(parsed as? SpokenCommand.Journey)?.legs?.singleOrNull()?.minutes ?: 0,travelMode=(parsed as? SpokenCommand.Journey)?.legs?.singleOrNull()?.mode) else null
         val save = Regex("^(?:save (?:this |the )?(?:whole )?(?:trip|itinerary) as) (.+)$", RegexOption.IGNORE_CASE).matchEntire(text.trim())
-        val direct = contextIntent ?: savedIntent ?: if (save != null) VoiceIntent("save_new",save.groupValues[1].trim())
+        val direct = (contextIntent ?: savedIntent ?: if (save != null) VoiceIntent("save_new",save.groupValues[1].trim())
             else if (normalized in setOf("save changes","save my itinerary","save this itinerary")) VoiceIntent("save_changes")
             else when(parsed) {
                 is SpokenCommand.Journey -> if(parsed.legs.size==1 && !parsed.snap) VoiceIntent("add_place",parsed.legs.single().query,if(normalized.contains("now"))Placement.NOW else Placement.NEXT,minutes=parsed.legs.single().minutes,travelMode=parsed.legs.single().mode) else null
@@ -75,6 +92,7 @@ object SmartVoice {
                 is SpokenCommand.Extend -> VoiceIntent("extend",minutes=parsed.minutes)
                 else -> null
             }
+        ).let { intent -> if(afterId!=null)intent?.copy(afterStopId=afterId) else intent }
         if (!LocalLanguageModel.ready && direct == null) return false
         Conversation.cancelPending()
         cancel(); spoken=isSpoken
@@ -120,6 +138,7 @@ object SmartVoice {
                 val matches=model.savedScenarios.filter { it.name.equals(intent.target,true) }
                 check(matches.size==1) { "I couldn't identify one saved item called ${intent.target}. Choose it from Add destination." }
                 model.continuation.begin(intent.placement)
+                intent.afterStopId?.let{model.continuation.afterStop(it)}
                 intent.travelMode?.let{model.continuation.mode(it)}
                 model.continuation.saved(matches.single())
                 if(intent.minutes>0) {
@@ -130,6 +149,7 @@ object SmartVoice {
             }
             "add_place" -> {
                 model.continuation.begin(intent.placement)
+                intent.afterStopId?.let{model.continuation.afterStop(it)}
                 intent.travelMode?.let{model.continuation.mode(it)}
                 val origin=model.continuation.origin()
                 check(model.hasKey) { "Add your Maps key in Setup to search." }

@@ -7,8 +7,8 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import org.json.JSONObject
 
-internal fun SavedStop.toStop() = ItineraryStop(name,LatLng(lat,lng),dwellMinutes,mode,avgMph,address,placeId,routingRealism,routingTransitPref,ownRoutingPreferences,frozenRoute,arriveByMillis)
-internal fun ItineraryStop.toSavedStop() = SavedStop(name,point.lat,point.lng,dwellMinutes,mode,avgMph,address,placeId,routingRealism,routingTransitPref,ownRoutingPreferences,frozenRoute,arriveByMillis)
+internal fun SavedStop.toStop() = ItineraryStop(name,LatLng(lat,lng),dwellMinutes,mode,avgMph,address,placeId,routingRealism,routingTransitPref,ownRoutingPreferences,frozenRoute,arriveByMillis,arrivalActivity,entrance,stayUntilLeave)
+internal fun ItineraryStop.toSavedStop() = SavedStop(name,point.lat,point.lng,dwellMinutes,mode,avgMph,address,placeId,routingRealism,routingTransitPref,ownRoutingPreferences,frozenRoute,arriveByMillis,arrivalActivity,entrance,stayUntilLeave)
 
 data class RecoveredTrip(val scenario: SavedScenario, val position: LatLng, val index: Int, val activity: ActivityKind, val remainingStay: Int, val savedId: String?, val timeScale: Double = 1.0, val speedOffset: Double = 0.0)
 

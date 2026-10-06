@@ -32,6 +32,8 @@ data class ContinuationDraft(
     val summary: String = "",
     val error: String? = null,
     val editorOpen: Boolean = true,
+    val pinTarget: String? = null,
+    val replaceId: String? = null,
 )
 
 /** Selecting saved content creates an isolated operation, never loading the general draft. */
@@ -52,6 +54,46 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
         val choice = placement ?: if (holding || LiveSession.plan == null || current == null) Placement.NOW else Placement.NEXT
         state = ContinuationDraft(LiveSession.epoch, current?.id, choice, source,
             mode = current?.stop?.mode ?: vm.mode)
+    }
+    fun afterStop(id: String) {state=state?.copy(anchorId=id,placement=Placement.NEXT);refresh()}
+    fun savePlace(): Boolean {
+        val stop=state?.stops?.singleOrNull() ?: return false
+        return vm.savePlaceSettings(stop,selectedSavedId)
+    }
+    fun beginReplace(id: String) {
+        begin()
+        val view=LiveSession.state.value
+        if(view.stops.drop(view.index+1).none{it.id==id}) { cancel();return }
+        state=state?.copy(replaceId=id,placement=Placement.NEXT)
+    }
+    fun mapPick(target: String) { state=state?.copy(pinTarget=target,editorOpen=false,ready=false) }
+    fun cancelMapPick() { state=state?.copy(pinTarget=null,editorOpen=true);refresh() }
+    fun pickPin(point: LatLng) {
+        val d=state ?: return
+        val target=d.pinTarget ?: return
+        if(d.stops.isEmpty()) {
+            state=d.copy(pinTarget=null,editorOpen=true)
+            pickResolved(PlaceHit(point,"Dropped pin","", ""))
+        } else {
+            val stop=d.stops.singleOrNull() ?: return
+            val updated=if(target=="entrance") stop.copy(entrance=point,frozenRoute=null) else stop.copy(point=point,frozenRoute=null)
+            state=d.copy(stops=listOf(updated),pinTarget=null,editorOpen=true)
+            refresh()
+        }
+    }
+    fun clearEntrance() { state=state?.let {it.copy(stops=it.stops.map{s->s.copy(entrance=null,frozenRoute=null)})};refresh() }
+    fun stayUntilLeave(value: Boolean) {state=state?.let {it.copy(stops=it.stops.map{s->s.copy(stayUntilLeave=value)})}}
+    fun beginSaved(item: SavedScenario, destinationOnly: Boolean = false) {
+        begin(source = when(item.kind) {
+            "SNAP" -> DestinationSource.SNAP
+            "ITINERARY" -> DestinationSource.ITINERARY
+            else -> DestinationSource.ROUTE
+        })
+        saved(item, destinationOnly)
+    }
+    fun arrival(value: ArrivalActivity) {
+        val d = state ?: return
+        if(d.stops.size == 1) state = d.copy(stops = listOf(d.stops.single().copy(arrivalActivity = value)))
     }
     fun cancel() { selectedSavedId=null; serial++; searchJob?.cancel(); previewJob?.cancel(); state = null }
     fun edit(open: Boolean) { state = state?.copy(editorOpen = open) }
@@ -78,7 +120,7 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
     }
     fun stay(minutes: Int) {
         val d = state ?: return
-        if (d.stops.size == 1) state = d.copy(stops = listOf(d.stops.single().copy(dwellMinutes = minutes.coerceIn(0, 1440))))
+        if (d.stops.size == 1) state = d.copy(stops = listOf(d.stops.single().copy(dwellMinutes = minutes.coerceIn(0, 1440),stayUntilLeave=false)))
     }
     fun onlyStop(index: Int) {
         val d = state ?: return
@@ -95,6 +137,12 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
     fun origin(d: ContinuationDraft = state ?: error("No addition")): LatLng {
         check(MockState.status.value.running && d.epoch == LiveSession.epoch) { "The session changed. Close this addition and choose Add stop again." }
         val view = LiveSession.plan?.view()
+        d.replaceId?.let { id ->
+            check(view!=null) {"The trip ended"}
+            val index=view.stops.indexOfFirst{it.id==id}
+            check(index>view.index) {"The trip advanced; choose another upcoming stop"}
+            return view.stops.getOrNull(index-1)?.stop?.point ?: LiveSession.plan!!.origin
+        }
         return when (d.placement) {
             Placement.NOW -> MockState.status.value.let { LatLng(it.lat, it.lng) }
             Placement.END -> view?.stops?.lastOrNull()?.stop?.point
@@ -139,7 +187,7 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
         serial++; searchJob?.cancel()
         state = d.copy(query = hit.name, hits = emptyList(), searching = false, title = hit.name,
             savedOrigin = null, adaptedRealStart = false,
-            stops = listOf(ItineraryStop(hit.name, hit.latLng, 0, d.mode, defaultSpeed(d.mode), hit.address, hit.placeId)))
+            stops = listOf(ItineraryStop(hit.name, hit.latLng, vm.defaultStayMinutes, d.mode, defaultSpeed(d.mode), hit.address, hit.placeId, arrivalActivity=vm.arrivalActivity,entrance=null,stayUntilLeave=vm.stayUntilLeave)))
         refresh()
     }
     fun saved(sc: SavedScenario, destinationOnly: Boolean = false) {
@@ -150,13 +198,13 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
             sc.kind == "ITINERARY" && !destinationOnly -> sc.stops.map {
                 ItineraryStop(it.name, LatLng(it.lat, it.lng), it.dwellMinutes, it.mode, it.avgMph,
                     it.address, it.placeId, it.routingRealism ?: sc.realism,
-                    if (it.ownRoutingPreferences) it.routingTransitPref else sc.transitPref, true,it.frozenRoute,it.arriveByMillis)
+                    if (it.ownRoutingPreferences) it.routingTransitPref else sc.transitPref, true,it.frozenRoute,it.arriveByMillis,it.arrivalActivity,it.entrance,it.stayUntilLeave)
             }
             else -> sc.dest?.let {
                 val mode = if (sc.kind == "SNAP") d.mode else sc.travelMode
                 listOf(ItineraryStop(if (sc.kind == "SNAP") sc.name else sc.destName.ifBlank { sc.name },
-                    it, 0, mode, sc.speeds[mode] ?: defaultSpeed(mode), sc.destAddress, sc.destPlaceId,
-                    sc.realism, sc.transitPref, true,if(destinationOnly)null else sc.frozenRoute))
+                    it, sc.defaultStayMinutes, mode, sc.speeds[mode] ?: defaultSpeed(mode), sc.destAddress, sc.destPlaceId,
+                    sc.realism, sc.transitPref, true,if(destinationOnly)null else sc.frozenRoute,arrivalActivity=sc.arrivalActivity,entrance=sc.entrance,stayUntilLeave=sc.stayUntilLeave))
             }.orEmpty()
         }
         if (selected.isEmpty()) {
@@ -172,11 +220,11 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
         refresh()
     }
     fun block(d: ContinuationDraft, from: LatLng): List<ItineraryStop> {
-        val coordinates = d.stops.map { it.point } + listOfNotNull(d.savedOrigin.takeIf { d.connectStart })
+        val coordinates = d.stops.map { it.point } + d.stops.mapNotNull {it.entrance} + listOfNotNull(d.savedOrigin.takeIf { d.connectStart })
         require(coordinates.all { it.lat.isFinite() && it.lng.isFinite() && it.lat in -90.0..90.0 && it.lng in -180.0..180.0 }) { "This saved item has invalid coordinates. Choose another destination." }
         val start = d.savedOrigin
         if (start == null || !d.connectStart || Geo.haversine(from, start) <= 5.0) return d.stops
-        return listOf(ItineraryStop(d.savedOriginName, start, 0, d.mode, defaultSpeed(d.mode))) + d.stops
+        return listOf(ItineraryStop(d.savedOriginName, start, 0, d.mode, defaultSpeed(d.mode), arrivalActivity=ArrivalActivity.OUTDOOR)) + d.stops
     }
     private fun refresh() {
         val d = state ?: return
@@ -198,7 +246,7 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
                     points=first.frozenRoute.points;summary="Exact saved path · ${fmtMiles(first.frozenRoute.distanceMeters)}"
                 } else {
                     check(vm.hasKey) { "A Maps key is needed to prepare this route. Your existing trip is unchanged." }
-                    val route = GoogleDirectionsRouteEngine(vm.api).route(RouteSpec(from, first.point, mode = first.mode,
+                    val route = GoogleDirectionsRouteEngine(vm.api).route(RouteSpec(from, first.entrance ?: first.point, mode = first.mode,
                         transitPreference = if (first.ownRoutingPreferences) first.routingTransitPref else vm.transitPref))
                     points = route.points; summary = "${first.mode.name.lowercase()} · ${fmtMiles(route.distanceMeters)}"
                 }
@@ -216,7 +264,10 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
             val from = origin(d)
             val additions = block(d, from)
             val old = LiveSession.plan
-            if (d.placement != Placement.NOW && old != null) {
+            if(d.replaceId!=null) {
+                check(old!=null && old.replaceUpcoming(d.replaceId,additions)) {"The trip advanced; choose another upcoming stop"}
+                vm.notice="Upcoming destination replaced"
+            } else if (d.placement != Placement.NOW && old != null) {
                 check(old.insertAfter(d.anchorId, additions, d.placement == Placement.END)) {
                     "The trip advanced. Close this addition and select the next stop again."
                 }
@@ -225,7 +276,7 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
                 val remaining = if (d.keepRemaining) old?.remainingForContinuation().orEmpty() else emptyList()
                 val all = additions + remaining
                 val cfg = vm.api; val realism = vm.realism; val transit = vm.transitPref
-                val plan = LivePlan(d.title, from, all, { a, b -> prepareLeg(cfg, a, b, realism, transit) },defaultsRealism=realism,defaultsTransitPref=transit)
+                val plan = LivePlan(d.title, from, all, { a, b -> prepareLeg(cfg, a, b, realism, transit) },defaultsRealism=realism,defaultsTransitPref=transit,initialDeparturePoint=old?.departureForContinuation())
                 PlaybackSource.current = plan.fixes(); PlaybackSource.routePoints = listOf(from)
                 PlaybackSource.label = d.title; PlaybackSource.endPoint = all.last().point
                 if (!d.keepRemaining) PlaybackSource.clearQueue()

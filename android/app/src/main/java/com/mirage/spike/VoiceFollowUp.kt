@@ -27,7 +27,7 @@ class VoiceFollowUp {
             return VoiceIntent("move",target.stop.name,position=rest.indexOf(anchor)+2)
         }
         if(normalized in setOf("remove it","delete that stop")) return VoiceIntent("remove",target.stop.name)
-        if(normalized in setOf("put it last","move it to the end")) return VoiceIntent("move",target.stop.name,position=upcoming.size)
+        if(normalized in setOf("put it last","move it to the end","add this stop at the end","add this stop at end")) return VoiceIntent("move",target.stop.name,position=upcoming.size)
         return null
     }
 }

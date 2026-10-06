@@ -1,5 +1,6 @@
 package com.mirage.spike.store
 
+import com.mirage.spike.engine.ArrivalActivity
 import com.mirage.spike.engine.RouteArchive
 import com.mirage.spike.engine.RouteResult
 import com.mirage.spike.engine.LatLng
@@ -23,6 +24,9 @@ data class SavedStop(
     val ownRoutingPreferences: Boolean = false,
     val frozenRoute: RouteResult? = null,
     val arriveByMillis: Long? = null,
+    val arrivalActivity: ArrivalActivity = ArrivalActivity.BUILDING,
+    val entrance: LatLng? = null,
+    val stayUntilLeave: Boolean = false,
 )
 
 /**
@@ -51,9 +55,17 @@ data class SavedScenario(
     val lastUsedAt: Long = 0L,
     val aliases: List<String> = emptyList(),
     val frozenRoute: RouteResult? = null,
+    val defaultStayMinutes: Int = 0,
     val departureMillis: Long? = null,
+    val arrivalActivity: ArrivalActivity = ArrivalActivity.BUILDING,
+    val entrance: LatLng? = null,
+    val stayUntilLeave: Boolean = false,
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
+        put("defaultStayMinutes", defaultStayMinutes)
+        put("stayUntilLeave", stayUntilLeave)
+        entrance?.let {put("entranceLat",it.lat);put("entranceLng",it.lng)}
+        put("arrivalActivity", arrivalActivity.name)
         departureMillis?.let {put("departureMillis",it)}
         frozenRoute?.let { put("frozenRoute", RouteArchive.encode(it)) }
         put("favorite", favorite); put("lastUsedAt", lastUsedAt); put("aliases", JSONArray(aliases))
@@ -70,6 +82,9 @@ data class SavedScenario(
         put("stops", JSONArray().apply {
             stops.forEach { s ->
                 put(JSONObject().apply {
+                    put("stayUntilLeave",s.stayUntilLeave)
+                    s.entrance?.let {put("entranceLat",it.lat);put("entranceLng",it.lng)}
+                    put("arrivalActivity", s.arrivalActivity.name)
                     put("name", s.name); put("lat", s.lat); put("lng", s.lng)
                     put("dwell", s.dwellMinutes); put("mode", s.mode.name); put("avgMph", s.avgMph.toDouble())
                     put("address", s.address); put("placeId", s.placeId)
@@ -100,6 +115,9 @@ data class SavedScenario(
                         s.optString("routingTransitPref").takeIf { it.isNotBlank() }, s.optBoolean("ownRoutingPreferences", false),
                         s.optJSONObject("frozenRoute")?.let { RouteArchive.decode(it) },
                         if(s.has("arriveByMillis"))s.getLong("arriveByMillis") else null,
+                        ArrivalActivity.parse(s.optString("arrivalActivity")),
+                        if(s.has("entranceLat")) LatLng(s.getDouble("entranceLat"),s.getDouble("entranceLng")) else null,
+                        s.optBoolean("stayUntilLeave",false),
                     )
                 }
             }
@@ -116,6 +134,10 @@ data class SavedScenario(
                 realism = runCatching { Realism.valueOf(o.optString("realism")) }.getOrDefault(Realism.REALISTIC),
                 transitPref = o.optString("transitPref").takeIf { it.isNotBlank() },
                 stops = stops, destAddress = o.optString("destAddress"), destPlaceId = o.optString("destPlaceId"),
+                arrivalActivity=ArrivalActivity.parse(o.optString("arrivalActivity")),
+                entrance=if(o.has("entranceLat")) LatLng(o.getDouble("entranceLat"),o.getDouble("entranceLng")) else null,
+                stayUntilLeave=o.optBoolean("stayUntilLeave",false),
+                defaultStayMinutes=o.optInt("defaultStayMinutes",0).coerceIn(0,1440),
                 departureMillis=if(o.has("departureMillis"))o.getLong("departureMillis") else null,
                 frozenRoute = o.optJSONObject("frozenRoute")?.let { RouteArchive.decode(it) },
                 favorite = o.optBoolean("favorite"), lastUsedAt = o.optLong("lastUsedAt"),

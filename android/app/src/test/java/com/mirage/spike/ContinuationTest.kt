@@ -27,6 +27,28 @@ class ContinuationTest {
             PreparedLeg(flowOf(Fix(target.point.lat, target.point.lng, 0f, 0f, 4f)), listOf(a, target.point))
         })
     }
+    @Test fun pinSelectionAndReplacementStayIsolatedUntilConfirmed() = runTest {
+        val plan=live();val job=launch {plan.fixes().collect {}};advanceTimeBy(1000)
+        val original=plan.view().stops
+        val vm=vm()
+        vm.continuation.beginReplace(original[1].id)
+        vm.continuation.mapPick("destination")
+        vm.continuation.pickPin(n);runCurrent()
+        vm.continuation.mapPick("entrance")
+        vm.continuation.pickPin(c);runCurrent()
+        vm.continuation.stayUntilLeave(true)
+        assertEquals(original,plan.view().stops)
+        assertEquals(c,vm.continuation.state!!.stops.single().entrance)
+        assertTrue(vm.continuation.commit {fail("Replacement must not restart")})
+        assertEquals(original[1].id,plan.view().stops[1].id)
+        assertEquals(n,plan.view().stops[1].stop.point)
+        assertTrue(plan.view().stops[1].stop.stayUntilLeave)
+        assertTrue(plan.undoEdit());assertEquals(original,plan.view().stops)
+        vm.continuation.begin();vm.continuation.mapPick("destination");vm.continuation.cancelMapPick()
+        assertNull(vm.continuation.state!!.pinTarget)
+        vm.continuation.cancel();assertEquals(original,plan.view().stops)
+        job.cancelAndJoin()
+    }
     @Test fun nextAndEndAreDifferentAndPreserveCurrentStay() = runTest {
         val plan = live(); val job = launch { plan.fixes().collect {} }; advanceTimeBy(1000)
         val current = plan.view().stops[0].id

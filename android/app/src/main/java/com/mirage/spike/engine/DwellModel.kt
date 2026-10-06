@@ -31,7 +31,9 @@ class DwellModel(
     private var driftN = 0.0
     private var driftE = 0.0
 
-    fun next(dtSec: Double): Fix = when (state) {
+    fun next(dtSec: Double): Fix {
+        if(radiusM <= 0.0) return anchor.copy(speedMps=0f, accuracyM=8f)
+        return when (state) {
         State.AT_DESK, State.AWAY -> {
             remainingS -= dtSec
             if (remainingS <= 0) {
@@ -59,6 +61,8 @@ class DwellModel(
             anchor.copy(lat = spot.lat, lng = spot.lng, speedMps = walkSpeed.toFloat(),
                 bearingDeg = walkBearing.toFloat(), accuracyM = 5f + rnd.nextFloat() * 3f)
         }
+    }
+
     }
 
     /** A spot inside the building envelope: 4 m to [radiusM] from the desk. */

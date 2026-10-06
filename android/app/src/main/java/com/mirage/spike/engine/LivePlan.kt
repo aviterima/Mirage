@@ -53,6 +53,7 @@ class LivePlan(
     val departureMillis: Long? = null,
     val defaultsRealism: Realism = Realism.REALISTIC,
     val defaultsTransitPref: String? = null,
+    initialDeparturePoint: LatLng? = null,
 ) {
     private val entries = stops.map { LiveStop(stop = it) }.toMutableList()
     private var undoEntries: List<LiveStop>? = null
@@ -76,6 +77,9 @@ class LivePlan(
     private var points = firstLeg?.points.orEmpty()
     private var staySeconds = 0.0
     private var extraOnArrivalSeconds = 0.0
+    private var manualReleased = false
+    @Volatile private var departurePoint: LatLng? = initialDeparturePoint
+    @Synchronized fun departureForContinuation(): LatLng? = if(kind in setOf(ActivityKind.STAYING,ActivityKind.HOLDING) && routeFailure==null) departurePoint else null
 
     @Volatile private var routeFailure: String? = null
     @Volatile private var retryRequested = false
@@ -101,6 +105,33 @@ class LivePlan(
     /** Full replay template: elapsed time never changes configured durations. */
     @Synchronized fun stopsForSave(): List<ItineraryStop> = entries.map { it.stop }
     @Synchronized fun append(stop: ItineraryStop) { rememberEdit(); entries += LiveStop(stop = stop); publish() }
+    @Synchronized fun replaceUpcoming(id: String, stops: List<ItineraryStop>): Boolean {
+        val i=entries.indexOfFirst{it.id==id}
+        if(i<=index || i<0 || stops.isEmpty()) return false
+        rememberEdit(); entries.removeAt(i)
+        entries.addAll(i,stops.mapIndexed { n,s -> if(n==0) LiveStop(id,s) else LiveStop(stop=s) })
+        publish();return true
+    }
+    @Synchronized fun setStopPreferences(id: String, minutes: Int, untilLeave: Boolean, arrival: ArrivalActivity?): Boolean {
+        val i=entries.indexOfFirst {it.id==id}
+        if(i<index || i<0)return false
+        if(i>index)rememberEdit()
+        if(i==index) {setCurrentStay(minutes);manualReleased=false}
+        val stop=entries[i].stop
+        entries[i]=entries[i].copy(stop=stop.copy(dwellMinutes=minutes.coerceIn(0,1440),stayUntilLeave=untilLeave,arrivalActivity=if(i>index) arrival ?: stop.arrivalActivity else stop.arrivalActivity))
+        publish();return true
+    }
+    @Synchronized fun setArrival(id: String, value: ArrivalActivity): Boolean {
+        val i=entries.indexOfFirst{it.id==id};if(i<=index || i<0)return false
+        rememberEdit();entries[i]=entries[i].copy(stop=entries[i].stop.copy(arrivalActivity=value));publish();return true
+    }
+    @Synchronized fun setHold(id: String, value: Boolean): Boolean {
+        val i=entries.indexOfFirst{it.id==id};if(i<index || i<0)return false
+        if(i>index)rememberEdit() else manualReleased=false
+        entries[i]=entries[i].copy(stop=entries[i].stop.copy(stayUntilLeave=value));publish();return true
+    }
+    @Synchronized private fun manualStay() = !manualReleased && entries.getOrNull(index)?.stop?.stayUntilLeave == true
+    @Synchronized private fun leaveCurrent() {manualReleased=true;staySeconds=0.0;publish()}
     @Synchronized fun remove(id: String): Boolean {
         val i = entries.indexOfFirst { it.id == id }
         if (i <= index || i < 0) return false
@@ -115,7 +146,7 @@ class LivePlan(
         val i = entries.indexOfFirst { it.id == id }
         if (i <= index || i < 0) return false
         rememberEdit()
-        entries[i] = entries[i].copy(stop = entries[i].stop.copy(dwellMinutes = minutes.coerceIn(0, 1440)))
+        entries[i] = entries[i].copy(stop = entries[i].stop.copy(dwellMinutes = minutes.coerceIn(0, 1440),stayUntilLeave=false))
         publish(); return true
     }
     @Synchronized fun setDeadline(id: String, time: Long?): Boolean {
@@ -134,7 +165,7 @@ class LivePlan(
     @Synchronized fun setCurrentStay(minutes: Int): Boolean {
         if (index !in entries.indices) return false
         val seconds = minutes.coerceIn(0, 1440) * 60.0
-        entries[index] = entries[index].copy(stop = entries[index].stop.copy(dwellMinutes = minutes.coerceIn(0, 1440)))
+        entries[index] = entries[index].copy(stop = entries[index].stop.copy(dwellMinutes = minutes.coerceIn(0, 1440),stayUntilLeave=false))
         if (kind == ActivityKind.TRAVELING || kind == ActivityKind.ROUTING) {
             extraOnArrivalSeconds = 0.0
         } else {
@@ -147,12 +178,12 @@ class LivePlan(
         if (kind == ActivityKind.STAYING || kind == ActivityKind.HOLDING) { kind = ActivityKind.STAYING; staySeconds = (staySeconds + minutes * 60).coerceIn(0.0, 86400.0) }
         else if (kind == ActivityKind.TRAVELING || kind == ActivityKind.ROUTING) extraOnArrivalSeconds = 0.0
         else return false
-        entries[index] = entries[index].copy(stop = entries[index].stop.copy(dwellMinutes = (entries[index].stop.dwellMinutes + minutes).coerceIn(0, 1440)))
+        entries[index] = entries[index].copy(stop = entries[index].stop.copy(dwellMinutes = (entries[index].stop.dwellMinutes + minutes).coerceIn(0, 1440),stayUntilLeave=false))
         publish(); return true
     }
     @Synchronized private fun next(): ItineraryStop? {
         if (index + 1 >= entries.size) return null
-        index++; kind = ActivityKind.ROUTING; publish(); return entries[index].stop
+        index++; manualReleased=false; kind = ActivityKind.ROUTING; publish(); return entries[index].stop
     }
     @Synchronized private fun traveling(p: List<LatLng>) { points = p; kind = ActivityKind.TRAVELING; publish() }
     @Synchronized private fun beginStay(stop: ItineraryStop) {
@@ -173,21 +204,32 @@ class LivePlan(
             emit(last.copy(speedMps=0f,remainingSec=((departureMillis-System.currentTimeMillis())/1000).toInt().coerceAtLeast(0)))
             delay(200)
         }
+        var lastArrival = ArrivalActivity.BUILDING
+        var arrivalNote = ""
         while (true) {
             val stop = next()
             if (stop == null) {
                 hold()
-                MockState.update { it.copy(stepLabel = "Arrived — holding until you leave or Stop", legIndex = index) }
-                val dwell = DwellModel(last.copy(speedMps = 0f))
-                while (!hasNext() || remaining() > 0) {
-                    if (remaining() <= 0 && PlaybackSource.queueSize() > 0) return@flow
-                    if (remaining() > 0 && PlaybackSource.consumeSkip()) { tickStay(86400.0); hold() }
-                    emit(dwell.next(0.2 * PlaybackSource.timeScale).copy(progress = -1f, remainingSec = if (remaining() > 0) (remaining() / PlaybackSource.timeScale).toInt() else -1))
+                MockState.update { it.copy(stepLabel = if(arrivalNote.isNotBlank()) arrivalNote else "Arrived · ${lastArrival.label} — holding until you leave or Stop", legIndex = index) }
+                val dwell = DwellModel(last.copy(speedMps = 0f), if(lastArrival == ArrivalActivity.OUTDOOR) 12.0 else 0.0)
+                while (!hasNext() || remaining() > 0 || manualStay()) {
+                    if (!manualStay() && remaining() <= 0 && PlaybackSource.queueSize() > 0) return@flow
+                    if (PlaybackSource.consumeSkip()) { leaveCurrent(); hold() }
+                    last = dwell.next(0.2 * PlaybackSource.timeScale).copy(progress = -1f, remainingSec = if (remaining() > 0) (remaining() / PlaybackSource.timeScale).toInt() else -1)
+                    emit(last)
                     delay(200)
-                    if (remaining() > 0 && tickStay(0.2 * PlaybackSource.timeScale) <= 0) hold()
+                    if (!manualStay() && remaining() > 0 && tickStay(0.2 * PlaybackSource.timeScale) <= 0) hold()
                 }
                 continue
             }
+            departurePoint?.let { exit ->
+                val walk=ArrivalModel(last,exit)
+                if(walk.canWalk) {
+                    MockState.update {it.copy(stepLabel="Walking outside for ${stop.name}")}
+                    while(!walk.complete) {last=walk.next(0.2*PlaybackSource.timeScale);emit(last);delay(200)}
+                }
+            }
+            departurePoint=null
             var prepared: PreparedLeg? = null
             var skipped = false
             while (prepared == null && !skipped) {
@@ -221,14 +263,41 @@ class LivePlan(
             PlaybackSource.endPoint = leg.points.lastOrNull()
             MockState.update { it.copy(stepLabel = "To ${stop.name}", legIndex = index) }
             leg.flow.collect { last = it; emit(it) }
+            arrivalNote = ""
+            val roadEnd=LatLng(last.lat,last.lng)
+            // A recovered stay already has its correct anchor; do not replay arrival.
+            if (!(index == resumeIndex && resumeStaySeconds != null) && stop.mode != TravelMode.FLY && stop.arrivalActivity != ArrivalActivity.OUTDOOR) {
+                // Both connections are checked before moving, rather than partially walking an invalid path.
+                val entrance=stop.entrance ?: roadEnd
+                val first=ArrivalModel(last,entrance)
+                val interior=ArrivalModel(last.copy(lat=entrance.lat,lng=entrance.lng),stop.point)
+                val arrival = ArrivalModel(last, if(first.canWalk && interior.canWalk) entrance else LatLng(Double.NaN,0.0))
+                if(arrival.canWalk) {
+                    MockState.update { it.copy(stepLabel = "Walking to ${stop.name} · destination pin") }
+                    traveling(leg.points + stop.point)
+                    while(!arrival.complete) {
+                        val nextFix = arrival.next(0.2 * PlaybackSource.timeScale)
+                        last = nextFix; emit(nextFix); delay(200)
+                    }
+                    val inside=ArrivalModel(last,stop.point)
+                    while(!inside.complete) {last=inside.next(0.2*PlaybackSource.timeScale);emit(last);delay(200)}
+                    departurePoint=stop.entrance ?: roadEnd
+                    PlaybackSource.endPoint = stop.point
+                } else {
+                    arrivalNote = "Destination pin too far from arrival; holding at route end. Adjust the pin."
+                }
+            }
+            if(index==resumeIndex && resumeStaySeconds!=null) departurePoint=stop.entrance
+            lastArrival = stop.arrivalActivity
             beginStay(stop)
-            val dwell = DwellModel(last.copy(speedMps = 0f), 12.0)
-            MockState.update { it.copy(stepLabel = "At ${stop.name}" + if(stop.arriveByMillis!=null && System.currentTimeMillis()>stop.arriveByMillis) " · arrival target missed" else "") }
-            while (remaining() > 0) {
-                if (PlaybackSource.consumeSkip()) { tickStay(86400.0); break }
-                emit(dwell.next(0.2 * PlaybackSource.timeScale).copy(remainingSec = (remaining() / PlaybackSource.timeScale).toInt()))
+            val dwell = DwellModel(last.copy(speedMps = 0f), if(stop.arrivalActivity == ArrivalActivity.OUTDOOR) 12.0 else 0.0)
+            MockState.update { it.copy(stepLabel = arrivalNote.ifBlank { "At ${stop.name} · ${stop.arrivalActivity.label}" } + if(stop.arriveByMillis!=null && System.currentTimeMillis()>stop.arriveByMillis) " · arrival target missed" else "") }
+            while (remaining() > 0 || manualStay()) {
+                if (PlaybackSource.consumeSkip()) { leaveCurrent(); break }
+                last = dwell.next(0.2 * PlaybackSource.timeScale).copy(remainingSec = (remaining() / PlaybackSource.timeScale).toInt())
+                emit(last)
                 delay(200)
-                tickStay(0.2 * PlaybackSource.timeScale)
+                if(!manualStay()) tickStay(0.2 * PlaybackSource.timeScale)
             }
         }
     }
@@ -244,7 +313,7 @@ suspend fun prepareLeg(cfg: ApiConfig, from: LatLng, stop: ItineraryStop, realis
     val effectiveTransit = if (stop.ownRoutingPreferences) stop.routingTransitPref else transitPreference
     val archived=stop.frozenRoute
     if(archived!=null) require(stop.mode!=TravelMode.TRANSIT && Geo.haversine(from,archived.points.first())<100.0) { "Exact route starts elsewhere. Add a connecting leg or recalculate this route." }
-    val r = archived ?: GoogleDirectionsRouteEngine(cfg).route(RouteSpec(from, stop.point, mode = stop.mode, transitPreference = effectiveTransit))
+    val r = archived ?: GoogleDirectionsRouteEngine(cfg).route(RouteSpec(from, stop.entrance ?: stop.point, mode = stop.mode, transitPreference = effectiveTransit))
     val flow = when {
         stop.mode == TravelMode.TRANSIT -> TransitModel(r).fixes()
         stop.mode == TravelMode.DRIVE && r.segments.isNotEmpty() -> DriveModel(r, effectiveRealism).fixes()
@@ -254,9 +323,9 @@ suspend fun prepareLeg(cfg: ApiConfig, from: LatLng, stop: ItineraryStop, realis
 }
 
 /** Snap is a one-stop session too, so timed stays and future stops remain editable. */
-fun holdPlan(at: LatLng, name: String, cfg: ApiConfig): LivePlan {
-    val stop = ItineraryStop(name, at, 0)
+fun holdPlan(at: LatLng, name: String, cfg: ApiConfig, arrival: ArrivalActivity = ArrivalActivity.BUILDING, entrance: LatLng? = null, untilLeave: Boolean = false, minutes: Int = 0): LivePlan {
+    val stop = ItineraryStop(name, at, minutes, arrivalActivity=arrival,entrance=entrance,stayUntilLeave=untilLeave)
     return LivePlan(name, at, listOf(stop), { from, to -> prepareLeg(cfg, from, to) },
-        PreparedLeg(flow { emit(Fix(at.lat, at.lng, 0f, 0f, 4f)) }, listOf(at)))
+        PreparedLeg(flow { emit(Fix(at.lat, at.lng, 0f, 0f, 4f)) }, listOf(at)),resumeStaySeconds=minutes*60)
 }
 

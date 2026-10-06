@@ -13,7 +13,7 @@ import com.mirage.spike.engine.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MyItinerarySheet(vm: MirageViewModel, onDismiss: () -> Unit, onAdd: () -> Unit) {
+fun MyItinerarySheet(vm: MirageViewModel, onDismiss: () -> Unit, onAdd: () -> Unit, onReplace: (String)->Unit = {}) {
     val session by LiveSession.state.collectAsState(context = kotlinx.coroutines.Dispatchers.Main.immediate)
     var saveNew by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
@@ -44,7 +44,7 @@ fun MyItinerarySheet(vm: MirageViewModel, onDismiss: () -> Unit, onAdd: () -> Un
             if(showVisited) Column(Modifier.heightIn(max=100.dp).verticalScroll(rememberScrollState())) {session.stops.take(session.index.coerceAtLeast(0)).forEach { Text("✓ ${it.stop.name}") }}
             session.stops.getOrNull(session.index)?.let { current ->
                 Text("Current: ${current.stop.name}", fontWeight=FontWeight.Bold)
-                Text(if(session.activity==ActivityKind.STAYING) "${(session.remainingStaySeconds+59)/60} min remaining" else session.activity.name.lowercase())
+                Text(if(current.stop.stayUntilLeave && session.activity==ActivityKind.STAYING) "Staying until you leave" else if(session.activity==ActivityKind.STAYING) "${(session.remainingStaySeconds+59)/60} min remaining" else session.activity.name.lowercase())
                 TextButton(onClick={stayId=current.id}) {Text(if(session.activity in setOf(ActivityKind.STAYING,ActivityKind.HOLDING)) "Set remaining stay" else "Set stay on arrival")}
             }
             val future=session.stops.drop((session.index+1).coerceAtLeast(0))
@@ -54,23 +54,25 @@ fun MyItinerarySheet(vm: MirageViewModel, onDismiss: () -> Unit, onAdd: () -> Un
                 if(entry != null && LiveSession.plan?.move(entry.id,to-from)!=true) message="The trip advanced; review the remaining stops"
             }) { i,stop,handle ->
                 val entry=future[i]
+                Column {
+                TextButton(onClick={onReplace(entry.id)}) {Text("Replace ${stop.name}")}
                 ChainRow(index=session.index+1+i,stop=stop,entry=null,current=false,done=false,
                     onMode={LiveSession.plan?.setMode(entry.id,it)},onStay={stayId=entry.id},
                     onMove={LiveSession.plan?.move(entry.id,it)},onRemove={LiveSession.plan?.remove(entry.id)},
                     handleModifier=handle,canMoveUp=i>0,canMoveDown=i<future.lastIndex)
+                }
             }
             }
             stayId?.let { id ->
                 session.stops.firstOrNull{it.id==id}?.let { entry ->
                     val isCurrent=session.stops.getOrNull(session.index)?.id==id
                     DwellDialog(entry.stop.name,if(isCurrent && session.activity==ActivityKind.STAYING)(session.remainingStaySeconds+59)/60 else entry.stop.dwellMinutes,
-                    onSet={minutes ->
-                        val plan=LiveSession.plan
-                        val view=plan?.view()
-                        val updated=if(isCurrent && plan!=null && view!=null && view.stops.getOrNull(view.index)?.id==id) plan.setCurrentStay(minutes) else plan?.setStay(id,minutes)==true
-                        if(!updated)message="The trip advanced; review the current stop"
+                    onSet={},onDismiss={stayId=null},untilLeave=entry.stop.stayUntilLeave,
+                    arrival=if(isCurrent)null else entry.stop.arrivalActivity,
+                    onPreferences={minutes,untilLeave,arrival ->
+                        if(LiveSession.plan?.setStopPreferences(id,minutes,untilLeave,arrival)!=true) message="The trip advanced; review the current stop"
                         stayId=null
-                    },onDismiss={stayId=null},deadline=entry.stop.arriveByMillis,onDeadline=if(isCurrent)null else {time -> LiveSession.plan?.setDeadline(id,time);Unit})
+                    },deadline=entry.stop.arriveByMillis,onDeadline=if(isCurrent)null else {time -> LiveSession.plan?.setDeadline(id,time);Unit})
                 }
             }
             TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Back to map") }

@@ -23,7 +23,7 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun SavedPlansDialog(vm: MirageViewModel, active: Boolean = false, onDismiss: () -> Unit, onLoaded: (SavedScenario) -> Unit) {
+internal fun SavedPlansDialog(vm: MirageViewModel, active: Boolean = false, onDismiss: () -> Unit, onLoaded: (SavedScenario) -> Unit, onAddLive: (SavedScenario, Boolean) -> Unit = { _, _ -> }) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
@@ -95,7 +95,7 @@ internal fun SavedPlansDialog(vm: MirageViewModel, active: Boolean = false, onDi
                                 Text((if(item.favorite) "★ " else "")+item.name,style=MaterialTheme.typography.titleMedium)
                                 Text(if(item.kind=="ITINERARY") "${item.stops.size} stops · ${item.stops.sumOf{it.dwellMinutes}} min staying" else item.startName+" → "+item.destName,style=MaterialTheme.typography.bodySmall)
                             }
-                            TextButton(onClick={vm.loadScenario(item);onLoaded(item)},modifier=Modifier.semantics{contentDescription="Load ${item.name}"}) { Text("Open") }
+                            TextButton(onClick={if(active) onAddLive(item, false) else {vm.loadScenario(item);onLoaded(item)}},modifier=Modifier.semantics{contentDescription=if(active) "Add ${item.name} to current trip" else "Load ${item.name}"}) { Text(if(active) "Add to trip" else "Open") }
                             var menu by remember(item.id) {mutableStateOf(false)}
                             Box {
                                 IconButton(onClick={menu=true}) { Icon(Icons.Default.MoreVert,"Options for ${item.name}") }
@@ -121,13 +121,15 @@ internal fun SavedPlansDialog(vm: MirageViewModel, active: Boolean = false, onDi
                         if(selected==item.id) {
                             if(item.destAddress.isNotBlank()) Text(item.destAddress)
                             item.stops.forEachIndexed { i,s -> Text("${i+1}. ${s.name} · ${s.dwellMinutes} min · ${s.mode.name.lowercase()}") }
-                            if(item.kind=="SNAP") {
+                            if(active) {
+                                if(item.kind=="ROUTE") TextButton(onClick={onAddLive(item,true)}) {Text("Destination only")}
+                            } else if(item.kind=="SNAP") {
                                 TextButton(onClick={vm.useSavedPlaceAsStart(item);onLoaded(item)}) {Text("Use as start")}
                                 TextButton(onClick={vm.useSavedPlaceAsDestination(item);onLoaded(item)}) {Text("Use as destination")}
                                 TextButton(onClick={vm.addSavedPlaceStop(item);onLoaded(item)}) {Text("Add as stop")}
                             }
-                            if(item.kind=="ROUTE") TextButton(onClick={if(vm.appendSavedRoute(item))onLoaded(item) else if(vm.error?.contains("connecting leg")==true)connector=item else message=vm.error.orEmpty()}) {Text("Add to itinerary")}
-                            if(item.kind=="ITINERARY") TextButton(onClick={vm.appendSavedItinerary(item);onLoaded(item)}) {Text("Add its stops")}
+                            if(!active && item.kind=="ROUTE") TextButton(onClick={if(vm.appendSavedRoute(item))onLoaded(item) else if(vm.error?.contains("connecting leg")==true)connector=item else message=vm.error.orEmpty()}) {Text("Add to itinerary")}
+                            if(!active && item.kind=="ITINERARY") TextButton(onClick={vm.appendSavedItinerary(item);onLoaded(item)}) {Text("Add its stops")}
                         }
                     }
                 }

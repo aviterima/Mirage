@@ -221,6 +221,7 @@ fun MapScreen(
     val live = status.running && !planning
     var showSetup by remember { mutableStateOf(false) }
     var showSaved by remember { mutableStateOf(false) }
+    var plannerPinPick by remember { mutableStateOf<String?>(null) }
     var footerPx by remember {mutableStateOf(0)}
     val density=LocalDensity.current
     var sheetCollapsed by remember { mutableStateOf(false) }
@@ -339,7 +340,7 @@ fun MapScreen(
         getRoute = { vm.buildRoute() },
         start = { withPerms { vm.startSim(onStartService); planning = false } },
         startItinerary = { withPerms { vm.startItinerary(onStartService); planning = false } },
-        holdAt = { at -> withPerms { armStatic(at, vm.destName, vm.api); vm.onSnapStarted(); onStartService(); planning = false } },
+        holdAt = { at -> withPerms { armStatic(at, vm.destName, vm.api, vm.arrivalActivity, vm.arrivalEntrance, vm.stayUntilLeave, vm.defaultStayMinutes); vm.onSnapStarted(); onStartService(); planning = false } },
     )
     val onStop = { TripRecovery.clearLive(); Conversation.cancelPending(); onStopService(); vm.onStopped(); planning = false }
     val planNow = { planning = false; follow = false; vm.continuation.begin(Placement.NOW) }
@@ -371,7 +372,14 @@ fun MapScreen(
                     else -> maxSheet
                 },
             ),
-            onMapClick = { if (!live) vm.setDestPoint(it.toE()) },
+            onMapClick = { point ->
+                when {
+                    vm.continuation.state?.pinTarget!=null -> vm.continuation.pickPin(point.toE())
+                    plannerPinPick=="entrance" -> {vm.setEntrance(point.toE());plannerPinPick=null;showPlannerSettings=true}
+                    plannerPinPick=="destination" -> {vm.fineTuneDestination(point.toE());plannerPinPick=null;showPlannerSettings=true}
+                    !live -> vm.setDestPoint(point.toE())
+                }
+            },
             onMapLongClick = { if (!live) vm.setStartPoint(it.toE()) },
         ) {
             val arrow = remember { runCatching { navigationArrow(ACCENT) }.getOrNull() }
@@ -395,9 +403,22 @@ fun MapScreen(
                     title = vm.destName,
                 )
             }
+            if(!live) {
+                val destination=if(vm.planMode==PlanMode.ITINERARY)vm.stops.lastOrNull()?.point else vm.dest
+                val entrance=if(vm.planMode==PlanMode.ITINERARY)vm.stops.lastOrNull()?.entrance else vm.arrivalEntrance
+                if(destination!=null && entrance!=null) {
+                    Marker(state=rememberMarkerState(key="planner-entrance-$entrance",position=entrance.toG()),title="Entrance / parking")
+                    Polyline(points=listOf(entrance.toG(),destination.toG()),color=VIOLET,width=5f)
+                }
+            }
             addition?.let { draft ->
                 if (draft.points.isNotEmpty()) Polyline(points = draft.points.map { it.toG() }, color = VIOLET, width = 9f)
                 draft.stops.forEachIndexed { index, stop ->
+                    val entrance=stop.entrance ?: draft.points.lastOrNull().takeIf {draft.stops.size==1 && draft.savedOrigin==null}
+                    if(entrance!=null && stop.mode!=TravelMode.FLY && stop.arrivalActivity!=com.mirage.spike.engine.ArrivalActivity.OUTDOOR) {
+                        Polyline(points=listOf(entrance.toG(),stop.point.toG()),color=VIOLET,width=5f)
+                        Marker(state=rememberMarkerState(key="entrance-$index-$entrance",position=entrance.toG()),title=if(stop.entrance!=null) "Entrance / parking" else "Road arrival",snippet="Walking connection is approximate")
+                    }
                     Marker(state = rememberMarkerState(key = "addition-$index-${stop.point}", position = stop.point.toG()),
                         title = stop.name, snippet = stop.address,
                         icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_VIOLET))
@@ -659,6 +680,13 @@ fun MapScreen(
             }
         }
 
+        val picking=addition?.pinTarget ?: plannerPinPick
+        if(picking!=null) Card(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top=64.dp,start=16.dp,end=16.dp)) {
+            Column(Modifier.padding(12.dp)) {
+                Text(if(picking=="entrance") "Tap the entrance or parking point" else "Tap the final destination (inside the building if desired)")
+                TextButton(onClick={if(addition?.pinTarget!=null)vm.continuation.cancelMapPick() else {plannerPinPick=null;showPlannerSettings=true}}){Text("Cancel pin selection")}
+            }
+        }
         val mockBlocked = !status.running && status.blocked
 
         // ---- Bottom sheet: capped at half the screen, scrolls inside, collapsible -----
@@ -668,7 +696,7 @@ fun MapScreen(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                 if (addition != null) ContinuationPreviewBar(vm.continuation, confirmAddition)
                 else CompactLiveControls(status, session, onStop, onAdd = addDestination,
-                    onChat = { showChat = true }, onDetails = { showLiveDetails = true }, notice = vm.notice)
+                    onChat = { showChat = true }, onDetails = { showLiveDetails = true }, onSaved = { showSaved = true }, notice = vm.notice)
             }
         } else Card(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth().testTag("plannerFooter").onSizeChanged{footerPx=it.height}.navigationBarsPadding().padding(8.dp),
@@ -708,6 +736,23 @@ fun MapScreen(
     ) {
         Column(Modifier.fillMaxWidth().heightIn(max = maxSheet * 1.6f).verticalScroll(rememberScrollState()).padding(16.dp)) {
             Text("Trip settings", style = MaterialTheme.typography.titleLarge)
+            val target=if(vm.planMode==PlanMode.ITINERARY)vm.stops.lastOrNull() else null
+            target?.let {Text("Arrival settings for ${it.name}")}
+            ArrivalActivityPicker(target?.arrivalActivity ?: vm.arrivalActivity) {
+                vm.arrivalActivity=it
+                if(target!=null)vm.stops[vm.stops.lastIndex]=vm.stops.last().copy(arrivalActivity=it)
+            }
+            StayChoicePicker(target?.dwellMinutes ?: vm.defaultStayMinutes,target?.stayUntilLeave ?: vm.stayUntilLeave,{
+                vm.defaultStayMinutes=it
+                if(target!=null)vm.stops[vm.stops.lastIndex]=vm.stops.last().copy(dwellMinutes=it)
+            },{
+                vm.stayUntilLeave=it
+                if(target!=null)vm.stops[vm.stops.lastIndex]=vm.stops.last().copy(stayUntilLeave=it)
+            })
+            TextButton(enabled=vm.dest!=null || vm.stops.isNotEmpty(),onClick={showPlannerSettings=false;plannerPinPick="destination"}) {Text("Fine-tune destination pin")}
+            TextButton(enabled=vm.dest!=null || vm.stops.isNotEmpty(),onClick={showPlannerSettings=false;plannerPinPick="entrance"}) {Text("Set entrance / parking pin")}
+            if((if(target!=null)target.entrance else vm.arrivalEntrance)!=null) TextButton(onClick={vm.setEntrance(null)}) {Text("Remove entrance pin")}
+
             Text(vm.departureMillis?.let {"Departure ${tripTime(it)}"} ?: "Depart when started")
             TextButton(onClick={chooseTripTime(context,vm.departureMillis ?: System.currentTimeMillis()){vm.departureMillis=it}}){Text("Set departure")}
             if(vm.departureMillis!=null)TextButton(onClick={vm.departureMillis=null}){Text("Depart when started")}
@@ -753,14 +798,18 @@ fun MapScreen(
             confirmButton = { TextButton(onClick = { showLiveDetails = false }) { Text("Back to map") } },
         )
     }
-    if (showItinerary) MyItinerarySheet(vm, onDismiss = { showItinerary = false }, onAdd = { showItinerary = false; addDestination() })
+    if (showItinerary) MyItinerarySheet(vm, onDismiss = { showItinerary = false }, onAdd = { showItinerary = false; addDestination() }, onReplace = { id -> showItinerary=false;planning=false;follow=false;vm.continuation.beginReplace(id) })
     if (showChat) ChatPanel { showChat = false }
     if (showUpcoming) UpcomingDialog(session, onDismiss = { showUpcoming = false }, onAdd = { showUpcoming = false; planNext() })
     if (showAdvanced) AdvancedDialog(status) { showAdvanced = false }
     if (showSaved) {
         SavedPlansDialog(
             vm = vm,
-            active = live,
+            active = status.running,
+            onAddLive = { item, destinationOnly ->
+                showSaved = false; planning = false; follow = false
+                vm.continuation.beginSaved(item, destinationOnly)
+            },
             onDismiss = { showSaved = false },
             onLoaded = { sc ->
                 showSaved = false
@@ -778,6 +827,8 @@ fun MapScreen(
             stopName = stop.name, minutes = stop.dwellMinutes,
             onSet = { m -> vm.setDwell(i, m); vm.dwellEditIndex = null },
             deadline=stop.arriveByMillis,onDeadline={vm.setStopDeadline(i,it)},
+            arrival=stop.arrivalActivity,onArrival={vm.stops[i]=vm.stops[i].copy(arrivalActivity=it)},
+            untilLeave=stop.stayUntilLeave,onHold={vm.stops[i]=vm.stops[i].copy(stayUntilLeave=it)},
             onDismiss = { vm.dwellEditIndex = null },
         )
     }
@@ -1290,15 +1341,19 @@ private fun fmtStay(minutes: Int): String {
 }
 
 @Composable
-internal fun DwellDialog(stopName: String, minutes: Int, onSet: (Int) -> Unit, onDismiss: () -> Unit, deadline: Long? = null, onDeadline: ((Long?)->Unit)? = null) {
+internal fun DwellDialog(stopName: String, minutes: Int, onSet: (Int) -> Unit, onDismiss: () -> Unit, deadline: Long? = null, onDeadline: ((Long?)->Unit)? = null, arrival: com.mirage.spike.engine.ArrivalActivity? = null, onArrival: ((com.mirage.spike.engine.ArrivalActivity)->Unit)? = null, untilLeave: Boolean = false, onHold: ((Boolean)->Unit)? = null, onPreferences: ((Int, Boolean, com.mirage.spike.engine.ArrivalActivity?)->Unit)? = null) {
     val context=LocalContext.current
+    var selectedHold by remember(untilLeave) { mutableStateOf(untilLeave) }
+    var selectedArrival by remember(arrival) { mutableStateOf(arrival) }
     var text by remember { mutableStateOf(minutes.toString()) }
     val value = text.trim().toIntOrNull()
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Stay at $stopName") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.heightIn(max=450.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if(onHold!=null || onPreferences!=null) StayChoicePicker(value ?: minutes,selectedHold,{text=it.toString()},{selectedHold=it})
+                if(selectedArrival!=null && (onArrival!=null || onPreferences!=null)) ArrivalActivityPicker(selectedArrival!!) { selectedArrival=it }
                 Text("How long to stay before continuing the itinerary (0–1,440 minutes).", fontSize = 12.sp, color = MUTED)
                 if(onDeadline!=null) {
                     TextButton(onClick={chooseTripTime(context,deadline ?: System.currentTimeMillis()){onDeadline(it)}}){Text(deadline?.let{"Arrive by ${tripTime(it)}"} ?: "Set arrival target")}
@@ -1317,7 +1372,7 @@ internal fun DwellDialog(stopName: String, minutes: Int, onSet: (Int) -> Unit, o
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { value?.let(onSet) }, enabled = value != null && value in 0..1440) { Text("Set") } },
+        confirmButton = { TextButton(onClick = { if(onPreferences!=null) value?.let {onPreferences(it,selectedHold,selectedArrival)} else {selectedArrival?.let { onArrival?.invoke(it) }; value?.let(onSet);onHold?.invoke(selectedHold)} }, enabled = value != null && value in 0..1440) { Text("Set") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
@@ -1499,13 +1554,13 @@ private fun isMockLocation(l: Location): Boolean =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) l.isMock
     else @Suppress("DEPRECATION") l.isFromMockProvider
 
-private fun armStatic(at: LatLng?, name: String, cfg: ApiConfig) {
+private fun armStatic(at: LatLng?, name: String, cfg: ApiConfig, arrival: com.mirage.spike.engine.ArrivalActivity, entrance: LatLng?, untilLeave: Boolean, minutes: Int) {
     PlaybackSource.clearQueue()
     PlaybackSource.consumeSkip()
     PlaybackSource.endPoint = at
     PlaybackSource.paused = false
     LiveSession.clear()
-    PlaybackSource.current = at?.let { com.mirage.spike.engine.holdPlan(it, name, cfg).fixes() }
+    PlaybackSource.current = at?.let { com.mirage.spike.engine.holdPlan(it, name, cfg, arrival, entrance, untilLeave, minutes).fixes() }
     PlaybackSource.routePoints = listOfNotNull(at)
     PlaybackSource.label = name
 }

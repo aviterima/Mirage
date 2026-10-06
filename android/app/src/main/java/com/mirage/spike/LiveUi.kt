@@ -29,15 +29,17 @@ fun LiveControls(status: MockStatus, session: SessionView, onNow: () -> Unit, on
     val estimate by DriveTiming.estimate.collectAsState(context = kotlinx.coroutines.Dispatchers.Main.immediate)
     val title = when {
         status.paused -> "Paused here"
-        session.activity == ActivityKind.ROUTING -> "Finding your route"
-        session.activity == ActivityKind.TRAVELING -> "To ${current?.name ?: status.label}"
+        status.stepLabel.startsWith("Walking to") || status.stepLabel.startsWith("Walking outside") -> status.stepLabel
+        session.activity == ActivityKind.ROUTING -> "Finding route"
+        status.stepLabel.startsWith("Destination pin too far") -> status.stepLabel
+        session.activity == ActivityKind.TRAVELING -> "${current?.mode?.name?.lowercase() ?: "Travelling"} → ${current?.name ?: status.label}"
         session.activity == ActivityKind.STAYING -> "At ${current?.name ?: status.label}"
         else -> "Holding at ${current?.name ?: status.label.ifBlank { "this location" }}"
     }
     Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
     Text(when (session.activity) {
         ActivityKind.TRAVELING -> "${(status.speedMps / 0.44704).toInt()} mph" + if (status.remainingSec >= 0) " · about ${fmtDuration(status.remainingSec.toDouble())} left" else ""
-        ActivityKind.STAYING -> "${fmtDuration(session.remainingStaySeconds.toDouble())} of simulated stay remaining"
+        ActivityKind.STAYING -> if(current?.stayUntilLeave==true) "Staying until you choose Leave now" else "${fmtDuration(session.remainingStaySeconds.toDouble())} of simulated stay remaining"
         ActivityKind.ROUTING -> "Holding your position while the route is prepared"
         else -> "Simulation stays on until you stop it"
     }, style = MaterialTheme.typography.bodyMedium)
@@ -200,19 +202,24 @@ fun ChatPanel(onDismiss: () -> Unit) {
 /** Map-first live summary; editing and diagnostics live behind Details. */
 @Composable
 fun CompactLiveControls(status: MockStatus, session: SessionView, onStop: () -> Unit, onChat: () -> Unit,
-    onDetails: () -> Unit, onAdd: () -> Unit, notice: String? = null) {
+    onDetails: () -> Unit, onAdd: () -> Unit, onSaved: () -> Unit = {}, notice: String? = null) {
     val current = session.stops.getOrNull(session.index)?.stop
     val title = when {
         session.routeFailure != null -> "Route unavailable · holding here"
         status.paused -> "Paused · ${current?.name ?: status.label}"
+        status.stepLabel.startsWith("Walking to") || status.stepLabel.startsWith("Walking outside") -> status.stepLabel
         session.activity == ActivityKind.ROUTING -> "Finding route"
-        session.activity == ActivityKind.TRAVELING -> "To ${current?.name ?: status.label}"
-        else -> "At ${current?.name ?: status.label.ifBlank { "this location" }}"
+        status.stepLabel.startsWith("Destination pin too far") -> status.stepLabel
+        session.activity == ActivityKind.TRAVELING -> "${current?.mode?.name?.lowercase() ?: "Travelling"} → ${current?.name ?: status.label}"
+        session.activity==ActivityKind.STAYING && current?.stayUntilLeave==true -> "Staying at ${current.name} · until you leave"
+        else -> "At ${current?.name ?: status.label.ifBlank { "this location" }}" + (current?.let { " · ${it.arrivalActivity.label}" } ?: "")
     }
     Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp)) {
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             Text(if (session.routeFailure != null) title else notice ?: title, Modifier.weight(1f).clickable(onClick = onDetails).semantics { contentDescription = "Trip details" },
                 maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
+            if(session.activity==ActivityKind.STAYING) TextButton(onClick={PlaybackSource.requestSkip()}) {Text("Leave now")}
+            TextButton(onClick = onSaved) { Text("Saved") }
             if (session.routeFailure != null) {
                 TextButton(onClick = { LiveSession.plan?.retryFailed() }) { Text("Retry") }
                 TextButton(onClick = { PlaybackSource.requestSkip() }) { Text("Skip stop") }

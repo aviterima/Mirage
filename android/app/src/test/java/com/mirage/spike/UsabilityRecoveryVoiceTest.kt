@@ -20,6 +20,14 @@ class UsabilityRecoveryVoiceTest {
         val item=scenario();val json=BackupCodec.encode(listOf(item))
         assertEquals(listOf(item),BackupCodec.decode(json));assertFalse(json.contains("api_key"));assertFalse(json.contains("install_id"))
     }
+    @Test fun entranceAndStayPreferencesRoundTripAndInvalidEntranceIsRejected(){
+        val item=scenario().copy(defaultStayMinutes=45,stayUntilLeave=true,entrance=origin,
+            stops=listOf(scenario().stops.single().copy(entrance=origin,stayUntilLeave=true)))
+        assertEquals(listOf(item),BackupCodec.decode(BackupCodec.encode(listOf(item))))
+        val raw=org.json.JSONObject(BackupCodec.encode(listOf(item)))
+        raw.getJSONArray("items").getJSONObject(0).put("entranceLat",133.0)
+        assertThrows(IllegalArgumentException::class.java){BackupCodec.decode(raw.toString())}
+    }
     @Test fun malformedBackupCannotPartiallyImport(){
         assertThrows(IllegalArgumentException::class.java){BackupCodec.decode(BackupCodec.encode(listOf(scenario())).replace("WALK","HOVERCRAFT"))}
         val json=BackupCodec.encode(listOf(scenario())).replace("33.1","133.1")
@@ -103,6 +111,7 @@ class UsabilityRecoveryVoiceTest {
         val context=VoiceFollowUp();context.remember(entries[1].id,7,1000)
         assertEquals(VoiceIntent("stay","Office",minutes=45),context.resolve("Make its stay forty five minutes",entries,0,7,2000))
         assertEquals(VoiceIntent("move","Office",position=2),context.resolve("Actually put it after Lunch",entries,0,7,2000))
+        assertEquals(VoiceIntent("move","Office",position=2),context.resolve("Add this stop at the end",entries,0,7,2000))
         assertNull(context.resolve("remove it",entries,0,8,2000))
         context.remember(entries[1].id,7,1000);assertNull(context.resolve("remove it",entries,0,7,122000))
     }

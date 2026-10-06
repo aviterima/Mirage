@@ -46,6 +46,17 @@ class ContinuationUiAcceptanceTest {
         compose.onNodeWithText("Start at “Fixture Home”").performClick()
         compose.waitUntil(20_000) { MockState.status.value.running && LiveSession.plan != null }
     }
+    @Test fun savedLibraryAddsDestinationToActiveHoldingSession() {
+        val before = LiveSession.plan!!
+        compose.onNodeWithText("Saved", useUnmergedTree=false).performClick()
+        compose.onNodeWithContentDescription("Add Fixture Office to current trip").performScrollTo().performClick()
+        compose.onNodeWithTag("continuationEditor").assertIsDisplayed()
+        compose.onNodeWithText("Fixture Office").assertExists()
+        assertSame(before, LiveSession.plan)
+        compose.onNodeWithText("Cancel").performClick()
+        assertSame(before, LiveSession.plan)
+        assertTrue(MockState.status.value.running)
+    }
     @After fun close() {
         context.stopService(Intent(context, MockLocationService::class.java))
         if (::activity.isInitialized) activity.close()
