@@ -1,6 +1,6 @@
 # Mirage 0.14.0 — destination and trip enhancements
 
-Status: published implementation candidate; build and acceptance are in progress. Not yet a tested release. Version code 37. Branch: `codex/saved-destinations-indoor-arrival-20261006`, based on the tested 0.13.1 release.
+Status: signed APK built and emulator-validated. All 127 JVM and 24 emulator tests passed; physical-phone validation remains outstanding. Version code 37. Branch: `codex/saved-destinations-indoor-arrival-20261006`, based on the tested 0.13.1 release.
 
 ## Destination selection during simulation
 
@@ -36,6 +36,6 @@ Added/updated source tests cover the active saved-library path and cancellation;
 
 Validation update, October 8, 2026 UTC (October 7 Pacific): candidate `eb6441b` built successfully in Android run `37503546036`; 127 JVM tests passed. Acceptance run `37503545958` passed 22 of 24 emulator tests, including the signed in-place upgrade check from 0.13.1. The saved-library test selected two identically named elements (editor and underlying preview). The live-map check measured 73.846% clear height against the unchanged 75% requirement.
 
-Corrections: scope destination and Cancel selectors to the continuation editor; extend the same Saved-library journey through confirmation and assert the resulting destination and origin. Reduce exterior vertical margins of the live header and footer from 8 dp to 2 dp while retaining button sizes and system-bar insets. This reclaims 24 dp of map height. The original 75% assertion remains unchanged. Full build and acceptance must pass on this correction before the APK is described as verified.
+Corrections: scope destination and Cancel selectors to the continuation editor; extend the same Saved-library journey through confirmation and assert the resulting destination and origin. Reduce exterior vertical margins of the live header and footer from 8 dp to 2 dp while retaining button sizes and system-bar insets. The original 75% assertion remains unchanged. The corrected source commit `474e27511365442f2dd583c9809810252aabdde1` passed full build and acceptance. Measured clear map height is 75.19231%. See [the validation report](VALIDATION_0.14.0.md).
 
-Run the existing complete JVM and emulator acceptance workflow, fix failures, and verify signing identity and in-place upgrade from 0.13.1 before distributing the APK. Then validate the reported Saved-list flow, pin placement, entrance/interior arrival, manual departure and pause/Stop behavior on the user's phone. The APK should be delivered as a downloadable attachment, not merely a link to a build page.
+The complete JVM and emulator workflow, pinned signing identity, and in-place upgrade from 0.13.1 passed. Next, validate the reported Saved-list flow, pin placement, entrance/interior arrival, manual departure and pause/Stop behavior on the user's phone. The APK should be delivered as a downloadable attachment, not merely a link to a build page.
