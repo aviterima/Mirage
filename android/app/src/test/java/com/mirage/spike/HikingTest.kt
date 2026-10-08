@@ -36,6 +36,21 @@ class HikingTest {
         assertEquals(METERS_PER_MILE*0.25,resumed.distanceMeters,0.1)
         assertEquals(a,resumed.points.last())
     }
+    @Test fun repeatedRecoveryKeepsReturnDirectionAndOriginalProgress()=runTest {
+        val trip=prepareHikingTrip(trail,parking,c,1.0,2,::routed)
+        val route=trip.stops[2].frozenRoute!!
+        val vm=MirageViewModel();vm.attachStore(InMemoryScenarioStore());vm.addHikingTrip(trip);vm.saveScenario("Recovery hike")
+        val saved=vm.savedScenarios.single()
+        val position=Geo.gcInterp(a,route.points[1],0.5)
+        vm.recoverLive(RecoveredTrip(saved,position,2,ActivityKind.TRAVELING,0,null,routeProgress=0.75)){}
+        val first=PlaybackSource.current!!.first()
+        assertTrue(first.progress>0.75f && first.progress<0.76f)
+        assertTrue(Geo.haversine(LatLng(first.lat,first.lng),a)<Geo.haversine(position,a))
+        vm.recoverLive(RecoveredTrip(saved,LatLng(first.lat,first.lng),2,ActivityKind.TRAVELING,0,null,routeProgress=first.progress.toDouble())){}
+        val second=PlaybackSource.current!!.first()
+        assertTrue(second.progress>first.progress)
+        assertTrue(Geo.haversine(LatLng(second.lat,second.lng),a)<Geo.haversine(LatLng(first.lat,first.lng),a))
+    }
     @Test fun fullLoopUsesLoopAndShortLoopReturnsAlongActualPath() {
         val loop=trail.copy(points=listOf(a,b,c,a))
         assertTrue(loop.loop)
@@ -71,6 +86,19 @@ class HikingTest {
         assertEquals(METERS_PER_MILE,trip.trailMeters,0.05)
         assertEquals(TrailGeometry.length(trip.stops[1].frozenRoute!!.points)*2,trip.walkMeters,0.01)
     }
+    @Test fun playbackDrivesParksHikesAndFinishesAtCar()=runTest {
+        val trip=prepareHikingTrip(trail,parking,c,1.0,2,::routed)
+        PlaybackSource.timeScale=100.0
+        val visited=mutableListOf<Pair<Int,ActivityKind>>()
+        val plan=LivePlan("Test hike",c,trip.stops,{from,stop->prepareLeg(ApiConfig(null,"","test"),from,stop,Realism.CONSTANT)})
+        val fixes=plan.fixes().onEach {visited+=LiveSession.state.value.let {it.index to it.activity}}
+            .takeWhile {LiveSession.state.value.activity!=ActivityKind.HOLDING}.toList()
+        assertEquals(listOf(0,1,2,3),visited.filter {it.second==ActivityKind.TRAVELING}.map {it.first}.distinct())
+        assertTrue(visited.contains(0 to ActivityKind.STAYING))
+        assertEquals(ActivityKind.HOLDING,LiveSession.state.value.activity)
+        assertEquals(parking.point,LatLng(fixes.last().lat,fixes.last().lng))
+        assertEquals(0f,fixes.last().speedMps)
+    }
     @Test fun unreachableParkingOrDisconnectedWalkCannotPrepare()=runTest {
         try {prepareHikingTrip(trail,parking,c,1.0,2){s->if(s.mode==TravelMode.WALK)RouteResult(listOf(c,b),100.0,100.0) else routed(s)};fail("Gap accepted")}
         catch(e:IllegalArgumentException){assertTrue(e.message!!.contains("continuous walking"))}
@@ -87,7 +115,7 @@ class HikingTest {
     }
     @Test fun addingHikePreservesEarlierDraftStops()=runTest {
         val trip=prepareHikingTrip(trail,parking,c,1.0,2,::routed)
-        val vm=MirageViewModel();vm.setStartPoint(a);vm.planMode=PlanMode.ITINERARY
+        val vm=MirageViewModel();vm.setStartPoint(a);vm.choosePlanMode(PlanMode.ITINERARY)
         val old=ItineraryStop("Lunch",c,30);vm.stops+=old
         vm.addHikingTrip(trip)
         assertEquals(old,vm.stops.first());assertEquals(5,vm.stops.size)
@@ -124,6 +152,16 @@ class HikingTest {
         assertThrows(IllegalArgumentException::class.java){OsmTrailSource.parseTrails("""{"remark":"timeout","elements":[]}""")}
         val json="""{"elements":[{"type":"way","id":1,"tags":{"name":"Broken"},"geometry":[{"lat":33.5,"lon":-112},{"lat":33.6}]}]}"""
         assertTrue(OsmTrailSource.parseTrails(json).isEmpty())
+    }
+    @Test fun realEchoCanyonResponseProducesAContinuousUsableTrail() {
+        val json=javaClass.getResource("/hiking/echo-canyon-osm.json")!!.readText()
+        val found=OsmTrailSource.parseTrails(json).single()
+        assertEquals("Echo Canyon Trail",found.name)
+        assertTrue(found.mappedSection)
+        assertTrue(found.meters/METERS_PER_MILE in 1.0..2.0)
+        val hike=TrailGeometry.hike(found,1.0)
+        assertEquals(METERS_PER_MILE,hike.distanceMeters,0.1)
+        assertEquals(hike.points.first(),hike.points.last())
     }
     @Test fun mappedNamedWaysKeepHonestSectionLabel() {
         val json="""{"elements":[{"type":"way","id":1,"tags":{"name":"Canyon"},"geometry":[{"lat":33.5,"lon":-112},{"lat":33.51,"lon":-112}]}]}"""

@@ -5,7 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import okhttp3.FormBody
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
@@ -18,7 +18,7 @@ interface TrailSource {
 }
 
 /** Explicit, bounded queries with a small cache; no keystroke queries or bulk downloads. */
-class OsmTrailSource(private val endpoint: String = "https://overpass.private.coffee/api/interpreter") : TrailSource {
+class OsmTrailSource(private val endpoint: String = "https://maps.mail.ru/osm/tools/overpass/api/interpreter") : TrailSource {
     private val client=OkHttpClient.Builder().callTimeout(45,TimeUnit.SECONDS).build()
     private val cache=linkedMapOf<String,Pair<Long,String>>()
     private val mutex=Mutex()
@@ -27,8 +27,8 @@ class OsmTrailSource(private val endpoint: String = "https://overpass.private.co
         val now=System.currentTimeMillis()
         cache[ql]?.takeIf {now-it.first<900_000}?.let {return@withLock it.second}
         check(now>=retryAfter) {"Trail service is busy. Please wait a minute and try again."}
-        val req=Request.Builder().url(endpoint).header("User-Agent","Mirage/0.15.0 (https://github.com/aviterima/Mirage)")
-            .post(FormBody.Builder().add("data",ql).build()).build()
+        val req=Request.Builder().url(endpoint.toHttpUrl().newBuilder().addQueryParameter("data",ql).build()).header("User-Agent","Mirage/0.15.0 (https://github.com/aviterima/Mirage)")
+            .get().build()
         client.newCall(req).execute().use { r ->
             if(r.code in listOf(429,406,504))retryAfter=now+60_000
             check(r.isSuccessful) {"Trail service unavailable (${r.code}). Please try again later."}
@@ -48,14 +48,16 @@ class OsmTrailSource(private val endpoint: String = "https://overpass.private.co
         require(name.trim().length in 3..100) {"Enter a trail name of at least 3 characters."}
         val literal=name.trim().map { if(it in "\\.^$|?*+()[]{}") "\\$it" else "$it" }.joinToString("")
         val pattern=JSONObject.quote(literal)
-        val area="(around:50000,${near.lat},${near.lng})"
-        val q="[out:json][timeout:25][maxsize:33554432];(relation$area[route~\"^(hiking|foot)$\"][name~$pattern,i];way$area[highway~\"^(path|footway|track|steps)$\"][name~$pattern,i][area!=yes];);out geom 100;"
-        return parseTrails(query(q)).sortedBy { Geo.haversine(near,it.points.first()) }.take(20)
+        val latDelta=50_000.0/111_320.0
+        val lngDelta=latDelta/kotlin.math.cos(Math.toRadians(near.lat)).coerceAtLeast(0.1)
+        val area="(${(near.lat-latDelta).coerceAtLeast(-85.0)},${(near.lng-lngDelta).coerceAtLeast(-180.0)},${(near.lat+latDelta).coerceAtMost(85.0)},${(near.lng+lngDelta).coerceAtMost(180.0)})"
+        val q="[out:json][timeout:25][maxsize:268435456];(relation$area[route~\"^(hiking|foot)$\"][name~$pattern,i];way$area[highway~\"^(path|footway|track|steps)$\"][name~$pattern,i][area!=yes];);out geom 100;"
+        return parseTrails(query(q)).filter {trail->trail.points.any {Geo.haversine(near,it)<=50_000.0}}.sortedBy { Geo.haversine(near,it.points.first()) }.take(20)
     }
     override suspend fun parking(trail: HikingTrail): List<TrailParking> {
         val anchors=if(trail.loop)trail.points.filterIndexed { i,_ -> i % maxOf(1,trail.points.size/6)==0 }.take(6) else listOf(trail.points.first(),trail.points.last())
         val selectors=anchors.joinToString("") {"nwr(around:1200,${it.lat},${it.lng})[amenity=parking][access!~\"^(private|no)$\"];"}
-        val json=JSONObject(query("[out:json][timeout:25][maxsize:16777216];($selectors);out center 100;"))
+        val json=JSONObject(query("[out:json][timeout:25][maxsize:67108864];($selectors);out center 100;"))
         return elements(json).mapNotNull { e ->
             val p=point(e.optJSONObject("center") ?: e) ?: return@mapNotNull null
             TrailParking("${e.optString("type")}/${e.optLong("id")}",e.optJSONObject("tags")?.optString("name")?.takeIf {it.isNotBlank()} ?: "Mapped parking",p)

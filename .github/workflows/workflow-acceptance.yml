@@ -10,6 +10,19 @@ concurrency:
   group: acceptance-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  trail-service:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify live trail provider
+        run: python3 .github/scripts/check-trail-service.py
+      - name: Upload live trail evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-trail-evidence
+          path: acceptance-evidence/
   emulator:
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -37,9 +50,6 @@ jobs:
           actual_cert=$(keytool -exportcert -keystore "$HOME/.android/debug.keystore" -alias androiddebugkey -storepass android | sha256sum | cut -d ' ' -f 1)
           expected_cert=$(printf '%s' "$MIRAGE_SIGNING_CERT_SHA256" | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')
           test "$actual_cert" = "$expected_cert"
-      - name: Record live trail provider availability
-        continue-on-error: true
-        run: python3 .github/scripts/check-trail-service.py
       - name: Compile emulator tests
         working-directory: android
         run: |

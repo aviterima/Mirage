@@ -10,7 +10,7 @@ The trip drives to the routed parking endpoint, stays parked, walks to the trail
 
 ## Data and implementation
 
-OpenStreetMap data is queried through `https://overpass.private.coffee/api/interpreter`. Provider availability is external. Search is explicit, bounded, serialized and cached for fifteen minutes; it is not sent on keystrokes. OSM attribution and source links appear in the planner and during on-trail playback. Area lookup and drive/walk connections use Mirage's existing Google Places/Directions configuration.
+OpenStreetMap data is queried through `https://maps.mail.ru/osm/tools/overpass/api/interpreter`. Provider availability is external. Search is explicit, bounded, serialized and cached for fifteen minutes; it is not sent on keystrokes. OSM attribution and source links appear in the planner and during on-trail playback. Area lookup and drive/walk connections use Mirage's existing Google Places/Directions configuration.
 
 Mapped hiking/foot relations and named path/footway/track/steps ways are supported. Only continuous geometry is accepted: disconnected, branching, truncated and malformed results are rejected. Nested relations are not supported. This does not promise every named trail worldwide or official posted distance. Lengths are calculated from mapped geometry; access and parking require user review.
 

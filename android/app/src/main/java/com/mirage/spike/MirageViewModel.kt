@@ -46,6 +46,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -678,9 +679,18 @@ class MirageViewModel(
         var recoveringLeg=true
         val plan=LivePlan(sc.name,sc.start ?: record.position,all,{from,to->
             val progress=if(recoveringLeg && !held) record.routeProgress else null
-            recoveringLeg=false
             val resumed=if(to.frozenRoute!=null && (Geo.haversine(from,to.frozenRoute.points.first())>1.0 || (progress ?: 0.0)>0)) to.copy(frozenRoute=com.mirage.spike.engine.RouteArchive.remaining(to.frozenRoute,from,progress)) else to
-            prepareLeg(cfg,from,resumed,sc.realism,sc.transitPref)
+            val prepared=prepareLeg(cfg,from,resumed,sc.realism,sc.transitPref)
+            recoveringLeg=false
+            // A second checkpoint must still refer to the original archived route.
+            val full=to.frozenRoute
+            val part=resumed.frozenRoute
+            if(full!=null && part!=null && full!==part && full.distanceMeters>0) {
+                val remainingFraction=(part.distanceMeters/full.distanceMeters).coerceIn(0.0,1.0)
+                prepared.copy(flow=prepared.flow.map {fix->
+                    if(fix.progress<0)fix else fix.copy(progress=(1.0-remainingFraction+remainingFraction*fix.progress).toFloat())
+                })
+            } else prepared
         },first,
             resumePosition=record.position,resumeIndex=index,resumeStaySeconds=if(held)record.remainingStay else null,departureMillis=if(record.activity==ActivityKind.WAITING)sc.departureMillis else null,defaultsRealism=sc.realism,defaultsTransitPref=sc.transitPref)
         savedScenarios.firstOrNull{it.id==record.savedId}?.let { saved -> plan.markSaved(saved.id,saved.name,saved.stops.map{it.toStop()}) }
