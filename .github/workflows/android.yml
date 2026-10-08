@@ -84,8 +84,7 @@ jobs:
           path: android/app/build/reports/tests/testDebugUnitTest
           if-no-files-found: ignore
 
-      - name: Lint (non-blocking)
-        continue-on-error: true
+      - name: Lint (blocking)
         run: ./gradlew --no-daemon lintDebug
 
       - name: Verify offline voice model is packaged

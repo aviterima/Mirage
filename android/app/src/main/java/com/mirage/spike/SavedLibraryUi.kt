@@ -26,6 +26,7 @@ import kotlinx.coroutines.withContext
 internal fun SavedPlansDialog(vm: MirageViewModel, active: Boolean = false, onDismiss: () -> Unit, onLoaded: (SavedScenario) -> Unit, onAddLive: (SavedScenario, Boolean) -> Unit = { _, _ -> }) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val live by LiveSession.state.collectAsState()
     var query by remember { mutableStateOf("") }
     var kind by remember { mutableStateOf("All") }
     var favorites by remember { mutableStateOf(false) }
@@ -72,7 +73,7 @@ internal fun SavedPlansDialog(vm: MirageViewModel, active: Boolean = false, onDi
                 },enabled=name.isNotBlank() && if(active) LiveSession.plan!=null else vm.canSaveScenario) { Text("Save") }
             }
             if(!active && vm.draftSavedName!=null) TextButton(onClick={message=if(vm.saveScenario(vm.draftSavedName!!,true))"Changes saved" else vm.error.orEmpty()}) {Text("Save changes to ${vm.draftSavedName}")}
-            if(active && LiveSession.state.value.savedId != null) TextButton(onClick={
+            if(active && live.savedId != null) TextButton(onClick={
                 message=if(vm.saveActiveScenario(LiveSession.state.value.savedName,true)) "Changes saved" else vm.error ?: "Could not save"
             }) { Text("Save changes") }
             OutlinedTextField(query,{query=it},label={Text("Search saved names or addresses")},singleLine=true,modifier=Modifier.fillMaxWidth())
