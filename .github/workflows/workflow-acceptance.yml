@@ -54,7 +54,7 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon assembleDebug assembleDebugAndroidTest testDebugUnitTest
+          ./gradlew --no-daemon testDebugUnitTest assembleDebug assembleDebugAndroidTest
       - name: Download installed-version baseline for in-place upgrade check
         uses: actions/download-artifact@v4
         with:

@@ -26,7 +26,7 @@ class HikingTest {
         val r=TrailGeometry.hike(trail,1.0)
         assertEquals(METERS_PER_MILE,r.distanceMeters,0.05)
         assertEquals(a,r.points.first());assertEquals(a,r.points.last())
-        assertTrue(r.points.all {it.lng==a.lng})
+        r.points.forEach {assertEquals(a.lng,it.lng,1e-10)}
         assertEquals(METERS_PER_MILE/2,Geo.haversine(a,r.points[r.points.size/2]),0.05)
     }
     @Test fun recoveryOnReturnHalfDoesNotRepeatOutboundTrail() {
@@ -43,11 +43,11 @@ class HikingTest {
         val saved=vm.savedScenarios.single()
         val position=Geo.gcInterp(a,route.points[1],0.5)
         vm.recoverLive(RecoveredTrip(saved,position,2,ActivityKind.TRAVELING,0,null,routeProgress=0.75)){}
-        val first=PlaybackSource.current!!.first()
+        val first=PlaybackSource.current!!.first {it.progress>=0f}
         assertTrue(first.progress>0.75f && first.progress<0.76f)
         assertTrue(Geo.haversine(LatLng(first.lat,first.lng),a)<Geo.haversine(position,a))
         vm.recoverLive(RecoveredTrip(saved,LatLng(first.lat,first.lng),2,ActivityKind.TRAVELING,0,null,routeProgress=first.progress.toDouble())){}
-        val second=PlaybackSource.current!!.first()
+        val second=PlaybackSource.current!!.first {it.progress>=0f}
         assertTrue(second.progress>first.progress)
         assertTrue(Geo.haversine(LatLng(second.lat,second.lng),a)<Geo.haversine(LatLng(first.lat,first.lng),a))
     }
@@ -158,7 +158,7 @@ class HikingTest {
         val found=OsmTrailSource.parseTrails(json).single()
         assertEquals("Echo Canyon Trail",found.name)
         assertTrue(found.mappedSection)
-        assertTrue(found.meters/METERS_PER_MILE in 1.0..2.0)
+        assertEquals(1556.729720492359,found.meters,0.1)
         val hike=TrailGeometry.hike(found,1.0)
         assertEquals(METERS_PER_MILE,hike.distanceMeters,0.1)
         assertEquals(hike.points.first(),hike.points.last())

@@ -51,7 +51,7 @@ class OsmTrailSource(private val endpoint: String = "https://maps.mail.ru/osm/to
         val latDelta=50_000.0/111_320.0
         val lngDelta=latDelta/kotlin.math.cos(Math.toRadians(near.lat)).coerceAtLeast(0.1)
         val area="(${(near.lat-latDelta).coerceAtLeast(-85.0)},${(near.lng-lngDelta).coerceAtLeast(-180.0)},${(near.lat+latDelta).coerceAtMost(85.0)},${(near.lng+lngDelta).coerceAtMost(180.0)})"
-        val q="[out:json][timeout:25][maxsize:268435456];(relation$area[route~\"^(hiking|foot)$\"][name~$pattern,i];way$area[highway~\"^(path|footway|track|steps)$\"][name~$pattern,i][area!=yes];);out geom 100;"
+        val q="[out:json][timeout:25][maxsize:268435456];way$area[highway~\"^(path|footway|track|steps)$\"][name][area!=yes]->.paths;relation$area[route~\"^(hiking|foot)$\"][name]->.routes;(way.paths[name~$pattern,i];relation.routes[name~$pattern,i];);out geom 100;"
         return parseTrails(query(q)).filter {trail->trail.points.any {Geo.haversine(near,it)<=50_000.0}}.sortedBy { Geo.haversine(near,it.points.first()) }.take(20)
     }
     override suspend fun parking(trail: HikingTrail): List<TrailParking> {
