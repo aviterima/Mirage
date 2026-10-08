@@ -44,7 +44,7 @@ fun ContinuationPreviewBar(planner: ContinuationPlanner, onConfirm: () -> Unit) 
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ContinuationSheet(planner: ContinuationPlanner, saved: List<SavedScenario>, onConfirm: () -> Unit, onStop: () -> Unit) {
+fun ContinuationSheet(planner: ContinuationPlanner, saved: List<SavedScenario>, onConfirm: () -> Unit, onStop: () -> Unit, onHike: () -> Unit = {}) {
     val d = planner.state ?: return
     if (!d.editorOpen) return
     val keyboard = LocalSoftwareKeyboardController.current
@@ -71,6 +71,7 @@ fun ContinuationSheet(planner: ContinuationPlanner, saved: List<SavedScenario>, 
                 }
             }
             OutlinedButton(onClick={keyboard?.hide();planner.mapPick("destination")},modifier=Modifier.fillMaxWidth()) { Text("Drop a pin on map") }
+            OutlinedButton(onClick=onHike, modifier=Modifier.fillMaxWidth().testTag("liveHiking")) { Text("Hiking trail · drive, park and hike") }
             Text(planner.originLabel(d), style = MaterialTheme.typography.bodySmall)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if(d.replaceId==null) Placement.entries.forEach { choice ->
@@ -167,7 +168,7 @@ fun ContinuationSheet(planner: ContinuationPlanner, saved: List<SavedScenario>, 
                 if (d.previewBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
                 d.stops.singleOrNull()?.let { stop ->
                     val road=d.points.lastOrNull()
-                    if(road!=null && d.savedOrigin==null && stop.mode!=TravelMode.FLY && stop.arrivalActivity!=ArrivalActivity.OUTDOOR) {
+                    if(road!=null && d.savedOrigin==null && stop.mode!=TravelMode.FLY && stop.arrivalActivity.isIndoor) {
                         val entrance=stop.entrance ?: road
                         val gap=Geo.haversine(road,entrance)+Geo.haversine(entrance,stop.point)
                         Text("Arrival preview: road endpoint → " + (if(stop.entrance!=null) "entrance → " else "") + "destination pin · approximately ${gap.toInt()} m walking")

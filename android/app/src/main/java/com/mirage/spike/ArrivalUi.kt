@@ -18,7 +18,7 @@ internal fun ArrivalActivityPicker(value: ArrivalActivity, onChange: (ArrivalAct
             }
         }
     }
-    if(value != ArrivalActivity.OUTDOOR) Text(
+    if(value.isIndoor) Text(
         "Walk from the road to the destination pin, then stay there. Place the pin inside the building for an indoor stay. The walking connection is approximate; rooms, tables and floors are not mapped. Flights arrive directly at their pin.",
         style=MaterialTheme.typography.bodySmall)
 }

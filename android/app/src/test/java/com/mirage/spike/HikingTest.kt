@@ -1,0 +1,133 @@
+package com.mirage.spike
+
+import com.mirage.spike.hiking.*
+import com.mirage.spike.engine.*
+import com.mirage.spike.store.*
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.test.*
+import org.junit.*
+import org.junit.Assert.*
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class HikingTest {
+    private val a=LatLng(33.5,-112.0)
+    private val b=Geo.offset(a,1000.0,0.0)
+    private val c=Geo.offset(b,0.0,1000.0)
+    private val trail=HikingTrail("way/1","Fixture Canyon",listOf(a,b,c),"https://www.openstreetmap.org/way/1")
+    private val parking=TrailParking("parking/1","Trail parking",Geo.offset(a,-100.0,0.0))
+    @Before fun setup(){Dispatchers.setMain(UnconfinedTestDispatcher());MockState.reset();LiveSession.clear();PlaybackSource.timeScale=1.0;PlaybackSource.clearQueue()}
+    @After fun cleanup(){Dispatchers.resetMain();LiveSession.clear();MockState.reset();PlaybackSource.timeScale=1.0}
+    private fun routed(s: RouteSpec): RouteResult {
+        val pts=listOf(s.origin,Geo.gcInterp(s.origin,s.destination,0.5),s.destination)
+        val d=TrailGeometry.length(pts);return RouteResult(pts,d,d/1.1)
+    }
+    @Test fun requestedMileageReturnsToTrailheadWithoutShortcut() {
+        val r=TrailGeometry.hike(trail,1.0)
+        assertEquals(METERS_PER_MILE,r.distanceMeters,0.05)
+        assertEquals(a,r.points.first());assertEquals(a,r.points.last())
+        assertTrue(r.points.all {it.lng==a.lng})
+        assertEquals(METERS_PER_MILE/2,Geo.haversine(a,r.points[r.points.size/2]),0.05)
+    }
+    @Test fun recoveryOnReturnHalfDoesNotRepeatOutboundTrail() {
+        val route=TrailGeometry.hike(trail,1.0)
+        val position=Geo.gcInterp(a,route.points[1],0.5)
+        val resumed=RouteArchive.remaining(route,position,0.75)
+        assertEquals(METERS_PER_MILE*0.25,resumed.distanceMeters,0.1)
+        assertEquals(a,resumed.points.last())
+    }
+    @Test fun fullLoopUsesLoopAndShortLoopReturnsAlongActualPath() {
+        val loop=trail.copy(points=listOf(a,b,c,a))
+        assertTrue(loop.loop)
+        assertEquals(loop.points,TrailGeometry.hike(loop,loop.meters/METERS_PER_MILE).points)
+        val short=TrailGeometry.hike(loop,0.25)
+        assertEquals(0.25*METERS_PER_MILE,short.distanceMeters,0.05)
+        assertEquals(a,short.points.last())
+    }
+    @Test fun invalidOrExcessMileageCannotBecomeALongerHike() {
+        listOf(-1.0,0.0,Double.NaN,Double.POSITIVE_INFINITY,1000.0).forEach {
+            assertThrows(IllegalArgumentException::class.java){TrailGeometry.hike(trail,it)}
+        }
+    }
+    @Test fun disconnectedOrBranchingSegmentsAreRejected() {
+        assertNull(TrailGeometry.join(listOf(listOf(a,b),listOf(c,Geo.offset(c,100.0,0.0)))))
+        assertNull(TrailGeometry.join(listOf(listOf(a,b),listOf(b,c),listOf(b,Geo.offset(b,-100.0,100.0)))))
+        assertEquals(listOf(c,b,a),TrailGeometry.join(listOf(listOf(b,c),listOf(b,a))))
+    }
+    @Test fun parkingSelectsNearestEndpointAndRotatesLoops() {
+        assertEquals(c,TrailGeometry.orient(trail,c).points.first())
+        val loop=trail.copy(points=listOf(a,b,c,a))
+        val rotated=TrailGeometry.orient(loop,b)
+        assertEquals(b,rotated.points.first());assertEquals(b,rotated.points.last());assertEquals(loop.meters,rotated.meters,0.01)
+    }
+    @Test fun driveParkWalkHikeReturnHaveExactModesAndRoundTripGeometry()=runTest {
+        val requests=mutableListOf<RouteSpec>()
+        val trip=prepareHikingTrip(trail,parking,Geo.offset(a,-1000.0,0.0),1.0,2){requests+=it;routed(it)}
+        assertEquals(listOf(TravelMode.DRIVE,TravelMode.WALK),requests.map{it.mode})
+        assertEquals(listOf(TravelMode.DRIVE,TravelMode.WALK,TravelMode.WALK,TravelMode.WALK),trip.stops.map{it.mode})
+        assertEquals(2,trip.stops.first().dwellMinutes);assertEquals(ArrivalActivity.PARKED,trip.stops.first().arrivalActivity)
+        assertEquals(parking.point,trip.stops.last().point)
+        assertEquals(trip.stops[1].frozenRoute!!.points.reversed(),trip.stops.last().frozenRoute!!.points)
+        assertEquals(METERS_PER_MILE,trip.trailMeters,0.05)
+        assertEquals(TrailGeometry.length(trip.stops[1].frozenRoute!!.points)*2,trip.walkMeters,0.01)
+    }
+    @Test fun unreachableParkingOrDisconnectedWalkCannotPrepare()=runTest {
+        try {prepareHikingTrip(trail,parking,c,1.0,2){s->if(s.mode==TravelMode.WALK)RouteResult(listOf(c,b),100.0,100.0) else routed(s)};fail("Gap accepted")}
+        catch(e:IllegalArgumentException){assertTrue(e.message!!.contains("continuous walking"))}
+    }
+    @Test fun savedHikeRoundTripsExactGeometryAndParkingState()=runTest {
+        val trip=prepareHikingTrip(trail,parking,c,1.0,2,::routed)
+        val vm=MirageViewModel();vm.attachStore(InMemoryScenarioStore())
+        vm.addHikingTrip(trip)
+        assertTrue(vm.saveScenario("Weekend hike"))
+        val saved=vm.savedScenarios.single();val reloaded=SavedScenario.fromJson(saved.toJson())
+        assertEquals(saved,reloaded)
+        assertEquals(ArrivalActivity.PARKED,reloaded.stops.first().arrivalActivity)
+        assertEquals(METERS_PER_MILE,reloaded.stops[2].frozenRoute!!.distanceMeters,0.05)
+    }
+    @Test fun addingHikePreservesEarlierDraftStops()=runTest {
+        val trip=prepareHikingTrip(trail,parking,c,1.0,2,::routed)
+        val vm=MirageViewModel();vm.setStartPoint(a);vm.planMode=PlanMode.ITINERARY
+        val old=ItineraryStop("Lunch",c,30);vm.stops+=old
+        vm.addHikingTrip(trip)
+        assertEquals(old,vm.stops.first());assertEquals(5,vm.stops.size)
+    }
+    @Test fun lateSearchCannotReopenClosedSheet()=runTest {
+        val source=object:TrailSource {
+            override suspend fun search(name:String,near:LatLng):List<HikingTrail>{withContext(NonCancellable){delay(1000)};return listOf(trail)}
+            override suspend fun parking(trail:HikingTrail)=listOf(parking)
+        }
+        val p=HikingPlanner(this,source,{_,_->emptyList()},::routed)
+        p.open(a);p.query("Fixture");p.search();runCurrent();p.close();advanceUntilIdle()
+        assertNull(p.state)
+    }
+    @Test fun editingMilesInvalidatesPreparedTripAndInvalidInputIsVisible()=runTest {
+        val source=object:TrailSource {
+            override suspend fun search(name:String,near:LatLng)=listOf(trail)
+            override suspend fun parking(trail:HikingTrail)=listOf(parking)
+        }
+        val p=HikingPlanner(this,source,{_,_->emptyList()},::routed)
+        p.open(c);p.select(trail);advanceUntilIdle();p.chooseParking(parking);p.miles("1.0");p.prepare(c);advanceUntilIdle()
+        assertNotNull(p.state!!.trip)
+        p.miles("1000");assertNull(p.state!!.trip);p.prepare(c);advanceUntilIdle()
+        assertNull(p.state!!.trip);assertNotNull(p.state!!.error)
+    }
+    @Test fun parkedDwellDoesNotWanderOrWalkInside()=runTest {
+        val positions=mutableListOf<Fix>()
+        val stop=ItineraryStop("Parking",a,2,TravelMode.DRIVE,arrivalActivity=ArrivalActivity.PARKED)
+        val plan=LivePlan("Park",a,listOf(stop),{_,_->PreparedLeg(flowOf(Fix(a.lat,a.lng,0f,0f,4f)),listOf(a))})
+        val job=launch {plan.fixes().collect{positions+=it}};advanceTimeBy(1500)
+        assertTrue(positions.size>4);assertTrue(positions.all {it.lat==a.lat && it.lng==a.lng && it.speedMps==0f})
+        assertFalse(MockState.status.value.stepLabel.contains("Walking"));job.cancelAndJoin()
+    }
+    @Test fun partialServiceResponseAndMissingGeometryAreRejected() {
+        assertThrows(IllegalArgumentException::class.java){OsmTrailSource.parseTrails("""{"remark":"timeout","elements":[]}""")}
+        val json="""{"elements":[{"type":"way","id":1,"tags":{"name":"Broken"},"geometry":[{"lat":33.5,"lon":-112},{"lat":33.6}]}]}"""
+        assertTrue(OsmTrailSource.parseTrails(json).isEmpty())
+    }
+    @Test fun mappedNamedWaysKeepHonestSectionLabel() {
+        val json="""{"elements":[{"type":"way","id":1,"tags":{"name":"Canyon"},"geometry":[{"lat":33.5,"lon":-112},{"lat":33.51,"lon":-112}]}]}"""
+        val hit=OsmTrailSource.parseTrails(json).single()
+        assertEquals("Canyon",hit.name);assertTrue(hit.mappedSection);assertTrue(hit.meters>1000)
+    }
+}

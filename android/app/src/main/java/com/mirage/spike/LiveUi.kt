@@ -18,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.core.content.ContextCompat
 import com.mirage.spike.engine.*
@@ -204,6 +205,7 @@ fun ChatPanel(onDismiss: () -> Unit) {
 fun CompactLiveControls(status: MockStatus, session: SessionView, onStop: () -> Unit, onChat: () -> Unit,
     onDetails: () -> Unit, onAdd: () -> Unit, onSaved: () -> Unit = {}, notice: String? = null) {
     val current = session.stops.getOrNull(session.index)?.stop
+    val uri = androidx.compose.ui.platform.LocalUriHandler.current
     val title = when {
         session.routeFailure != null -> "Route unavailable · holding here"
         status.paused -> "Paused · ${current?.name ?: status.label}"
@@ -219,6 +221,7 @@ fun CompactLiveControls(status: MockStatus, session: SessionView, onStop: () -> 
             Text(if (session.routeFailure != null) title else notice ?: title, Modifier.weight(1f).clickable(onClick = onDetails).semantics { contentDescription = "Trip details" },
                 maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
             if(session.activity==ActivityKind.STAYING) TextButton(onClick={PlaybackSource.requestSkip()}) {Text("Leave now")}
+            if(current?.address?.contains("© OpenStreetMap")==true) TextButton(onClick={uri.openUri("https://www.openstreetmap.org/copyright")}) {Text("© OpenStreetMap",fontSize=10.sp)}
             TextButton(onClick = onSaved) { Text("Saved") }
             if (session.routeFailure != null) {
                 TextButton(onClick = { LiveSession.plan?.retryFailed() }) { Text("Retry") }

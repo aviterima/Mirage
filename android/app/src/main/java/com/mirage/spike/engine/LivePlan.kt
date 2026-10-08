@@ -266,7 +266,7 @@ class LivePlan(
             arrivalNote = ""
             val roadEnd=LatLng(last.lat,last.lng)
             // A recovered stay already has its correct anchor; do not replay arrival.
-            if (!(index == resumeIndex && resumeStaySeconds != null) && stop.mode != TravelMode.FLY && stop.arrivalActivity != ArrivalActivity.OUTDOOR) {
+            if (!(index == resumeIndex && resumeStaySeconds != null) && stop.mode != TravelMode.FLY && stop.arrivalActivity in setOf(ArrivalActivity.BUILDING, ArrivalActivity.TABLE, ArrivalActivity.OFFICE, ArrivalActivity.CONFERENCE)) {
                 // Both connections are checked before moving, rather than partially walking an invalid path.
                 val entrance=stop.entrance ?: roadEnd
                 val first=ArrivalModel(last,entrance)

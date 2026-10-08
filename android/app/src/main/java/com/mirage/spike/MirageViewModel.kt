@@ -62,6 +62,22 @@ class MirageViewModel(
     val placeSearch: suspend (ApiConfig, String, LatLng?) -> List<PlaceHit> = { cfg, query, bias -> GooglePlaces(cfg).searchMany(query, bias, 8) },
 ) : ViewModel() {
     val continuation = ContinuationPlanner(this, viewModelScope)
+    val hiking = com.mirage.spike.hiking.HikingPlanner(viewModelScope,
+        places = { query, near -> placeSearch(api, query, near) },
+        route = { spec -> GoogleDirectionsRouteEngine(api).route(spec) })
+
+    fun addHikingTrip(trip: com.mirage.spike.hiking.HikingTrip) {
+        val saved = SavedScenario(java.util.UUID.randomUUID().toString(), "Hike · ${trip.trail.name}", "ITINERARY",
+            System.currentTimeMillis(), false, trip.origin, "Hiking trip start", trip.stops.last().point,
+            trip.stops.last().name, TravelMode.DRIVE, emptyMap(), Realism.REALISTIC, null,
+            trip.stops.map { it.toSavedStop() })
+        if (MockState.status.value.running) continuation.beginSaved(saved)
+        else {
+            if(planMode==PlanMode.ITINERARY && stops.isNotEmpty()) { stops.addAll(trip.stops); invalidateRoute() }
+            else loadScenario(saved)
+            notice = "Hike added. Review the itinerary, then tap Start."
+        }
+    }
     var arrivalActivity by mutableStateOf(ArrivalActivity.BUILDING)
     var arrivalEntrance by mutableStateOf<LatLng?>(null)
     var stayUntilLeave by mutableStateOf(false)
@@ -659,8 +675,11 @@ class MirageViewModel(
         val held=record.activity in setOf(ActivityKind.STAYING,ActivityKind.HOLDING)
         val first=if(held) PreparedLeg(kotlinx.coroutines.flow.flow { emit(com.mirage.spike.engine.Fix(record.position.lat,record.position.lng,0f,0f,4f)) },listOf(record.position)) else null
         val cfg=api
+        var recoveringLeg=true
         val plan=LivePlan(sc.name,sc.start ?: record.position,all,{from,to->
-            val resumed=if(to.frozenRoute!=null && Geo.haversine(from,to.frozenRoute.points.first())>1.0) to.copy(frozenRoute=com.mirage.spike.engine.RouteArchive.remaining(to.frozenRoute,from)) else to
+            val progress=if(recoveringLeg && !held) record.routeProgress else null
+            recoveringLeg=false
+            val resumed=if(to.frozenRoute!=null && (Geo.haversine(from,to.frozenRoute.points.first())>1.0 || (progress ?: 0.0)>0)) to.copy(frozenRoute=com.mirage.spike.engine.RouteArchive.remaining(to.frozenRoute,from,progress)) else to
             prepareLeg(cfg,from,resumed,sc.realism,sc.transitPref)
         },first,
             resumePosition=record.position,resumeIndex=index,resumeStaySeconds=if(held)record.remainingStay else null,departureMillis=if(record.activity==ActivityKind.WAITING)sc.departureMillis else null,defaultsRealism=sc.realism,defaultsTransitPref=sc.transitPref)

@@ -3,7 +3,8 @@ package com.mirage.spike.engine
 /** The pin is selected by the user/geocoder, never an invented room coordinate. */
 enum class ArrivalActivity(val label: String) {
     BUILDING("Inside building"), TABLE("Seated at table"), OFFICE("At office"),
-    CONFERENCE("In conference room"), OUTDOOR("Stay at route endpoint");
+    CONFERENCE("In conference room"), OUTDOOR("Stay at route endpoint"), PARKED("Parked"), TRAILHEAD("At trailhead");
+    val isIndoor get() = this in setOf(BUILDING, TABLE, OFFICE, CONFERENCE)
     companion object {
         fun parse(value: String) = entries.firstOrNull { it.name == value } ?: BUILDING
     }

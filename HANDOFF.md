@@ -1,3 +1,7 @@
+# 0.15.0 hiking build — validation in progress
+
+Named trails, mapped lengths, requested hiking miles, parking and drive–hike–return itineraries are implemented. See [the hiking specification and quick start](docs/HIKING_0.15.0.md). Current validation is pending; the 0.14.0 results below are historical.
+
 # 0.14.0 validated build
 
 Live saved/search/map destinations, entrance and indoor pins, stay choices, upcoming-stop replacement, remembered place settings and contextual voice enhancements are implemented on `codex/saved-destinations-indoor-arrival-20261006`. See [the specification and validation scope](docs/SAVED_DESTINATIONS_AND_ARRIVAL_0.14.0.md). Validated on October 8, 2026 UTC (October 7 Pacific): 127 JVM tests and all 24 emulator acceptance tests passed, with no failures or skips. Live-map clear height is 75.19%; signed upgrade from 0.13.1 preserves saved records and settings. See [validation and APK identity](docs/VALIDATION_0.14.0.md). Physical-phone validation remains outstanding; historical evidence below remains version-specific.

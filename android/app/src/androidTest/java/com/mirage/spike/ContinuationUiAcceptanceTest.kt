@@ -46,6 +46,15 @@ class ContinuationUiAcceptanceTest {
         compose.onNodeWithText("Start at “Fixture Home”").performClick()
         compose.waitUntil(20_000) { MockState.status.value.running && LiveSession.plan != null }
     }
+    @Test fun liveHikingEntryAndCancelPreserveSession() {
+        val before=LiveSession.plan
+        compose.onNodeWithText("Add stop").performClick()
+        compose.onNodeWithTag("liveHiking").performScrollTo().performClick()
+        compose.onNodeWithTag("hikingEditor").assertIsDisplayed()
+        compose.onNodeWithTag("cancelHike").performScrollTo().performClick()
+        assertSame(before,LiveSession.plan)
+        assertTrue(MockState.status.value.running)
+    }
     @Test fun savedLibraryAddsDestinationToActiveHoldingSession() {
         val before = LiveSession.plan!!
         compose.onNodeWithText("Saved", useUnmergedTree=false).performClick()

@@ -12,19 +12,26 @@ object RouteArchive {
             require(lat.isFinite() && lng.isFinite() && lat in -90.0..90.0 && lng in -180.0..180.0); LatLng(lat,lng) }
     }
     /** Resume only from a point on the archived line; never silently connect an unrelated location. */
-    fun remaining(route: RouteResult, from: LatLng): RouteResult {
+    fun remaining(route: RouteResult, from: LatLng, progress: Double? = null): RouteResult {
         require(route.points.size>=2)
         var segment=0;var closest=Double.POSITIVE_INFINITY
+        val full=route.points.zipWithNext().sumOf{(a,b)->Geo.haversine(a,b)}
+        var walked=0.0;var progressGap=Double.POSITIVE_INFINITY
+        val target=progress?.takeIf {it.isFinite() && it in 0.0..1.0}?.times(full)
         route.points.zipWithNext().forEachIndexed { i,(a,b) ->
             val x=b.lng-a.lng;val y=b.lat-a.lat;val denominator=x*x+y*y
             val t=if(denominator==0.0)0.0 else (((from.lng-a.lng)*x+(from.lat-a.lat)*y)/denominator).coerceIn(0.0,1.0)
             val distance=Geo.haversine(from,LatLng(a.lat+t*y,a.lng+t*x))
-            if(distance<closest){closest=distance;segment=i}
+            val length=Geo.haversine(a,b)
+            val gap=target?.let {kotlin.math.abs(walked+t*length-it)} ?: Double.POSITIVE_INFINITY
+            if(distance<closest-0.1 || (target!=null && distance<=closest+0.1 && gap<progressGap)) {
+                closest=distance;segment=i;progressGap=gap
+            }
+            walked+=length
         }
         require(closest<100.0) {"Checkpoint is away from the exact route; restore for editing instead"}
         val points=listOf(from)+route.points.drop(segment+1)
         val meters=points.zipWithNext().sumOf{(a,b)->Geo.haversine(a,b)}
-        val full=route.points.zipWithNext().sumOf{(a,b)->Geo.haversine(a,b)}
         return RouteResult(points,meters,if(full>0)route.durationSeconds*meters/full else 0.0,fetchedAtMillis=route.fetchedAtMillis)
     }
     fun encode(r: RouteResult)=JSONObject().put("points",points(r.points)).put("distance",r.distanceMeters).put("seconds",r.durationSeconds)
