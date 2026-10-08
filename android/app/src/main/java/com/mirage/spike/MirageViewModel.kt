@@ -75,7 +75,7 @@ class MirageViewModel(
         if (MockState.status.value.running) continuation.beginSaved(saved)
         else {
             if(planMode==PlanMode.ITINERARY && stops.isNotEmpty()) { stops.addAll(trip.stops); invalidateRoute() }
-            else loadScenario(saved)
+            else { loadScenario(saved); loadedScenario=null }
             notice = "Hike added. Review the itinerary, then tap Start."
         }
     }

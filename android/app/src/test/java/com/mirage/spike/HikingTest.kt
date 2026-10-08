@@ -113,6 +113,14 @@ class HikingTest {
         assertEquals(ArrivalActivity.PARKED,reloaded.stops.first().arrivalActivity)
         assertEquals(METERS_PER_MILE,reloaded.stops[2].frozenRoute!!.distanceMeters,0.05)
     }
+    @Test fun newlyPreparedHikeDoesNotClaimToBeSavedWhenStarted()=runTest {
+        val trip=prepareHikingTrip(trail,parking,c,1.0,2,::routed)
+        val vm=MirageViewModel();vm.attachStore(InMemoryScenarioStore());vm.addHikingTrip(trip)
+        vm.startItinerary {}
+        PlaybackSource.current!!.first()
+        assertNull(LiveSession.state.value.savedId)
+        assertTrue(LiveSession.state.value.dirty)
+    }
     @Test fun addingHikePreservesEarlierDraftStops()=runTest {
         val trip=prepareHikingTrip(trail,parking,c,1.0,2,::routed)
         val vm=MirageViewModel();vm.setStartPoint(a);vm.choosePlanMode(PlanMode.ITINERARY)
