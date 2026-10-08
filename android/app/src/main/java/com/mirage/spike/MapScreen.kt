@@ -533,7 +533,8 @@ fun MapScreen(
             }
         }
         if (live) {
-            Surface(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(8.dp).testTag("liveStatus"), shape = RoundedCornerShape(12.dp), shadowElevation = 3.dp) {
+            // Keep touch targets intact; reclaim map space from exterior margins.
+            Surface(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(horizontal = 8.dp, vertical = 2.dp).testTag("liveStatus"), shape = RoundedCornerShape(12.dp), shadowElevation = 3.dp) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = { showLiveDetails = true }, modifier = Modifier.weight(1f)) {
                         Text(simulationLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1,
@@ -691,7 +692,7 @@ fun MapScreen(
 
         // ---- Bottom sheet: capped at half the screen, scrolls inside, collapsible -----
         if (live) {
-            Card(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(8.dp).testTag("liveControls"),
+            Card(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(horizontal = 8.dp, vertical = 2.dp).testTag("liveControls"),
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                 if (addition != null) ContinuationPreviewBar(vm.continuation, confirmAddition)

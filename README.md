@@ -1,6 +1,6 @@
 # 0.14.0 candidate update
 
-Live saved/search/map destinations, entrance and indoor pins, stay choices, upcoming-stop replacement, remembered place settings and contextual voice enhancements are implemented on `codex/saved-destinations-indoor-arrival-20261006`. See [the specification and validation scope](docs/SAVED_DESTINATIONS_AND_ARRIVAL_0.14.0.md). This is a candidate pending build and acceptance; historical release evidence below remains version-specific.
+Live saved/search/map destinations, entrance and indoor pins, stay choices, upcoming-stop replacement, remembered place settings and contextual voice enhancements are implemented on `codex/saved-destinations-indoor-arrival-20261006`. See [the specification and validation scope](docs/SAVED_DESTINATIONS_AND_ARRIVAL_0.14.0.md). The candidate APK builds; 127 JVM tests passed, while the initial emulator run passed 22 of 24 tests. Corrections to editor test selection and live-panel spacing are awaiting a fresh full acceptance run; historical release evidence below remains version-specific.
 
 # Mirage 0.13.1 — saved sources and Place terminology
 

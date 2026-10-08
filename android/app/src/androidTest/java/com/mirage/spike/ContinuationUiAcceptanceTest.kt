@@ -51,11 +51,22 @@ class ContinuationUiAcceptanceTest {
         compose.onNodeWithText("Saved", useUnmergedTree=false).performClick()
         compose.onNodeWithContentDescription("Add Fixture Office to current trip").performScrollTo().performClick()
         compose.onNodeWithTag("continuationEditor").assertIsDisplayed()
-        compose.onNodeWithText("Fixture Office").assertExists()
+        val inEditor = hasAnyAncestor(hasTestTag("continuationEditor"))
+        compose.onNode(hasText("Fixture Office") and inEditor).assertExists()
         assertSame(before, LiveSession.plan)
-        compose.onNodeWithText("Cancel").performClick()
+        compose.onNode(hasText("Cancel") and inEditor).performClick()
         assertSame(before, LiveSession.plan)
         assertTrue(MockState.status.value.running)
+
+        // Exercise confirmation through the same Saved-library entry point, too.
+        compose.onNodeWithText("Saved").performClick()
+        compose.onNodeWithContentDescription("Add Fixture Office to current trip").performScrollTo().performClick()
+        compose.onNode(hasText("fly") and inEditor).performScrollTo().performClick()
+        confirm()
+        compose.waitUntil(15_000) { LiveSession.state.value.stops.lastOrNull()?.stop?.point == office }
+        assertTrue(Geo.haversine(home, LiveSession.plan!!.origin) < 20.0)
+        assertTrue(MockState.status.value.running)
+        screenshot("saved-library-destination-confirmed")
     }
     @After fun close() {
         context.stopService(Intent(context, MockLocationService::class.java))
