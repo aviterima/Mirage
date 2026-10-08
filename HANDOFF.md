@@ -1,6 +1,8 @@
-# 0.15.0 hiking build — validation in progress
+# Mirage 0.15.0 — named hiking trips
 
-Named trails, mapped lengths, requested hiking miles, parking and drive–hike–return itineraries are implemented. See [the hiking specification and quick start](docs/HIKING_0.15.0.md). Current validation is pending; the 0.14.0 results below are historical.
+Search for a trail by name, review its mapped length, choose parking and enter the total on-trail miles. Mirage builds a drive → park → hike → return-to-car itinerary and preserves the exact mapped path when saved. See [the specification and quick start](docs/HIKING_0.15.0.md) and [release notes](docs/RELEASE_NOTES_0.15.0.md).
+
+Validated October 8, 2026 UTC: **146 JVM tests and 27 emulator tests passed**, with no failures, errors or skips. Blocking lint and the signed in-place upgrade from 0.14.0 passed. Live Echo Canyon lookup passed on retry; public trail-service availability is intermittent. See [validation, limitations and APK identity](docs/VALIDATION_0.15.0.md). Tested source: `43d148a132bc0ee1d098ad0a8f2b72fd8eefa5ed`.
 
 # 0.14.0 validated build
 

@@ -8,7 +8,9 @@
 - Save and reload the exact hiking itinerary, including parking and trail paths.
 - Add hikes to a running trip through the existing continuation review.
 - Preserve return direction when recovering interrupted out-and-back routes.
+- Keep new hikes marked unsaved until explicitly saved; refresh saved-plan controls when the active trip changes.
+- Require lint to pass before distributing a build.
 
 Trail discovery requires internet and available OpenStreetMap data. Area search and drive/walk connections use the existing Maps configuration. Disconnected or branching trails are rejected; named path sections are labelled. Distances are map estimates, not official trail measurements.
 
-Install over 0.14.0 without uninstalling. Final build and acceptance results are recorded separately after validation.
+Install over 0.14.0 without uninstalling. 146 JVM tests, 27 emulator tests, blocking lint and the signed upgrade check passed. Live trail lookup passed on retry; public-provider timeouts can still occur. See [validation and APK identity](VALIDATION_0.15.0.md).

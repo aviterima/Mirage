@@ -18,7 +18,7 @@ Every prepared leg stores exact geometry in the existing saved itinerary format.
 
 ## Validation scope
 
-Added JVM tests cover distance trimming, full loops, geometry joins, parking orientation, route connections, save/reload, draft preservation, cancellation, invalid miles, stationary parking, parser failures and return-path recovery. Added emulator journeys exercise name → length → parking → mileage → preview → confirmation, invalid mileage/cancel, and live entry/cancel. Provider reachability is recorded separately from deterministic tests. Final results and APK identity will be recorded after CI completes.
+Added JVM tests cover distance trimming, full loops, geometry joins, parking orientation, route connections, save/reload, draft preservation, cancellation, invalid miles, stationary parking, parser failures and return-path recovery. Added emulator journeys exercise name → length → parking → mileage → preview → confirmation, invalid mileage/cancel, and live entry/cancel. Provider reachability is recorded separately from deterministic tests. The final build passed 146 JVM and 27 emulator tests, blocking lint and the signed 0.14.0 upgrade. Live Echo Canyon lookup passed after retrying the provider check. See [validation and APK identity](VALIDATION_0.15.0.md), including network and physical-device limitations.
 
 ## Sources
 
