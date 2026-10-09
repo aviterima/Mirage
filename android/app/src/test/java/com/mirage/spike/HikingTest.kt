@@ -211,7 +211,8 @@ class HikingTest {
         assertEquals(b,vm.hikingOrigin())
         MockState.update {it.copy(running=true,lat=c.lat,lng=c.lng)}
         assertEquals(c,vm.hikingLocation()!!.point);assertTrue(vm.hikingLocation()!!.simulated)
-        val far=Geo.offset(a,-METERS_PER_MILE,0.0)
+        // Exact one-mile meridian fixture; Geo.offset deliberately uses a local approximation.
+        val far=LatLng(a.lat-Math.toDegrees(METERS_PER_MILE/6_371_000.0),a.lng)
         assertEquals(METERS_PER_MILE,trail.distanceFrom(far),0.1)
         assertTrue(HikingLocation(far,true).distanceLabel(trail).contains("1.00 mi from simulated location"))
     }
