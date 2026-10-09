@@ -1,3 +1,13 @@
+# Mirage 0.15.1 — browse trails from the route planner
+
+Choose **Route** or **Itinerary** in the top planner, then **+ Add hiking trail**. Leave the trail name blank to browse nearby trails, or enter a city/park and tap **Browse hiking trails**. If several areas match, choose one. A specific trail name remains optional.
+
+Results show mapped trail length and straight-line miles from the current real or simulated location. The selected search area and the last planned stop do not replace the location used for distance labels. The trip preview separately shows the routed drive from the itinerary's last stop, parking time, selected hiking mileage and the walk between parking and the trail. Adding the hike retains existing stops and any existing route destination.
+
+Transient provider failures try one backup server; both providers are bounded, cached and subject to a cooldown. Browsing shows a limited sample of up to 20 mapped trails or sections, not a complete catalog. See [release notes](docs/RELEASE_NOTES_0.15.1.md) and [validation](docs/VALIDATION_0.15.1.md).
+
+Validated October 9, 2026: **153 JVM tests and 29 emulator tests passed**; blocking lint, live trail lookup with fallback and the in-place upgrade from 0.15.0 passed. Tested source: `10b5ecd53e64680f132feb9781f04ff3f176de93`. Screenshot review was limited by an emulator Pixel Launcher dialog; physical-phone validation remains outstanding.
+
 # Mirage 0.15.0 — named hiking trips
 
 Search for a trail by name, review its mapped length, choose parking and enter the total on-trail miles. Mirage builds a drive → park → hike → return-to-car itinerary and preserves the exact mapped path when saved. See [the specification and quick start](docs/HIKING_0.15.0.md) and [release notes](docs/RELEASE_NOTES_0.15.0.md).

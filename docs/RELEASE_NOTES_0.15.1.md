@@ -6,4 +6,4 @@
 - Trail length, chosen hiking mileage, parking connection, and routed driving distance remain separate. Drive, park, hike, and return-to-car are added as itinerary legs.
 - Browsing fetches bounded metadata, then full geometry for at most 80 map elements / 20 named groups. It shows a limited sample, not a complete trail catalog. Disconnected/branching ways appear only as individually continuous mapped sections, never as fabricated connecting paths. A transient server error, timeout, or incomplete response tries one backup server; failed servers have a one-minute cooldown. Complete responses are cached for 15 minutes. Network failures remain visible if neither server succeeds.
 
-Validation pending on the release source. No physical-phone test is claimed.
+153 JVM tests and 29 emulator tests passed, with zero failures, errors or skips. Blocking lint, live trail lookup with fallback and the in-place upgrade from 0.15.0 passed. Tested source: `10b5ecd53e64680f132feb9781f04ff3f176de93`. See [validation and limitations](VALIDATION_0.15.1.md), including the emulator launcher dialog that obscured screenshot review. No physical-phone test is claimed.
