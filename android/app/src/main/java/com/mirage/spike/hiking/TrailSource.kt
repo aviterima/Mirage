@@ -27,7 +27,7 @@ class OsmTrailSource(private val endpoint: String = "https://maps.mail.ru/osm/to
         val now=System.currentTimeMillis()
         cache[ql]?.takeIf {now-it.first<900_000}?.let {return@withLock it.second}
         check(now>=retryAfter) {"Trail service is busy. Please wait a minute and try again."}
-        val req=Request.Builder().url(endpoint.toHttpUrl().newBuilder().addQueryParameter("data",ql).build()).header("User-Agent","Mirage/0.15.0 (https://github.com/aviterima/Mirage)")
+        val req=Request.Builder().url(endpoint.toHttpUrl().newBuilder().addQueryParameter("data",ql).build()).header("User-Agent","Mirage/0.15.1 (https://github.com/aviterima/Mirage)")
             .get().build()
         client.newCall(req).execute().use { r ->
             if(r.code in listOf(429,406,504))retryAfter=now+60_000
@@ -45,12 +45,22 @@ class OsmTrailSource(private val endpoint: String = "https://maps.mail.ru/osm/to
         }
     } }
     override suspend fun search(name: String, near: LatLng): List<HikingTrail> {
-        require(name.trim().length in 3..100) {"Enter a trail name of at least 3 characters."}
+        require(name.trim().length<=100) {"Use a trail name of at most 100 characters."}
         val literal=name.trim().map { if(it in "\\.^$|?*+()[]{}") "\\$it" else "$it" }.joinToString("")
         val pattern=JSONObject.quote(literal)
         val latDelta=50_000.0/111_320.0
         val lngDelta=latDelta/kotlin.math.cos(Math.toRadians(near.lat)).coerceAtLeast(0.1)
         val area="(${(near.lat-latDelta).coerceAtLeast(-85.0)},${(near.lng-lngDelta).coerceAtLeast(-180.0)},${(near.lat+latDelta).coerceAtMost(85.0)},${(near.lng+lngDelta).coerceAtMost(180.0)})"
+        if(name.isBlank()) {
+            // Discover light metadata first, then fetch full geometry for a bounded sample.
+            // Limit is explicit in the UI; never infer a trail length from a center point.
+            val metadata=query("[out:json][timeout:25][maxsize:268435456];(way$area[highway~\"^(path|footway|track|steps)$\"][name][area!=yes][access!~\"^(private|no)$\"][foot!~\"^(private|no)$\"];relation$area[route~\"^(hiking|foot)$\"][name][access!~\"^(private|no)$\"][foot!~\"^(private|no)$\"];);out tags center 1000;")
+            val selectors=browseSelectors(metadata,near)
+            if(selectors.isEmpty())return emptyList()
+            return parseTrails(query("[out:json][timeout:25][maxsize:268435456];($selectors);out geom 100;"),allowSections=true)
+                .filter {trail->trail.points.any {Geo.haversine(near,it)<=50_000.0}}
+                .sortedBy {it.distanceFrom(near)}.take(20)
+        }
         val q="[out:json][timeout:25][maxsize:268435456];way$area[highway~\"^(path|footway|track|steps)$\"][name][area!=yes]->.paths;relation$area[route~\"^(hiking|foot)$\"][name]->.routes;(way.paths[name~$pattern,i];relation.routes[name~$pattern,i];);out geom 100;"
         return parseTrails(query(q)).filter {trail->trail.points.any {Geo.haversine(near,it)<=50_000.0}}.sortedBy { Geo.haversine(near,it.points.first()) }.take(20)
     }
@@ -64,6 +74,28 @@ class OsmTrailSource(private val endpoint: String = "https://maps.mail.ru/osm/to
         }.distinctBy {it.id}.sortedBy {p->anchors.minOf {Geo.haversine(p.point,it)}}.take(12)
     }
     companion object {
+        /** Prefer nearby named groups, with at most 80 complete OSM elements / 20 names. */
+        fun browseSelectors(text: String, near: LatLng): String {
+            val root=JSONObject(text)
+            require(root.optString("remark").isBlank()) {"Incomplete trail response"}
+            val groups=elements(root).filter {
+                it.optString("type") in setOf("way","relation") && it.optLong("id")>0 &&
+                    !it.optJSONObject("tags")?.optString("name").isNullOrBlank() &&
+                    it.optJSONObject("tags")?.optString("access") !in setOf("private","no") &&
+                    it.optJSONObject("tags")?.optString("foot") !in setOf("private","no") &&
+                    it.optJSONObject("center")?.let {c->point(c)}!=null
+            }.groupBy {it.getJSONObject("tags").getString("name")}
+                .values.sortedBy {g->g.minOf {Geo.haversine(near,point(it.getJSONObject("center"))!!)}}
+            val chosen=mutableListOf<JSONObject>();var names=0
+            for(group in groups) {
+                if(names>=20 || chosen.size>=80)break
+                chosen+=group.sortedBy {Geo.haversine(near,point(it.getJSONObject("center"))!!)}.take(80-chosen.size)
+                names++
+            }
+            return chosen.groupBy {it.getString("type")}.entries.joinToString("") { (type,items)->
+                "$type(id:${items.joinToString(","){it.getLong("id").toString()}});"
+            }
+        }
         private fun elements(o: JSONObject): List<JSONObject> = o.optJSONArray("elements")?.let {a->(0 until a.length()).map {a.getJSONObject(it)}} ?: emptyList()
         private fun point(o: JSONObject): LatLng? {
             val lat=o.optDouble("lat",Double.NaN);val lng=o.optDouble("lon",Double.NaN)
@@ -74,7 +106,7 @@ class OsmTrailSource(private val endpoint: String = "https://maps.mail.ru/osm/to
             val p=(0 until a.length()).map {point(a.optJSONObject(it) ?: return null) ?: return null}
             return p
         }
-        fun parseTrails(text: String): List<HikingTrail> {
+        fun parseTrails(text: String, allowSections: Boolean = false): List<HikingTrail> {
             val root=JSONObject(text)
             require(root.optString("remark").isBlank()) {"Incomplete trail response"}
             val all=elements(root)
@@ -97,8 +129,14 @@ class OsmTrailSource(private val endpoint: String = "https://maps.mail.ru/osm/to
                 .groupBy {it.optJSONObject("tags")?.optString("name").orEmpty()}.forEach { (name,ways) ->
                     if(name.isBlank())return@forEach
                     val parts=ways.map {geometry(it.optJSONArray("geometry")) ?: return@forEach}
-                    val points=TrailGeometry.join(parts) ?: return@forEach
-                    val id="way/${ways.first().getLong("id")}";results+=HikingTrail(id,name,points,"https://www.openstreetmap.org/$id",mappedSection=true)
+                    val points=TrailGeometry.join(parts)
+                    if(points!=null) {
+                        val id="way/${ways.first().getLong("id")}";results+=HikingTrail(id,name,points,"https://www.openstreetmap.org/$id",mappedSection=true)
+                    } else if(allowSections) ways.zip(parts).forEach { (way,part) ->
+                        if(runCatching {TrailGeometry.validate(part)}.isSuccess) {
+                            val id="way/${way.getLong("id")}";results+=HikingTrail(id,name,part,"https://www.openstreetmap.org/$id",mappedSection=true)
+                        }
+                    }
                 }
             return results
         }

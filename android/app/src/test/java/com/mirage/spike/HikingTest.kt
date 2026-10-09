@@ -176,4 +176,67 @@ class HikingTest {
         val hit=OsmTrailSource.parseTrails(json).single()
         assertEquals("Canyon",hit.name);assertTrue(hit.mappedSection);assertTrue(hit.meters>1000)
     }
+    @Test fun blankNameBrowsesTypedCityAndAmbiguousCityWaitsForSelection()=runTest {
+        val seen=mutableListOf<Pair<String,LatLng>>()
+        val source=object:TrailSource {
+            override suspend fun search(name:String,near:LatLng):List<HikingTrail>{seen+=name to near;return listOf(trail)}
+            override suspend fun parking(trail:HikingTrail)=emptyList<TrailParking>()
+        }
+        val tucson=PlaceHit(LatLng(32.22,-110.97),"Tucson","Arizona", "city")
+        val other=tucson.copy(name="Tucson park",placeId="park")
+        var ambiguous=false
+        val p=HikingPlanner(this,source,{_,_->if(ambiguous)listOf(tucson,other) else listOf(tucson)},::routed)
+        p.open(a);p.areaQuery("Tucson");p.search();advanceUntilIdle()
+        assertEquals(listOf("" to tucson.latLng),seen);assertTrue(p.state!!.searched)
+        p.areaQuery("Tucson park");ambiguous=true;p.search();advanceUntilIdle()
+        assertEquals(1,seen.size);assertEquals(2,p.state!!.areas.size)
+        p.chooseArea(other);advanceUntilIdle()
+        assertEquals(2,seen.size);assertEquals(other.latLng,seen.last().second)
+    }
+    @Test fun browseWithoutAreaUsesCurrentSearchCenterAndCityFailureNeverSearchesOldArea()=runTest {
+        var calls=0
+        val source=object:TrailSource {
+            override suspend fun search(name:String,near:LatLng):List<HikingTrail>{calls++;assertEquals("",name);assertEquals(a,near);return listOf(trail)}
+            override suspend fun parking(trail:HikingTrail)=emptyList<TrailParking>()
+        }
+        val p=HikingPlanner(this,source,{_,_->emptyList()},::routed)
+        p.open(a);p.search();advanceUntilIdle();assertEquals(1,calls)
+        p.areaQuery("Missing city");p.search();advanceUntilIdle()
+        assertEquals(1,calls);assertNotNull(p.state!!.error);assertTrue(p.state!!.trails.isEmpty())
+    }
+    @Test fun distancesUseRealOrSimulatedPositionInsteadOfPlannedRouteEnd() {
+        val vm=MirageViewModel();assertNull(vm.hikingLocation())
+        vm.useMyLocation(a);vm.setStartPoint(c);vm.choosePlanMode(PlanMode.ITINERARY);vm.stops+=ItineraryStop("Lunch",b,0)
+        assertEquals(a,vm.hikingLocation()!!.point);assertFalse(vm.hikingLocation()!!.simulated)
+        assertEquals(b,vm.hikingOrigin())
+        MockState.update {it.copy(running=true,lat=c.lat,lng=c.lng)}
+        assertEquals(c,vm.hikingLocation()!!.point);assertTrue(vm.hikingLocation()!!.simulated)
+        val far=Geo.offset(a,-METERS_PER_MILE,0.0)
+        assertEquals(METERS_PER_MILE,trail.distanceFrom(far),0.1)
+        assertTrue(HikingLocation(far,true).distanceLabel(trail).contains("1.00 mi from simulated location"))
+    }
+    @Test fun addingTrailToRouteRetainsDestinationBeforeHike()=runTest {
+        val vm=MirageViewModel();vm.setStartPoint(a);vm.choosePlanMode(PlanMode.ROUTE);vm.setDestPoint(c,"Lunch")
+        assertEquals(c,vm.hikingOrigin())
+        vm.addHikingTrip(prepareHikingTrip(trail,parking,c,1.0,2,::routed))
+        assertEquals(PlanMode.ITINERARY,vm.planMode);assertEquals("Lunch",vm.stops.first().name)
+        assertEquals(c,vm.stops.first().point);assertEquals(5,vm.stops.size);assertEquals(a,vm.tripStart())
+    }
+    @Test fun browseMetadataBoundsGeometryAndExcludesPrivatePaths() {
+        val elements=org.json.JSONArray()
+        for(i in 1..120)elements.put(org.json.JSONObject().put("type","way").put("id",i)
+            .put("center",org.json.JSONObject().put("lat",a.lat+i*0.0001).put("lon",a.lng))
+            .put("tags",org.json.JSONObject().put("name","Trail ${i%10}").put("access",if(i==1)"private" else "yes")))
+        val selectors=OsmTrailSource.browseSelectors(org.json.JSONObject().put("elements",elements).toString(),a)
+        val ids=selectors.substringAfter("id:").substringBefore(")").split(",")
+        assertEquals(80,ids.size);assertFalse(ids.contains("1"));assertTrue(selectors.startsWith("way(id:"))
+        assertThrows(IllegalArgumentException::class.java){OsmTrailSource.browseSelectors("""{"remark":"timeout","elements":[]}""",a)}
+    }
+    @Test fun browseDisconnectedNamedWaysReturnsHonestSectionsWithoutJoiningGaps() {
+        val json="""{"elements":[{"type":"way","id":1,"tags":{"name":"Canyon"},"geometry":[{"lat":33.5,"lon":-112},{"lat":33.51,"lon":-112}]},{"type":"way","id":2,"tags":{"name":"Canyon"},"geometry":[{"lat":33.6,"lon":-112},{"lat":33.61,"lon":-112}]}]}"""
+        assertTrue(OsmTrailSource.parseTrails(json).isEmpty())
+        val found=OsmTrailSource.parseTrails(json,allowSections=true)
+        assertEquals(2,found.size);assertTrue(found.all {it.mappedSection && it.meters<1200})
+    }
+
 }

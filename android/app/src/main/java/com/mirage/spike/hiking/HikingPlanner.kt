@@ -10,7 +10,7 @@ import java.util.Locale
 /** Everything in this sheet is a draft until the user confirms the prepared trip. */
 data class HikingDraft(
     val near: LatLng, val areaName: String = "current map area", val query: String = "", val areaQuery: String = "",
-    val areas: List<PlaceHit> = emptyList(), val trails: List<HikingTrail> = emptyList(), val selected: HikingTrail? = null,
+    val resolvedAreaQuery: String = "", val areas: List<PlaceHit> = emptyList(), val trails: List<HikingTrail> = emptyList(), val selected: HikingTrail? = null,
     val parking: List<TrailParking> = emptyList(), val selectedParking: TrailParking? = null,
     val miles: String = "", val wholeTrail: Boolean = true, val parkingMinutes: String = "2",
     val busy: Boolean = false, val error: String? = null, val searched: Boolean = false,
@@ -26,8 +26,9 @@ class HikingPlanner(private val scope: CoroutineScope, private val source: Trail
     fun close() {generation++;job?.cancel();state=null}
     private fun change(block: (HikingDraft)->HikingDraft) {generation++;job?.cancel();state=state?.let(block)?.copy(busy=false,trip=null,error=null)}
     fun query(text: String)=change {it.copy(query=text,trails=emptyList(),selected=null,parking=emptyList(),selectedParking=null,searched=false)}
-    fun areaQuery(text: String)=change {it.copy(areaQuery=text,areas=emptyList())}
-    fun chooseArea(hit: PlaceHit)=change {it.copy(near=hit.latLng,areaName=listOf(hit.name,hit.address).filter(String::isNotBlank).joinToString(" · "),areas=emptyList(),trails=emptyList(),selected=null,parking=emptyList(),selectedParking=null,searched=false)}
+    fun areaQuery(text: String)=change {it.copy(areaQuery=text,areas=emptyList(),trails=emptyList(),selected=null,parking=emptyList(),selectedParking=null,searched=false)}
+    private fun HikingDraft.inArea(hit: PlaceHit)=copy(near=hit.latLng,areaName=listOf(hit.name,hit.address).filter(String::isNotBlank).joinToString(" · "),resolvedAreaQuery=areaQuery.trim(),areas=emptyList(),trails=emptyList(),selected=null,parking=emptyList(),selectedParking=null,searched=false)
+    fun chooseArea(hit: PlaceHit) {change {it.inArea(hit)};search()}
     fun miles(text: String)=change {it.copy(miles=text,wholeTrail=false)}
     fun wholeTrail()=change {d->d.copy(wholeTrail=true,miles=String.format(Locale.US,"%.2f",(d.selected?.maxHikeMeters ?: 0.0)/METERS_PER_MILE))}
     fun parkingMinutes(text: String)=change {it.copy(parkingMinutes=text)}
@@ -47,7 +48,16 @@ class HikingPlanner(private val scope: CoroutineScope, private val source: Trail
         require(results.isNotEmpty()) {"No area found. Try a city and state."}
         d.copy(areas=results)
     }
-    fun search()=work {d->d.copy(trails=source.search(d.query,d.near),selected=null,parking=emptyList(),selectedParking=null,searched=true)}
+    fun search()=work {initial->
+        var d=initial
+        if(d.areaQuery.isNotBlank() && d.areaQuery.trim()!=d.resolvedAreaQuery) {
+            val matches=places(d.areaQuery,d.near)
+            require(matches.isNotEmpty()) {"No area found. Try a city and state."}
+            if(matches.size>1)return@work d.copy(areas=matches,trails=emptyList(),searched=false)
+            d=d.inArea(matches.single())
+        }
+        d.copy(trails=source.search(d.query,d.near),selected=null,parking=emptyList(),selectedParking=null,searched=true)
+    }
     fun select(trail: HikingTrail) {
         change {d->d.copy(selected=trail,parking=emptyList(),selectedParking=null,wholeTrail=true,
             miles=String.format(Locale.US,"%.2f",trail.maxHikeMeters/METERS_PER_MILE))}

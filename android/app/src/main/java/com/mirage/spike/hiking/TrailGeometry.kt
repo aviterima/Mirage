@@ -8,9 +8,14 @@ fun milesText(meters: Double) = String.format(Locale.US, "%.2f mi", meters / MET
 
 data class HikingTrail(val id: String, val name: String, val points: List<LatLng>, val sourceUrl: String,
     val mappedSection: Boolean = false) {
+    fun distanceFrom(location: LatLng): Double =
+        (if(loop) points else listOf(points.first(),points.last())).minOf {Geo.haversine(location,it)}
     val meters get() = TrailGeometry.length(points)
     val loop get() = points.size > 2 && Geo.haversine(points.first(), points.last()) < 1.0
     val maxHikeMeters get() = if (loop) meters else meters * 2
+}
+data class HikingLocation(val point: LatLng, val simulated: Boolean) {
+    fun distanceLabel(trail: HikingTrail) = "${milesText(trail.distanceFrom(point))} from ${if(simulated) "simulated" else "real"} location · straight-line to mapped trail access"
 }
 data class TrailParking(val id: String, val name: String, val point: LatLng)
 data class HikingTrip(val trail: HikingTrail, val parking: TrailParking, val origin: LatLng,

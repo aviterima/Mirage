@@ -592,6 +592,9 @@ fun MapScreen(
                             )
                             HorizontalDivider(color = MUTED.copy(alpha = 0.15f), modifier = Modifier.padding(horizontal = 8.dp))
                         }
+                        if(vm.planMode!=PlanMode.SNAP) {
+                            TextButton(onClick={done();vm.hiking.open(vm.hikingLocation()?.point ?: camera.position.target.toE())},modifier=Modifier.testTag("plannerAddTrail")) {Text("+ Add hiking trail")}
+                        }
                         // THE CHAIN (Itinerary): every stop, editable in place, with the clock.
                         if (vm.planMode == PlanMode.ITINERARY && vm.stops.isNotEmpty()) {
                             val stopsNow = vm.stops.toList()
@@ -713,7 +716,6 @@ fun MapScreen(
                         val name=vm.draftSavedName
                         if(name==null)showSaved=true else if(vm.saveScenario(name,true))vm.notice="Changes saved"
                     },modifier=Modifier.weight(1f)) { Text(if(vm.draftSavedName==null) "Save" else "Save changes") }
-                    TextButton(onClick = { vm.hiking.open(camera.position.target.toE()) },modifier=Modifier.weight(1f).testTag("openHiking")) { Text("Hike") }
                     TextButton(onClick = { showPlannerSettings = true },modifier=Modifier.weight(1f)) { Text("Settings") }
                     TextButton(onClick = { showChat = true },modifier=Modifier.weight(1f)) { Text("Talk") }
                 }
@@ -768,7 +770,7 @@ fun MapScreen(
             TextButton(onClick = { showPlannerSettings = false }) { Text("Back to map") }
         }
     }
-    ContinuationSheet(vm.continuation, vm.savedScenarios.toList(), confirmAddition, onStop, onHike = { vm.continuation.cancel(); vm.hiking.open(camera.position.target.toE()) })
+    ContinuationSheet(vm.continuation, vm.savedScenarios.toList(), confirmAddition, onStop, onHike = { vm.continuation.cancel(); vm.hiking.open(vm.hikingLocation()?.point ?: camera.position.target.toE()) })
     if (showLiveDetails) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showLiveDetails = false },
@@ -801,7 +803,12 @@ fun MapScreen(
         )
     }
     if (showItinerary) MyItinerarySheet(vm, onDismiss = { showItinerary = false }, onAdd = { showItinerary = false; addDestination() }, onReplace = { id -> showItinerary=false;planning=false;follow=false;vm.continuation.beginReplace(id) })
-    com.mirage.spike.hiking.HikingSheet(vm.hiking, origin = { if(status.running) LatLng(status.lat,status.lng) else if(vm.planMode==PlanMode.ITINERARY && vm.stops.isNotEmpty()) vm.stops.last().point else vm.tripStart() }, active=status.running,
+    LaunchedEffect(vm.hiking.state != null) {
+        if(vm.hiking.state!=null && !status.running && hasLocPerm) {
+            realLocation(context)?.let {vm.lastReal=it}
+        }
+    }
+    com.mirage.spike.hiking.HikingSheet(vm.hiking, origin = vm::hikingOrigin, active=status.running, currentLocation=vm.hikingLocation(),
         onConfirm = { trip -> vm.addHikingTrip(trip); if(!status.running)planning=true })
     if (showChat) ChatPanel { showChat = false }
     if (showUpcoming) UpcomingDialog(session, onDismiss = { showUpcoming = false }, onAdd = { showUpcoming = false; planNext() })

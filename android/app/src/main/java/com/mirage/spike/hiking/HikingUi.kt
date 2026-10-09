@@ -21,7 +21,7 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HikingSheet(planner: HikingPlanner, origin: () -> LatLng?, active: Boolean, onConfirm: (HikingTrip)->Unit) {
+fun HikingSheet(planner: HikingPlanner, origin: () -> LatLng?, active: Boolean, currentLocation: HikingLocation? = null, onConfirm: (HikingTrip)->Unit) {
     val d=planner.state ?: return
     val uri=LocalUriHandler.current
     ModalBottomSheet(onDismissRequest=planner::close,sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
@@ -31,15 +31,19 @@ fun HikingSheet(planner: HikingPlanner, origin: () -> LatLng?, active: Boolean, 
             Text("Search within 31 miles of ${d.areaName}",style=MaterialTheme.typography.bodySmall)
             OutlinedTextField(d.areaQuery,planner::areaQuery,label={Text("Different city or park (optional)")},modifier=Modifier.fillMaxWidth().testTag("hikeArea"),singleLine=true,enabled=!d.busy)
             TextButton(onClick=planner::findArea,enabled=!d.busy && d.areaQuery.isNotBlank()){Text("Find area")}
+            if(d.areas.isNotEmpty())Text("Choose the city or park to search:")
             d.areas.forEach {a->OutlinedButton(onClick={planner.chooseArea(a)},modifier=Modifier.fillMaxWidth()) {Text("${a.name} · ${a.address}")}}
-            OutlinedTextField(d.query,planner::query,label={Text("Trail name")},placeholder={Text("e.g. Echo Canyon Trail")},singleLine=true,modifier=Modifier.fillMaxWidth().testTag("hikeQuery"),enabled=!d.busy)
-            Button(onClick=planner::search,enabled=!d.busy && d.query.trim().length>=3,modifier=Modifier.testTag("searchTrails")){Text("Find hiking trails")}
+            OutlinedTextField(d.query,planner::query,label={Text("Trail name (optional)")},placeholder={Text("e.g. Echo Canyon Trail")},singleLine=true,modifier=Modifier.fillMaxWidth().testTag("hikeQuery"),enabled=!d.busy)
+            Button(onClick=planner::search,enabled=!d.busy,modifier=Modifier.testTag("searchTrails")){Text(if(d.query.isBlank()) "Browse hiking trails" else "Find hiking trails")}
+            Text("Leave the trail name blank to browse. Showing up to 20 mapped trails or sections; use a name or a nearby park to refine results.",style=MaterialTheme.typography.bodySmall)
+            if(currentLocation==null)Text("Current location unavailable. Enable Location to see distances.",style=MaterialTheme.typography.bodySmall)
             if(d.busy)LinearProgressIndicator(Modifier.fillMaxWidth())
             d.error?.let {Text(it,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("hikeError"))}
             if(d.searched && d.trails.isEmpty() && !d.busy)Text("No continuous mapped trail found. Try another name or area. Missing or branching paths are not estimated.")
             if(d.selected==null)d.trails.forEach {trail->
                 OutlinedCard(Modifier.fillMaxWidth()) {Column(Modifier.padding(12.dp)) {
                     Text(trail.name,fontWeight=FontWeight.Bold)
+                    currentLocation?.let {Text(it.distanceLabel(trail),modifier=Modifier.testTag("trailDistance-${trail.id}"))}
                     Text("${milesText(trail.meters)} · ${if(trail.loop) "loop" else "one way; ${milesText(trail.maxHikeMeters)} out and back"}")
                     if(trail.mappedSection)Text("Mapped named path; may be only part of a longer trail.",style=MaterialTheme.typography.bodySmall)
                     Button(onClick={planner.select(trail)},enabled=!d.busy,modifier=Modifier.testTag("chooseTrail-${trail.id}")){Text("Choose trail")}
@@ -48,6 +52,7 @@ fun HikingSheet(planner: HikingPlanner, origin: () -> LatLng?, active: Boolean, 
             d.selected?.let {trail->
                 HorizontalDivider()
                 Text(trail.name,style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+                currentLocation?.let {Text(it.distanceLabel(trail),modifier=Modifier.testTag("selectedTrailDistance"))}
                 Text("Mapped length: ${milesText(trail.meters)} ${if(trail.loop) "(full loop)" else "(one way)"}",modifier=Modifier.testTag("trailLength"))
                 if(trail.mappedSection)Text("This is the continuous named path available in the map data; it may not represent the entire advertised trail.",style=MaterialTheme.typography.bodySmall)
                 Text("Choose parking",style=MaterialTheme.typography.titleMedium)

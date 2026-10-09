@@ -67,6 +67,15 @@ class MirageViewModel(
         places = { query, near -> placeSearch(api, query, near) },
         route = { spec -> GoogleDirectionsRouteEngine(api).route(spec) })
 
+    fun hikingLocation(): com.mirage.spike.hiking.HikingLocation? {
+        val st=MockState.status.value
+        return if(st.running) com.mirage.spike.hiking.HikingLocation(LatLng(st.lat,st.lng),true)
+        else lastReal?.let {com.mirage.spike.hiking.HikingLocation(it,false)}
+    }
+    fun hikingOrigin(): LatLng? = if(MockState.status.value.running) hikingLocation()?.point
+        else if(planMode==PlanMode.ITINERARY && stops.isNotEmpty()) stops.last().point
+        else if(planMode==PlanMode.ROUTE && dest!=null) dest else tripStart()
+
     fun addHikingTrip(trip: com.mirage.spike.hiking.HikingTrip) {
         val saved = SavedScenario(java.util.UUID.randomUUID().toString(), "Hike · ${trip.trail.name}", "ITINERARY",
             System.currentTimeMillis(), false, trip.origin, "Hiking trip start", trip.stops.last().point,
@@ -74,6 +83,7 @@ class MirageViewModel(
             trip.stops.map { it.toSavedStop() })
         if (MockState.status.value.running) continuation.beginSaved(saved)
         else {
+            if(planMode==PlanMode.ROUTE && dest!=null) choosePlanMode(PlanMode.ITINERARY)
             if(planMode==PlanMode.ITINERARY && stops.isNotEmpty()) { stops.addAll(trip.stops); invalidateRoute() }
             else { loadScenario(saved); loadedScenario=null }
             notice = "Hike added. Review the itinerary, then tap Start."

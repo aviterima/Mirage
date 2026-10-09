@@ -46,6 +46,17 @@ class ContinuationUiAcceptanceTest {
         compose.onNodeWithText("Start at “Fixture Home”").performClick()
         compose.waitUntil(20_000) { MockState.status.value.running && LiveSession.plan != null }
     }
+    @Test fun itineraryPlannerHasTrailEntryWithBlankNameEnabled() {
+        context.stopService(Intent(context, MockLocationService::class.java))
+        compose.waitUntil(10_000){!MockState.status.value.running}
+        compose.onNodeWithText("Itinerary",substring=false).performClick()
+        compose.onNodeWithTag("plannerAddTrail").performScrollTo().performClick()
+        compose.onNodeWithTag("hikingEditor").assertIsDisplayed()
+        compose.onNodeWithTag("searchTrails").performScrollTo().assertIsEnabled()
+        screenshot("planner-browse-trails")
+        compose.onNodeWithTag("cancelHike").performScrollTo().performClick()
+        compose.onNodeWithTag("plannerAddTrail").assertExists()
+    }
     @Test fun liveHikingEntryAndCancelPreserveSession() {
         val before=LiveSession.plan
         compose.onNodeWithText("Add stop").performClick()

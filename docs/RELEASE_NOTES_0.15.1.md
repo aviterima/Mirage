@@ -1,0 +1,9 @@
+# Mirage 0.15.1 — trail browsing and itinerary integration
+
+- Leave Trail name blank to browse up to 20 mapped trails or sections near your location, or enter a city/park and browse. A unique area resolves automatically; ambiguous areas ask you to select a result.
+- Add hiking trail is in the top Route/Itinerary planner. A hike appends after existing itinerary stops or an existing route destination, retaining earlier stops. The live Add stop hiking entry remains available.
+- Results and selected trails show straight-line miles to mapped trail access from the real location, or the current simulated position while running. The search city and the itinerary endpoint do not replace the current-location reference. Real position refreshes when opening the editor; simulated distances update as the simulation moves. Unavailable location is stated explicitly.
+- Trail length, chosen hiking mileage, parking connection, and routed driving distance remain separate. Drive, park, hike, and return-to-car are added as itinerary legs.
+- Browsing fetches bounded metadata, then full geometry for at most 80 map elements / 20 named groups. It shows a limited sample, not a complete trail catalog. Disconnected/branching ways appear only as individually continuous mapped sections, never as fabricated connecting paths. Network failures remain visible.
+
+Validation pending on the release source. No physical-phone test is claimed.
