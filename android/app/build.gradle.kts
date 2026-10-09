@@ -99,6 +99,7 @@ dependencies {
 
     // JVM unit tests: engine models and the ViewModel state machine (run in CI before release)
     testImplementation("junit:junit:4.13.2")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     androidTestImplementation(platform("androidx.compose:compose-bom:2024.09.02"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.test:runner:1.6.2")
