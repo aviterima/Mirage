@@ -239,4 +239,25 @@ class HikingTest {
         assertEquals(2,found.size);assertTrue(found.all {it.mappedSection && it.meters<1200})
     }
 
+    @Test fun busyPrimaryFallsBackAndCachesCompleteCityGeometry()=runTest {
+        var primaryCalls=0;var backupCalls=0
+        val primary=com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1",0),0)
+        val backup=com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1",0),0)
+        primary.createContext("/"){exchange->primaryCalls++;exchange.sendResponseHeaders(504,-1);exchange.close()}
+        backup.createContext("/"){exchange->
+            backupCalls++
+            val query=java.net.URLDecoder.decode(exchange.requestURI.rawQuery,"UTF-8")
+            val json=if(query.contains("out tags center")) """{"elements":[{"type":"way","id":1,"center":{"lat":33.5,"lon":-112},"tags":{"name":"Canyon"}}]}"""
+                else """{"elements":[{"type":"way","id":1,"tags":{"name":"Canyon"},"geometry":[{"lat":33.5,"lon":-112},{"lat":33.51,"lon":-112}]}]}"""
+            val bytes=json.toByteArray();exchange.sendResponseHeaders(200,bytes.size.toLong());exchange.responseBody.use {it.write(bytes)}
+        }
+        primary.start();backup.start()
+        try {
+            val source=OsmTrailSource("http://127.0.0.1:${primary.address.port}/","http://127.0.0.1:${backup.address.port}/")
+            val result=source.search("",a)
+            assertEquals("Canyon",result.single().name);assertTrue(result.single().meters>1000)
+            assertEquals(result,source.search("",a));assertEquals(1,primaryCalls);assertEquals(2,backupCalls)
+        } finally {primary.stop(0);backup.stop(0)}
+    }
+
 }

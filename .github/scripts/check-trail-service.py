@@ -1,10 +1,13 @@
 """Blocking live named search and city browsing; bounded queries like the app."""
 import json, pathlib, urllib.request, urllib.parse, time, math
 out=pathlib.Path('acceptance-evidence');out.mkdir(exist_ok=True)
-url='https://maps.mail.ru/osm/tools/overpass/api/interpreter'
+servers=['https://maps.mail.ru/osm/tools/overpass/api/interpreter','https://overpass-api.de/api/interpreter']
+retry_after={}
 messages=[]
 def query(label,ql):
-    for attempt in range(2):
+    last_error=None
+    for url in servers:
+        if time.monotonic()<retry_after.get(url,0): continue
         try:
             req=urllib.request.Request(url+'?'+urllib.parse.urlencode({'data':ql}),headers={'User-Agent':'Mirage/0.15.1 (https://github.com/aviterima/Mirage)'})
             with urllib.request.urlopen(req,timeout=45) as response: data=response.read(4_000_001)
@@ -13,16 +16,17 @@ def query(label,ql):
             assert not root.get('remark'),root.get('remark')
             assert root['elements']
             (out/f'{label}.json').write_bytes(data)
-            message=f"PASS {label}, attempt {attempt+1}: {len(root['elements'])} elements"
+            message=f"PASS {label}: {url}; {len(root['elements'])} elements"
             messages.append(message);print(message,flush=True)
             (out/'live-trail-service.txt').write_text('\n'.join(messages)+'\n')
             return root['elements']
         except Exception as e:
-            message=f'FAIL {label}, attempt {attempt+1}: {e}'
+            retry_after[url]=time.monotonic()+60
+            last_error=e
+            message=f'FAIL {label}: {url}: {e}'
             messages.append(message);print(message,flush=True)
             (out/'live-trail-service.txt').write_text('\n'.join(messages)+'\n')
-            if attempt: raise
-            time.sleep(35)
+    raise RuntimeError(f'Both trail providers unavailable: {last_error}')
 area='(33.060844,-112.508654,33.959156,-111.431346)'
 found=query('named-echo-canyon',f'[out:json][timeout:25][maxsize:268435456];way{area}[highway~"^(path|footway|track|steps)$"][name][area!=yes]->.paths;relation{area}[route~"^(hiking|foot)$"][name]->.routes;(way.paths[name~"Echo Canyon",i];relation.routes[name~"Echo Canyon",i];);out geom 100;')
 assert len(found)<100

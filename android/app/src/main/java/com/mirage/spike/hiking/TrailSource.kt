@@ -1,6 +1,9 @@
 package com.mirage.spike.hiking
 
 import com.mirage.spike.engine.*
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.currentCoroutineContext
+import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
@@ -18,32 +21,47 @@ interface TrailSource {
 }
 
 /** Explicit, bounded queries with a small cache; no keystroke queries or bulk downloads. */
-class OsmTrailSource(private val endpoint: String = "https://maps.mail.ru/osm/tools/overpass/api/interpreter") : TrailSource {
+class OsmTrailSource(private val endpoint: String = "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+    private val backupEndpoint: String? = "https://overpass-api.de/api/interpreter") : TrailSource {
     private val client=OkHttpClient.Builder().callTimeout(45,TimeUnit.SECONDS).build()
     private val cache=linkedMapOf<String,Pair<Long,String>>()
     private val mutex=Mutex()
-    private var retryAfter=0L
+    private val retryAfter=mutableMapOf<String,Long>()
     private suspend fun query(ql: String): String = withContext(Dispatchers.IO) { mutex.withLock {
         val now=System.currentTimeMillis()
         cache[ql]?.takeIf {now-it.first<900_000}?.let {return@withLock it.second}
-        check(now>=retryAfter) {"Trail service is busy. Please wait a minute and try again."}
-        val req=Request.Builder().url(endpoint.toHttpUrl().newBuilder().addQueryParameter("data",ql).build()).header("User-Agent","Mirage/0.15.1 (https://github.com/aviterima/Mirage)")
-            .get().build()
-        client.newCall(req).execute().use { r ->
-            if(r.code in listOf(429,406,504))retryAfter=now+60_000
-            check(r.isSuccessful) {"Trail service unavailable (${r.code}). Please try again later."}
-            val input=r.body?.byteStream() ?: error("Empty trail response")
-            val output=java.io.ByteArrayOutputStream();val chunk=ByteArray(8192)
-            while(output.size()<=4_000_000) {val n=input.read(chunk);if(n<0)break;output.write(chunk,0,n)}
-            val bytes=output.toByteArray()
-            check(bytes.size<=4_000_000) {"Too many trail details. Try a more specific trail name."}
-            val text=bytes.toString(Charsets.UTF_8)
-            check(JSONObject(text).optString("remark").isBlank()) {"Trail search was incomplete. Try a more specific name."}
-            if(cache.size>=20)cache.remove(cache.keys.first())
-            cache[ql]=now to text
-            text
+        var lastFailure: IOException?=null
+        for(server in listOfNotNull(endpoint,backupEndpoint).distinct()) {
+            currentCoroutineContext().ensureActive()
+            if(now<(retryAfter[server] ?: 0L))continue
+            try {
+                val req=Request.Builder().url(server.toHttpUrl().newBuilder().addQueryParameter("data",ql).build()).header("User-Agent","Mirage/0.15.1 (https://github.com/aviterima/Mirage)")
+                    .get().build()
+                val text=client.newCall(req).execute().use { r ->
+                    if(r.code in listOf(429,406) || r.code>=500)throw IOException("Trail service unavailable (${r.code}).")
+                    check(r.isSuccessful) {"Trail search was rejected (${r.code}). Try another area or name."}
+                    val input=r.body?.byteStream() ?: throw IOException("Empty trail response")
+                    val output=java.io.ByteArrayOutputStream();val chunk=ByteArray(8192)
+                    while(output.size()<=4_000_000) {val n=input.read(chunk);if(n<0)break;output.write(chunk,0,n)}
+                    val bytes=output.toByteArray()
+                    check(bytes.size<=4_000_000) {"Too many trail details. Try a more specific trail name."}
+                    val body=bytes.toString(Charsets.UTF_8)
+                    if(JSONObject(body).optString("remark").isNotBlank())throw IOException("Trail search was incomplete.")
+                    body
+                }
+                currentCoroutineContext().ensureActive()
+                if(cache.size>=20)cache.remove(cache.keys.first())
+                cache[ql]=System.currentTimeMillis() to text
+                return@withLock text
+            } catch(e: IOException) {
+                currentCoroutineContext().ensureActive()
+                retryAfter[server]=System.currentTimeMillis()+60_000
+                lastFailure=e
+            }
         }
+        error("Trail services are busy or unreachable. Please wait a minute and try again."+(lastFailure?.message?.let {" $it"} ?: ""))
     } }
+
     override suspend fun search(name: String, near: LatLng): List<HikingTrail> {
         require(name.trim().length<=100) {"Use a trail name of at most 100 characters."}
         val literal=name.trim().map { if(it in "\\.^$|?*+()[]{}") "\\$it" else "$it" }.joinToString("")
