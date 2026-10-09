@@ -805,7 +805,7 @@ fun MapScreen(
     if (showItinerary) MyItinerarySheet(vm, onDismiss = { showItinerary = false }, onAdd = { showItinerary = false; addDestination() }, onReplace = { id -> showItinerary=false;planning=false;follow=false;vm.continuation.beginReplace(id) })
     LaunchedEffect(vm.hiking.state != null) {
         if(vm.hiking.state!=null && !status.running && hasLocPerm) {
-            realLocation(context)?.let {vm.lastReal=it}
+            realLocation(context)?.let(vm::refreshHikingLocation)
         }
     }
     com.mirage.spike.hiking.HikingSheet(vm.hiking, origin = vm::hikingOrigin, active=status.running, currentLocation=vm.hikingLocation(),

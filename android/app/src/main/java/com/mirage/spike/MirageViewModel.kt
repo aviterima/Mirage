@@ -67,6 +67,7 @@ class MirageViewModel(
         places = { query, near -> placeSearch(api, query, near) },
         route = { spec -> GoogleDirectionsRouteEngine(api).route(spec) })
 
+    fun refreshHikingLocation(point: LatLng) { lastReal=point }
     fun hikingLocation(): com.mirage.spike.hiking.HikingLocation? {
         val st=MockState.status.value
         return if(st.running) com.mirage.spike.hiking.HikingLocation(LatLng(st.lat,st.lng),true)
