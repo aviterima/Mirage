@@ -24,6 +24,8 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import java.io.ByteArrayOutputStream
+import java.io.File
 
 /** User-visible audit controls and privacy checks against the same report exported by the UI. */
 class AuditUiAcceptanceTest {
@@ -207,8 +209,12 @@ class AuditUiAcceptanceTest {
             val save = device.findObject(UiSelector().textMatches("(?i)save"))
             assertTrue("CreateDocument must offer Save", save.waitForExists(5_000))
             save.click()
-            assertTrue("Mirage must confirm the contentResolver write completed",
-                device.findObject(UiSelector().textContains("Report saved.")).waitForExists(15_000))
+            // Return to Compose synchronization after the external picker. A native accessibility
+            // wait cannot advance Compose's test clock or find a message below the scroll viewport.
+            compose.waitUntil(15_000) {
+                compose.onAllNodesWithText("Report saved.", substring = true).fetchSemanticsNodes().isNotEmpty() ||
+                    compose.onAllNodesWithText("Couldn't save the diagnostic report.", substring = true).fetchSemanticsNodes().isNotEmpty()
+            }
             compose.onNodeWithTag("auditMessage").performScrollTo().assertTextContains("Report saved.", substring = true)
 
             // Read the bytes created by the native document provider, independently of AuditTrail.
@@ -227,6 +233,23 @@ class AuditUiAcceptanceTest {
             assertFalse("Export must not start simulation", MockState.status.value.running)
             screenshot("audit-native-export-saved")
             device.executeShellCommand("cp $path /sdcard/Download/mirage-acceptance/audit-exported-report.json")
+        } catch (failure: Throwable) {
+            // Capture the native picker/app state without replacing the original failure.
+            runCatching {
+                device.executeShellCommand("mkdir -p /sdcard/Download/mirage-acceptance")
+                device.executeShellCommand("screencap -p /sdcard/Download/mirage-acceptance/audit-native-export-failure.png")
+                val hierarchy = ByteArrayOutputStream()
+                device.dumpWindowHierarchy(hierarchy)
+                // Instrumentation can write its own external-files directory; the workflow pulls
+                // this diagnostic via a shell copy only after it has been fully closed.
+                val hierarchyFile = File(context.getExternalFilesDir(null), "audit-native-export-failure.xml")
+                hierarchyFile.writeBytes(hierarchy.toByteArray())
+                device.executeShellCommand("cp ${hierarchyFile.absolutePath} /sdcard/Download/mirage-acceptance/audit-native-export-failure.xml")
+                hierarchyFile.delete()
+                println("AUDIT export failure: package=${device.currentPackageName}; fileBytes=" +
+                    device.executeShellCommand("stat -c %s $path").trim())
+            }
+            throw failure
         } finally {
             // This unique test-created file is the only Downloads entry removed.
             device.executeShellCommand("rm -f $path")
