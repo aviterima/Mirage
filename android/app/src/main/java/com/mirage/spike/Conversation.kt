@@ -36,10 +36,36 @@ object Conversation {
     fun configure(ctx: Context, cfg: ApiConfig, realPosition: LatLng?) {
         context = ctx.applicationContext; api = cfg; real = realPosition ?: real
     }
-    fun notice(text: String) { scope.launch { reply(text, false) } }
+    fun notice(text: String) {
+        val generation = serial
+        scope.launch { if (serial == generation) reply(text, false) }
+    }
     fun cancelPending() {
         serial++; job?.cancel(); job = null; pending = null; resolved.clear(); clarifyStop = false
         mutable.update { it.copy(choices = emptyList(), busy = false) }
+    }
+    fun resetPlanningSession() {
+        PlannerSpeech.cancel()
+        cancelPending()
+        lastRequest = null; pendingSpoken = false
+        SmartVoice.resetPlanningSession()
+        mutable.value = ChatView()
+    }
+    fun clearPlannerFeedback() {
+        cancelPending()
+        lastRequest = null; pendingSpoken = false
+        SmartVoice.cancel()
+        mutable.value = ChatView()
+    }
+    /** Planner instructions can prepare/edit a draft only; the legacy auto-start path is excluded. */
+    fun submitPlanner(text: String, field: Field, planMode: PlanMode, spoken: Boolean = false) {
+        if (text.isBlank()) return
+        mutable.update { it.copy(lines = (it.lines + ChatLine(true, text)).takeLast(100)) }
+        cancelPending()
+        lastRequest = null
+        if (!SmartVoice.handlePlanning(text, field, planMode, spoken)) {
+            reply("Name one place or saved item for this field, then review the result. Use Start when the plan is ready.", spoken)
+        }
     }
     private fun reply(text: String, spoken: Boolean) {
         mutable.update { it.copy(lines = (it.lines + ChatLine(false, text)).takeLast(100)) }
@@ -182,7 +208,9 @@ object Conversation {
                     }
                 }
                 pending = null; resolved.clear()
-            } catch (e: CancellationException) { throw e } catch (e: Exception) { reply("Could not apply that instruction: ${e.message}", spoken) }
+            } catch (e: CancellationException) { throw e } catch (e: Exception) {
+                if (serial == generation) reply("Could not apply that instruction: ${e.message}", spoken)
+            }
             finally { if (serial == generation) mutable.update { it.copy(busy = false) } }
         }
     }

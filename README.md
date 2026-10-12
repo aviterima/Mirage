@@ -1,3 +1,7 @@
+# Mirage 0.17.0 — voice in the planner
+
+Use the microphone beside Start, Destination or Next stop, or type in the same field. Missing voice files open Voice setup; recognized words stay editable. The existing itinerary shows the plan and highlights new stops. Clear entry and Start new have separate scopes. See [behavior and validation](docs/INLINE_VOICE_PLANNER_0.17.0.md). CI validation is pending.
+
 # Mirage 0.16.1 — place names with cities
 
 Looked-up locations use **Name (City)**, for example **Western Digital (Irvine)**. Saving a location in Jump mode prefills that editable name. Validated October 12, 2026: **195 JVM tests and 38 emulator tests passed**, with blocking lint, pinned signing and the in-place upgrade from 0.16.0. See [behavior, exact APK identity and remaining phone checks](docs/PLACE_NAMES_0.16.1.md).

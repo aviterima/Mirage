@@ -3,7 +3,12 @@ package com.mirage.spike
 import com.mirage.spike.audit.*
 
 import android.annotation.SuppressLint
+import android.Manifest
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -166,7 +171,6 @@ import com.mirage.spike.store.PrefsKeyStore
 import com.mirage.spike.store.PrefsScenarioStore
 import com.mirage.spike.store.SavedScenario
 import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -214,6 +218,8 @@ fun MapScreen(
     val simulationLabel = simulationStatusText(status, session.activity, maxOf(statusClock, System.currentTimeMillis()))
     var planning by remember { mutableStateOf(false) }
     var showChat by remember { mutableStateOf(false) }
+    var showNewItinerary by remember { mutableStateOf(false) }
+    var showVoiceSetup by remember { mutableStateOf(false) }
     var showItinerary by remember { mutableStateOf(false) }
     var showUpcoming by remember { mutableStateOf(false) }
     var orderProposal by remember { mutableStateOf<List<ItineraryStop>?>(null) }
@@ -235,6 +241,35 @@ fun MapScreen(
     val scope = rememberCoroutineScope()
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = LocalFocusManager.current
+    val speech by PlannerSpeech.state.collectAsState()
+    val voice by VoiceState.state.collectAsState()
+    val plannerChat by Conversation.state.collectAsState()
+    var requestedSpeech by remember { mutableStateOf<Long?>(null) }
+    val launchDictation: (Long) -> Unit = { id ->
+        if (PlannerSpeech.isActive(id)) runCatching {
+            ContextCompat.startForegroundService(context, Intent(context, VoiceService::class.java)
+                .setAction(VoiceService.DICTATE).putExtra(VoiceService.EXTRA_PLANNER_REQUEST_ID, id))
+        }.onFailure { PlannerSpeech.cancel(); Conversation.notice("Could not start the microphone. You can still type here.") }
+    }
+    val microphonePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val id = requestedSpeech
+        if (granted && id != null) launchDictation(id)
+        else { PlannerSpeech.cancel(); Conversation.notice("Microphone access was declined. You can still type here.") }
+        requestedSpeech = null
+    }
+    val cancelDictation = {
+        PlannerSpeech.cancel(); requestedSpeech = null
+        context.stopService(Intent(context, VoiceService::class.java))
+        Unit
+    }
+    val beginDictation: (Field) -> Unit = { field ->
+        keyboard?.hide(); focus.clearFocus()
+        if (vm.activeField != field || !Conversation.needsReply()) Conversation.clearPlannerFeedback()
+        vm.clearSuggestions(); vm.activeField = field
+        val id = PlannerSpeech.begin(field)
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) launchDictation(id)
+        else { requestedSpeech = id; microphonePermission.launch(Manifest.permission.RECORD_AUDIO) }
+    }
     val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     // Saved plans and the user's own key live on the device.
     val keyStore = remember { PrefsKeyStore(context) }
@@ -242,8 +277,8 @@ fun MapScreen(
     val recoveredDraft = remember { TripRecovery.draft() }
     var showRecovery by remember { mutableStateOf(!status.running && !vm.canSaveScenario && (recovery != null || recoveredDraft != null)) }
     LaunchedEffect(Unit) {
-        androidx.compose.runtime.snapshotFlow { vm.draftSnapshot() }.filterNotNull().debounce(400).collect { draft ->
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { TripRecovery.saveDraft(draft) }
+        androidx.compose.runtime.snapshotFlow { vm.draftGeneration to vm.draftSnapshot() }.debounce(400).collect { (generation, draft) ->
+            if (draft != null) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { TripRecovery.saveDraftIfCurrent(draft, generation) }
         }
     }
     LaunchedEffect(Unit) {
@@ -377,6 +412,7 @@ fun MapScreen(
                 },
             ),
             onMapClick = { point ->
+                if (!live) { cancelDictation(); Conversation.clearPlannerFeedback() }
                 when {
                     vm.continuation.state?.pinTarget!=null -> vm.continuation.pickPin(point.toE())
                     plannerPinPick=="entrance" -> {vm.setEntrance(point.toE());plannerPinPick=null;showPlannerSettings=true}
@@ -384,7 +420,7 @@ fun MapScreen(
                     !live -> vm.setDestPoint(point.toE())
                 }
             },
-            onMapLongClick = { if (!live) vm.setStartPoint(it.toE()) },
+            onMapLongClick = { if (!live) { cancelDictation(); Conversation.clearPlannerFeedback(); vm.setStartPoint(it.toE()) } },
         ) {
             val arrow = remember { runCatching { navigationArrow(ACCENT) }.getOrNull() }
             if(live) vm.lastReal?.let { real ->
@@ -460,29 +496,63 @@ fun MapScreen(
             else -> vm.startName
         }
         val endLabel = vm.dest?.let { vm.destName } ?: ""
-        var startQuery by remember { mutableStateOf("") }
-        var endQuery by remember { mutableStateOf("") }
+        var startQuery by rememberSaveable { mutableStateOf("") }
+        var endQuery by rememberSaveable { mutableStateOf("") }
         var startFocused by remember { mutableStateOf(false) }
         var endFocused by remember { mutableStateOf(false) }
         var snapMenu by remember { mutableStateOf<Field?>(null) }
         var savedPlaceTarget by remember { mutableStateOf<Field?>(null) }
+        var previousStopCount by remember { mutableStateOf(vm.stops.size) }
+        var newestStop by remember { mutableStateOf<ItineraryStop?>(null) }
+        LaunchedEffect(vm.stops.toList()) {
+            if (vm.stops.size > previousStopCount) { newestStop = vm.stops.lastOrNull(); endQuery = "" }
+            if (newestStop !in vm.stops) newestStop = null
+            previousStopCount = vm.stops.size
+        }
         // The boxes always show the chosen place: a pick, a map tap or a snap wins over
         // whatever was being typed.
-        LaunchedEffect(startLabel) { if (!startFocused || startLabel.isNotBlank()) startQuery = startLabel }
-        LaunchedEffect(endLabel) { if (!endFocused || endLabel.isNotBlank()) endQuery = endLabel }
+        LaunchedEffect(startLabel) { if (startLabel.isNotBlank()) startQuery = startLabel }
+        LaunchedEffect(endLabel) { if (endLabel.isNotBlank()) endQuery = endLabel }
         val syncBoxes = {
             startQuery = startLabel
             endQuery = endLabel
         }
         val done = { keyboard?.hide(); focus.clearFocus() }
+        val editEntry: (Field, String) -> Unit = { field, value ->
+            if (speech.active) cancelDictation()
+            val replying = vm.activeField == field && Conversation.needsReply() && isPlannerReplyPrefix(value)
+            if (!replying) Conversation.clearPlannerFeedback()
+            if (field == Field.START) startQuery = value else endQuery = value
+            if (replying || isPlannerInstruction(value)) {
+                vm.activeField = field; vm.clearSuggestions()
+            } else vm.editLocationQuery(field, value, camera.position.target.toE())
+        }
+        LaunchedEffect(plannerChat.lines.lastOrNull()) {
+            val last = plannerChat.lines.lastOrNull()
+            if (last != null && !last.user && !plannerChat.busy && !Conversation.needsReply() &&
+                (last.text.startsWith("Done.") || last.text.startsWith("Saved."))) {
+                if (isPlannerInstruction(startQuery) || isPlannerReply(startQuery)) startQuery = vm.startName
+                if (isPlannerInstruction(endQuery) || isPlannerReply(endQuery)) endQuery = vm.dest?.let { vm.destName }.orEmpty()
+            }
+        }
+        LaunchedEffect(speech.requestId, speech.transcript, speech.complete) {
+            val field = speech.target
+            if (field != null && speech.complete) {
+                val words = speech.transcript.trim()
+                PlannerSpeech.consume(speech.requestId)
+                if (words.isNotBlank()) editEntry(field, words)
+            }
+        }
         val openSavedPlaces: (Field) -> Unit = { field ->
             done()
+            cancelDictation(); Conversation.clearPlannerFeedback()
             vm.clearSuggestions()
             savedPlaceTarget = field
             AuditTrail.record(AuditAction.SAVED_PICKER, AuditOutcome.REQUESTED, vm.auditState(field),
                 AuditDetails(source = AuditSource.TOUCH, control = AuditControl.OPEN))
         }
         val pickSavedPlace: (SavedScenario, Field) -> Unit = { place, field ->
+            cancelDictation(); Conversation.clearPlannerFeedback()
             // Apply before clearing focus: focus callbacks may clear the suggestion list.
             if (vm.pickSavedPlace(place, field, if (savedPlaceTarget == null) AuditSource.TYPEAHEAD else AuditSource.SAVED_PLACE)) {
                 if (field == Field.START) startQuery = vm.startName
@@ -492,11 +562,16 @@ fun MapScreen(
                 place.dest?.let { goTo(it) }
             }
         }
-        val onEnter: (String) -> Unit = { q ->
+        val onEnter: (Field, String) -> Unit = { field, q ->
             done()
-            if (q.isNotBlank()) vm.search(q) { p -> syncBoxes(); goTo(p) }
+            cancelDictation(); vm.activeField = field
+            if (q.isNotBlank()) {
+                if (isPlannerInstruction(q) || (Conversation.needsReply() && isPlannerReply(q))) { vm.clearSuggestions(); Conversation.submitPlanner(q, field, vm.planMode) }
+                else vm.search(q) { p -> syncBoxes(); goTo(p) }
+            }
         }
         val snapReal: (Field) -> Unit = { field ->
+            cancelDictation(); Conversation.clearPlannerFeedback()
             // "My real location" for a box: a fresh fix when idle; while spoofing the phone's own
             // GPS is masked by our mock, so use the last real fix captured before the simulation.
             snapMenu = null
@@ -527,28 +602,27 @@ fun MapScreen(
                     if (allowSimulated && status.running) {
                         DropdownMenuItem(
                             text = { Text("Current simulated position") },
-                            onClick = { snapMenu = null; vm.useSimulatedPosition() },
+                        onClick = { cancelDictation(); Conversation.clearPlannerFeedback(); snapMenu = null; vm.useSimulatedPosition() },
                         )
                         DropdownMenuItem(
                             text = { Text("Where the current trip ends (queue after it)") },
-                            onClick = { snapMenu = null; vm.useTripEnd() },
+                        onClick = { cancelDictation(); Conversation.clearPlannerFeedback(); snapMenu = null; vm.useTripEnd() },
                         )
                     }
                     if (!allowSimulated && status.running && vm.planMode == PlanMode.ITINERARY) {
                         DropdownMenuItem(
                             text = { Text("Add a stop here (current position)") },
-                            onClick = { snapMenu = null; vm.addStopAtSimulatedPosition() },
+                            onClick = { cancelDictation(); Conversation.clearPlannerFeedback(); snapMenu = null; vm.addStopAtSimulatedPosition() },
                         )
                         DropdownMenuItem(
                             text = { Text("Add a stop where the trip ends") },
-                            onClick = { snapMenu = null; vm.addStopAtTripEnd() },
+                            onClick = { cancelDictation(); Conversation.clearPlannerFeedback(); snapMenu = null; vm.addStopAtTripEnd() },
                         )
                     }
                     DropdownMenuItem(
-                        text = { Text("Clear") },
+                        text = { Text("Clear entry") },
                         onClick = {
-                            snapMenu = null; vm.editLocationQuery(field, "", null)
-                            if (field == Field.START) startQuery = "" else endQuery = ""
+                            snapMenu = null; cancelDictation(); Conversation.clearPlannerFeedback(); editEntry(field, "")
                         },
                     )
                 }
@@ -589,7 +663,7 @@ fun MapScreen(
                             PlanMode.entries.forEachIndexed { i, m ->
                                 SegmentedButton(
                                     selected = vm.planMode == m,
-                                    onClick = { vm.choosePlanMode(m) },
+                                    onClick = { cancelDictation(); Conversation.clearPlannerFeedback(); done(); vm.choosePlanMode(m); syncBoxes() },
                                     shape = SegmentedButtonDefaults.itemShape(index = i, count = PlanMode.entries.size),
                                     label = { Text(m.label(), fontSize = 13.sp) },
                                 )
@@ -601,16 +675,24 @@ fun MapScreen(
                         if (vm.planMode != PlanMode.SNAP) {
                             LocationBox(
                                 value = startQuery,
-                                onValueChange = { startQuery = it; vm.editLocationQuery(Field.START, it, camera.position.target.toE()) },
+                                onValueChange = { editEntry(Field.START, it) },
                                 placeholder = "Start · search, long-press the map, or ⌖",
                                 dot = GREEN,
                                 onFocus = { f ->
                                     startFocused = f
-                                    if (f) { vm.activeField = Field.START; vm.clearSuggestions() }
+                                    if (f) {
+                                        if (speech.active && speech.target != Field.START) cancelDictation()
+                                        if (vm.activeField != Field.START) Conversation.clearPlannerFeedback()
+                                        vm.activeField = Field.START; vm.clearSuggestions()
+                                    }
                                     else if (startQuery.isBlank()) { startQuery = startLabel; vm.clearSuggestions() }
                                 },
-                                onEnter = { onEnter(startQuery) },
+                                onEnter = { onEnter(Field.START, startQuery) },
                                 trailing = { snapButton(Field.START, true) },
+                                microphone = { PlannerMicrophone(onListen = { beginDictation(Field.START) }, modifier = Modifier.testTag("plannerMicStart"),
+                                    contentDescription = "Speak starting place", listening = speech.active && speech.target == Field.START, onCancel = cancelDictation) },
+                                onClear = { cancelDictation(); Conversation.clearPlannerFeedback(); editEntry(Field.START, "") },
+                                clearTag = "plannerClearStart",
                                 label = "Start",
                                 inputTag = "plannerStartInput",
                                 savedTag = "plannerSavedStart",
@@ -623,8 +705,10 @@ fun MapScreen(
                         }
                         // THE CHAIN (Itinerary): every stop, editable in place, with the clock.
                         if (vm.planMode == PlanMode.ITINERARY && vm.stops.isNotEmpty()) {
+                            Column(Modifier.testTag("plannerPreview")) {
                             val stopsNow = vm.stops.toList()
                             val tl = remember(stopsNow, vm.start, status.running, vm.departureMillis) { vm.timeline() }
+                            Text("Your itinerary · ${stopsNow.size} stops", style = MaterialTheme.typography.titleSmall)
                             Text("Estimated · ${tl.sumOf{it.legMinutes}} min travel + ${stopsNow.sumOf{it.dwellMinutes}} min stays" + (tl.lastOrNull()?.let { " · finish ${tripTime(it.leaveMillis)}" } ?: ""),style=MaterialTheme.typography.bodySmall)
                             Row {
                                 TextButton(onClick={chooseTripTime(context,vm.departureMillis ?: System.currentTimeMillis()){vm.departureMillis=it}}){Text("Departure")}
@@ -645,14 +729,16 @@ fun MapScreen(
                                     onRemove = { vm.removeStop(i) },
                                     handleModifier = handle,
                                     canMoveUp = i > 0, canMoveDown = i < stopsNow.lastIndex,
+                                    recentlyAdded = i == stopsNow.lastIndex && stop == newestStop,
                                 )
                             }
                             HorizontalDivider(color = MUTED.copy(alpha = 0.15f), modifier = Modifier.padding(horizontal = 8.dp))
+                            }
                         }
                         // END / PLACE / NEXT STOP
                         LocationBox(
                             value = endQuery,
-                            onValueChange = { endQuery = it; vm.editLocationQuery(Field.END, it, camera.position.target.toE()) },
+                            onValueChange = { editEntry(Field.END, it) },
                             placeholder = when (vm.planMode) {
                                 PlanMode.SNAP -> "Place · search, tap the map, or ⌖"
                                 PlanMode.ROUTE -> "End · search, tap the map, or ⌖"
@@ -661,11 +747,20 @@ fun MapScreen(
                             dot = if (vm.planMode == PlanMode.SNAP) ACCENT else VIOLET,
                             onFocus = { f ->
                                 endFocused = f
-                                if (f) { vm.activeField = Field.END; vm.clearSuggestions() }
+                                if (f) {
+                                    if (speech.active && speech.target != Field.END) cancelDictation()
+                                    if (vm.activeField != Field.END) Conversation.clearPlannerFeedback()
+                                    vm.activeField = Field.END; vm.clearSuggestions()
+                                }
                                 else if (endQuery.isBlank()) { endQuery = endLabel; vm.clearSuggestions() }
                             },
-                            onEnter = { onEnter(endQuery) },
+                            onEnter = { onEnter(Field.END, endQuery) },
                             trailing = { snapButton(Field.END, false) },
+                            microphone = { PlannerMicrophone(onListen = { beginDictation(Field.END) }, modifier = Modifier.testTag("plannerMicEnd"),
+                                contentDescription = if (vm.planMode == PlanMode.ITINERARY) "Speak next stop" else "Speak destination",
+                                listening = speech.active && speech.target == Field.END, onCancel = cancelDictation) },
+                            onClear = { cancelDictation(); Conversation.clearPlannerFeedback(); editEntry(Field.END, "") },
+                            clearTag = "plannerClearEnd",
                             label = when (vm.planMode) {
                                 PlanMode.SNAP -> "Place"
                                 PlanMode.ROUTE -> "Destination"
@@ -675,6 +770,14 @@ fun MapScreen(
                             savedTag = if (vm.planMode == PlanMode.ITINERARY) "plannerSavedStop" else "plannerSavedDestination",
                             onSaved = { openSavedPlaces(Field.END) },
                         )
+                        val entry = if (vm.activeField == Field.START) startQuery else endQuery
+                        if (speech.active) Text(
+                            if (voice.listening) "Listening… ${speech.transcript}" else "Preparing microphone…",
+                            Modifier.padding(horizontal = 8.dp).testTag("plannerListening"), style = MaterialTheme.typography.bodySmall)
+                        else if (vm.suggestBusy) Text("Searching…", Modifier.padding(horizontal = 8.dp), style = MaterialTheme.typography.bodySmall)
+                        if (isPlannerInstruction(entry) || (Conversation.needsReply() && isPlannerReply(entry))) TextButton(
+                            onClick = { onEnter(vm.activeField, entry) }, modifier = Modifier.testTag("plannerInputSubmit")) { Text("Review instruction") }
+                        PlannerConversationFeedback(Modifier.padding(top = 4.dp))
                         }
                         if (vm.planMode == PlanMode.ROUTE) {
                             IconButton(
@@ -722,7 +825,7 @@ fun MapScreen(
                         vm.planMode == PlanMode.SNAP -> "the place"
                         else -> "End"
                     },
-                    onPick = { hit -> done(); vm.pickSuggestion(hit); syncBoxes(); goTo(hit.latLng) },
+                    onPick = { hit -> cancelDictation(); Conversation.clearPlannerFeedback(); vm.pickSuggestion(hit); done(); syncBoxes(); goTo(hit.latLng) },
                 )
             }
         }
@@ -766,18 +869,34 @@ fun MapScreen(
                 vm.notice?.let {Text(it,style=MaterialTheme.typography.bodySmall)}
                 TripRecovery.failure?.let {Text(it,color=RED)}
                 vm.error?.let { Text(it,color=RED);TextButton(onClick={vm.clearError()}){Text("Dismiss")}}
-                PrimaryAction(vm, false, actions)
+                if (speech.active || plannerChat.busy || Conversation.needsReply() ||
+                    isPlannerInstruction(if (vm.activeField == Field.START) startQuery else endQuery)) {
+                    BigButton("Finish or clear the current instruction", enabled = false, icon = null, onClick = {})
+                } else PrimaryAction(vm, false, actions)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     TextButton(onClick = {
                         val name=vm.draftSavedName
                         if(name==null)showSaved=true else if(vm.saveScenario(name,true))vm.notice="Changes saved"
                     },modifier=Modifier.weight(1f)) { Text(if(vm.draftSavedName==null) "Save" else "Save changes") }
                     TextButton(onClick = { showPlannerSettings = true },modifier=Modifier.weight(1f)) { Text("Settings") }
-                    TextButton(onClick = { showChat = true },modifier=Modifier.weight(1f)) { Text("Talk") }
+                    TextButton(onClick = { done(); showNewItinerary = true }, enabled = !status.running,
+                        modifier=Modifier.weight(1f).testTag("plannerNewItinerary")) { Text("Start new") }
                 }
                 if (status.running) TextButton(onClick=onStop) { Text("Stop simulation") }
             }
         }
+        if (showNewItinerary) AlertDialog(onDismissRequest = { showNewItinerary = false },
+            title = { Text("Start a new itinerary?") },
+            text = { Text("Clear this working plan and its instructions? Saved places and saved itineraries will stay in your library.") },
+            confirmButton = { TextButton(onClick = {
+                cancelDictation()
+                if (vm.startNewItinerary()) {
+                    startQuery = vm.startName; endQuery = ""; newestStop = null; orderProposal = null
+                    savedPlaceTarget = null; snapMenu = null; plannerPinPick = null; showRecovery = false
+                }
+                showNewItinerary = false
+            }, modifier = Modifier.testTag("plannerNewConfirm")) { Text("Start new") } },
+            dismissButton = { TextButton(onClick = { showNewItinerary = false }, modifier = Modifier.testTag("plannerNewCancel")) { Text("Keep plan") } })
     }
 
     orderProposal?.let { proposed -> AlertDialog(onDismissRequest={orderProposal=null},title={Text("Review suggested order")},
@@ -825,6 +944,7 @@ fun MapScreen(
             TextButton(modifier = Modifier.testTag("plannerDiagnostics"), onClick = {
                 showPlannerSettings = false; focus.clearFocus(); keyboard?.hide(); showAudit = true
             }) { Text("Interaction audit") }
+            TextButton(onClick = { showPlannerSettings = false; focus.clearFocus(); keyboard?.hide(); showVoiceSetup = true }) { Text("Voice setup") }
             Controls(vm, status, !status.running && status.blocked, { showSetup = true }, actions)
             TextButton(onClick = { showPlannerSettings = false }) { Text("Back to map") }
         }
@@ -919,12 +1039,15 @@ fun MapScreen(
         )
     }
     if (showAudit) AuditDiagnosticsDialog(onDismiss = { showAudit = false })
+    if (showVoiceSetup) VoiceSetupSheet(onDismiss = { showVoiceSetup = false }, onUseMicrophone = {
+        showVoiceSetup = false; beginDictation(vm.activeField)
+    })
 }
 
 /** One compact location box: coloured dot, editable text, optional trailing control. */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun LocationBox(
+internal fun LocationBox(
     value: String,
     onValueChange: (String) -> Unit,
     placeholder: String,
@@ -932,6 +1055,9 @@ private fun LocationBox(
     onFocus: (Boolean) -> Unit,
     onEnter: () -> Unit,
     trailing: @Composable () -> Unit,
+    microphone: @Composable () -> Unit,
+    onClear: () -> Unit,
+    clearTag: String,
     label: String,
     inputTag: String,
     savedTag: String,
@@ -946,6 +1072,9 @@ private fun LocationBox(
     Column {
     Row(Modifier.fillMaxWidth().padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+        if (value.isNotBlank()) IconButton(onClick = onClear, modifier = Modifier.size(40.dp).testTag(clearTag)) {
+            Icon(Icons.Filled.Close, contentDescription = "Clear ${label.lowercase()} entry", modifier = Modifier.size(18.dp))
+        }
         TextButton(onClick = onSaved, modifier = Modifier.testTag(savedTag)
             .semantics { contentDescription = "Saved places for ${label.lowercase()}" }) { Text("Saved places") }
     }
@@ -963,6 +1092,7 @@ private fun LocationBox(
             ),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { onEnter() }),
+            trailingIcon = microphone,
             modifier = Modifier.weight(1f).testTag(inputTag).bringIntoViewRequester(bringIntoView).onFocusChanged { focused=it.isFocused;onFocus(it.isFocused) },
         )
         trailing()
@@ -974,7 +1104,8 @@ private fun LocationBox(
 
 /** Uber-style pick list: every matching place with its address and distance from the start. */
 @Composable
-private fun SuggestionList(hits: List<PlaceHit>, busy: Boolean, from: LatLng?, heading: String, onPick: (PlaceHit) -> Unit) {
+internal fun SuggestionList(hits: List<PlaceHit>, busy: Boolean, from: LatLng?, heading: String,
+    choiceTagPrefix: String = "plannerPlaceChoice", onPick: (PlaceHit) -> Unit) {
     Surface(
         shape = RoundedCornerShape(20.dp),
         shadowElevation = 6.dp,
@@ -994,7 +1125,7 @@ private fun SuggestionList(hits: List<PlaceHit>, busy: Boolean, from: LatLng?, h
             hits.forEachIndexed { i, hit ->
                 if (i > 0) HorizontalDivider(color = MUTED.copy(alpha = 0.15f))
                 Row(
-                    Modifier.fillMaxWidth().clickable { onPick(hit) }.padding(horizontal = 14.dp, vertical = 10.dp),
+                    Modifier.fillMaxWidth().testTag("$choiceTagPrefix$i").clickable { onPick(hit) }.padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(Icons.Filled.Place, contentDescription = null, tint = ACCENT, modifier = Modifier.size(22.dp))
@@ -1360,12 +1491,16 @@ internal fun ChainRow(
     current: Boolean, done: Boolean,
     onMode: (TravelMode) -> Unit, onStay: () -> Unit, onMove: (Int) -> Unit, onRemove: () -> Unit,
     handleModifier: Modifier, canMoveUp: Boolean, canMoveDown: Boolean,
+    recentlyAdded: Boolean = false,
 ) {
     var modeMenu by remember { mutableStateOf(false) }
     var moreMenu by remember { mutableStateOf(false) }
-    val bg = if (current) ACCENT.copy(alpha = 0.10f) else Color.Transparent
+    var placeDetails by remember(stop) { mutableStateOf(false) }
+    val bg = if (current || recentlyAdded) ACCENT.copy(alpha = 0.10f) else Color.Transparent
     val textColor = if (done) MUTED else MaterialTheme.colorScheme.onSurface
-    Column(Modifier.fillMaxWidth().background(bg, RoundedCornerShape(10.dp)).padding(horizontal = 4.dp, vertical = 2.dp)) {
+    Column(Modifier.fillMaxWidth().then(if (recentlyAdded) Modifier.testTag("plannerNewestStop-$index") else Modifier)
+        .background(bg, RoundedCornerShape(10.dp)).padding(horizontal = 4.dp, vertical = 2.dp)) {
+        if (recentlyAdded) Text("Added", color = ACCENT, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 30.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(22.dp).background(if (done) MUTED else ACCENT, CircleShape), contentAlignment = Alignment.Center) {
                 Text("${index + 1}", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -1386,7 +1521,8 @@ internal fun ChainRow(
             }
             Text(
                 stop.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = textColor,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+                maxLines = if (placeDetails) Int.MAX_VALUE else 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).clickable { placeDetails = !placeDetails },
             )
             Surface(
                 shape = RoundedCornerShape(12.dp), color = ACCENT.copy(alpha = 0.12f),
@@ -1409,6 +1545,8 @@ internal fun ChainRow(
                 }
             }
         }
+        if (placeDetails) Text(stop.address.ifBlank { "No street address recorded" } + " · " + stop.arrivalActivity.label,
+            style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 30.dp))
         if(stop.arriveByMillis!=null) Text("Target ${tripTime(stop.arriveByMillis)}" + if(entry!=null && entry.arriveMillis>stop.arriveByMillis) " · estimated late arrival" else "",color=if(entry!=null && entry.arriveMillis>stop.arriveByMillis) RED else MUTED,fontSize=11.sp)
         if (entry != null) {
             Text(

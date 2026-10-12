@@ -20,6 +20,8 @@ object TripRecovery {
     @Volatile private var suppressedEpoch=-1L
     @Volatile var failure: String?=null
         private set
+    @Volatile var draftGeneration: Long = 0L
+        private set
     fun configure(context: Context) {
         if(prefs!=null) return
         prefs=context.applicationContext.getSharedPreferences("mirage_recovery",Context.MODE_PRIVATE)
@@ -47,5 +49,18 @@ object TripRecovery {
             json.getInt("index"),ActivityKind.valueOf(json.getString("activity")),json.getInt("stay"),json.optString("savedId").takeIf {it.isNotBlank() && it!="null"},json.optDouble("timeScale",1.0).coerceIn(1.0,100.0),json.optDouble("speedOffset",0.0).coerceIn(-10.0,15.0),json.optDouble("routeProgress",Double.NaN).takeIf {it.isFinite() && it in 0.0..1.0})
     }.getOrNull()
     fun draft(): SavedScenario? = prefs?.getString("draft",null)?.let {runCatching{SavedScenario.fromJson(JSONObject(it))}.getOrNull()}
-    fun saveDraft(item: SavedScenario) { failure=if(prefs?.edit()?.putString("draft",item.toJson().toString())?.commit()==true) null else "Could not preserve the latest draft" }
+    fun saveDraft(item: SavedScenario) { saveDraftIfCurrent(item, draftGeneration) }
+    /** A delayed autosave captured before Clear must never recreate the previous draft. */
+    @Synchronized fun saveDraftIfCurrent(item: SavedScenario, generation: Long): Boolean {
+        if (generation != draftGeneration) return false
+        val saved = prefs?.edit()?.putString("draft", item.toJson().toString())?.commit() == true
+        failure = if (saved) null else "Could not preserve the latest draft"
+        return saved
+    }
+    @Synchronized fun clearDraft(): Boolean {
+        draftGeneration++
+        val cleared = prefs?.edit()?.remove("draft")?.commit() ?: true
+        failure = if (cleared) null else "Could not clear the saved draft. Try New itinerary again."
+        return cleared
+    }
 }

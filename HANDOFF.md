@@ -1,3 +1,7 @@
+# Mirage 0.17.0 — voice in the planner
+
+Current branch: `codex/inline-voice-planner-20261012`, based on verified 0.16.1 at `3f268d56b618129051d8b1cff461a5d31d690f83`. Inline microphone input, gated setup, shared search/review and full draft/context reset are implemented. See [the current specification and validation](docs/INLINE_VOICE_PLANNER_0.17.0.md). Build and acceptance are pending; older results below are version-specific.
+
 # Mirage 0.16.1 — place names with cities
 
 Current branch: `codex/place-city-labels-20261012`, based on verified 0.16.0. Structured Places city labels flow into selections; the new-location save form prefills the chosen name. Existing saved labels remain intact. Tested source: `769becbc4d3baab7a0cda4293c69fcd6af3794be`. Build 38249400772 and acceptance 38249400777 (attempt 2) passed **195 JVM tests and 38 emulator tests**, blocking lint, pinned signing, live trail service and the in-place 0.16.0 upgrade. The installer is the exact acceptance APK; the final commit changes four Markdown files only. See [behavior, APK identity and remaining physical-phone checks](docs/PLACE_NAMES_0.16.1.md). Older results below remain version-specific.

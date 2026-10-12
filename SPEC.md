@@ -1,3 +1,7 @@
+# Mirage 0.17.0 — voice in the planner
+
+The [current specification](docs/INLINE_VOICE_PLANNER_0.17.0.md) integrates microphone dictation with ordinary planner fields, shared search/results and itinerary preview, plus an explicit new-itinerary reset. Save and Start remain separate; voice planning never invokes automatic playback. Earlier voice and data-retention rules continue where not superseded.
+
 # Mirage 0.16.1 — place names with cities
 
 [The current naming specification and validation](docs/PLACE_NAMES_0.16.1.md) define **Name (City)** lookup labels and editable prefilled new-location names. Existing saved names and route/itinerary naming remain intact. All **195 JVM tests and 38 emulator tests passed**, including both new save journeys and the signed upgrade from 0.16.0. Physical-phone acceptance remains open.

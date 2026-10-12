@@ -403,6 +403,42 @@ class MirageViewModel(
     }
     fun clearError() { error = null }
 
+    /** Begin a separate unsaved plan without deleting saved items or touching playback. */
+    fun startNewItinerary(): Boolean {
+        if (MockState.status.value.let { it.running || it.starting }) {
+            error = "Stop the current simulation before starting a new itinerary."
+            auditEvent(AuditAction.PLANNER_MODE, AuditOutcome.BLOCKED, AuditDetails(control = AuditControl.REMOVE, reason = AuditReason.NOT_READY))
+            return false
+        }
+        Conversation.resetPlanningSession()
+        continuation.cancel()
+        hiking.close()
+        clearSuggestions()
+        autoStartAfterRoute = null
+        invalidateRoute()
+        loadedScenario = null
+        stops.clear()
+        draftUndo = null; draftUndoAvailable = false; dwellEditIndex = null
+        start = lastReal; startName = if (lastReal != null) "My location" else ""
+        startAddress = ""; startPlaceId = ""; startFromReal = true
+        useSimulatedStart = false; queueAfterCurrent = false
+        dest = null; destName = ""; destAddress = ""; destPlaceId = ""
+        arrivalActivity = ArrivalActivity.BUILDING; arrivalEntrance = null
+        stayUntilLeave = false; defaultStayMinutes = 0; departureMillis = null
+        mode = TravelMode.DRIVE; realism = Realism.REALISTIC; transitPref = null
+        modeSpeeds.clear()
+        listOf(TravelMode.DRIVE, TravelMode.BIKE, TravelMode.WALK).forEach { modeSpeeds[it] = defaultSpeed(it) }
+        timeScaleState = 1f
+        planMode = PlanMode.ITINERARY; activeField = Field.END
+        phase = Phase.IDLE; itineraryBusy = false; lastLocalAudit = null
+        val cleared = TripRecovery.clearDraft()
+        draftGeneration = TripRecovery.draftGeneration
+        error = if (cleared) null else TripRecovery.failure
+        auditEvent(AuditAction.PLANNER_MODE, AuditOutcome.SUCCEEDED,
+            AuditDetails(control = AuditControl.REMOVE, reason = if (cleared) AuditReason.NONE else AuditReason.STORAGE))
+        return true
+    }
+
     private var routeJob: Job? = null
 
     private fun invalidateRoute() {
@@ -516,9 +552,15 @@ class MirageViewModel(
             auditEvent(AuditAction.PLACE_SELECT, AuditOutcome.IGNORED, AuditDetails(reason = AuditReason.STALE, source = AuditSource.TYPEAHEAD))
             return
         }
-        val field = activeField
+        pickResolvedPlace(hit, activeField, AuditSource.TYPEAHEAD)
+    }
+    /** Shared application of an explicitly chosen touch or voice result to one planner field. */
+    fun pickResolvedPlace(hit: PlaceHit, field: Field, source: AuditSource = AuditSource.VOICE) {
         clearSuggestions()
+        autoStartAfterRoute = null
+        activeField = field
         if (field == Field.START) setStartPoint(hit.latLng, hit.name, hit.address, hit.placeId) else {
+            if (planMode == PlanMode.ITINERARY) rememberDraftEdit()
             setDestPoint(hit.latLng, hit.name)
             if (planMode == PlanMode.ITINERARY && stops.isNotEmpty()) {
                 stops[stops.lastIndex] = stops.last().copy(address = hit.address, placeId = hit.placeId)
@@ -526,7 +568,7 @@ class MirageViewModel(
         }
         error = null
         lastLocalAudit = null
-        auditEvent(AuditAction.PLACE_SELECT, AuditOutcome.SUCCEEDED, AuditDetails(source = AuditSource.TYPEAHEAD))
+        auditEvent(AuditAction.PLACE_SELECT, AuditOutcome.SUCCEEDED, AuditDetails(source = source))
     }
     /** Enter fetches choices and never silently chooses a previous result. */
     fun search(query: String, onFound: (LatLng) -> Unit) {
@@ -736,6 +778,8 @@ class MirageViewModel(
     // ---- Saved plans (Snap / Route / Itinerary by name) --------------------------
 
     val draftSavedName: String? get() = loadedScenario?.takeIf{sc->savedScenarios.any{it.id==sc.id}}?.name
+    var draftGeneration by mutableStateOf(TripRecovery.draftGeneration)
+        private set
     var departureMillis by mutableStateOf<Long?>(null)
     fun applyStopOrder(order: List<ItineraryStop>) {
         if(order.size!=stops.size || order.groupingBy{it}.eachCount()!=stops.groupingBy{it}.eachCount()) return

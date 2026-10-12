@@ -39,6 +39,7 @@ class VoiceService : Service() {
     private var ttsReady = false
     private var generation = 0
     private var handsFree = false
+    private var dictationId: Long? = null
     private var loading = false
     private var destroyed = false
     private var timeout: Job? = null
@@ -62,6 +63,8 @@ class VoiceService : Service() {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             fail("Microphone permission is required"); return START_NOT_STICKY
         }
+        dictationId = if (intent.action == DICTATE) intent.getLongExtra(EXTRA_PLANNER_REQUEST_ID, -1L) else null
+        if (dictationId?.let { !PlannerSpeech.isActive(it) } == true) { stopSelf(); return START_NOT_STICKY }
         handsFree = intent.action == ENABLE || (handsFree && intent.action == LISTEN)
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel("mirage_voice", "Mirage hands-free", NotificationManager.IMPORTANCE_LOW))
@@ -93,7 +96,7 @@ class VoiceService : Service() {
     }
     private fun startListening(command: Boolean) {
         if (destroyed) return
-        timeout?.cancel(); transition?.cancel(); releaseRecorder()
+        timeout?.cancel(); transition?.cancel(); speechFallback?.cancel(); tts?.stop(); releaseRecorder()
         val m = model ?: return
         try {
             val rec = if (command) Recognizer(m, 16000f) else Recognizer(m, 16000f, "[\"hello mirage\", \"[unk]\"]")
@@ -101,11 +104,14 @@ class VoiceService : Service() {
             val service = SpeechService(rec, 16000f); recorder = service
             val gen = generation
             val listener = object : RecognitionListener {
-                private fun valid() = !destroyed && gen == generation
+                private fun valid() = !destroyed && gen == generation && (dictationId?.let { PlannerSpeech.isActive(it) } != false)
                 override fun onPartialResult(h: String) {
                     if (!valid()) return
                     val text = JSONObject(h).optString("partial")
-                    if (command) VoiceState.mutable.value = VoiceState.mutable.value.copy(transcript = text)
+                    if (command) {
+                        VoiceState.mutable.value = VoiceState.mutable.value.copy(transcript = text)
+                        dictationId?.let { PlannerSpeech.partial(it, text) }
+                    }
                     else if (text.trim() == "hello mirage") startListening(true)
                 }
                 override fun onResult(h: String) {
@@ -114,6 +120,12 @@ class VoiceService : Service() {
                     if (command && text.isNotBlank()) {
                         timeout?.cancel(); releaseRecorder()
                         VoiceState.mutable.value = VoiceView(true, false, "Working…", text)
+                        val inputId = dictationId
+                        if (inputId != null) {
+                            PlannerSpeech.finish(inputId, text)
+                            stopSelf()
+                            return
+                        }
                         Conversation.submit(text, spoken = true)
                         // A network lookup can take longer; re-arm only after the spoken result.
                         speechFallback?.cancel()
@@ -141,7 +153,7 @@ class VoiceService : Service() {
         } catch (e: Exception) { fail("Could not start listening: ${e.message}") }
     }
     private fun speak(text: String) {
-        if (destroyed) return
+        if (destroyed || dictationId != null) return
         timeout?.cancel(); speechFallback?.cancel(); releaseRecorder()
         VoiceState.mutable.value = VoiceState.mutable.value.copy(listening = false, status = text)
         if (ttsReady) {
@@ -151,20 +163,23 @@ class VoiceService : Service() {
         } else finishSpeech()
     }
     private fun finishSpeech() {
-        if (destroyed) return
+        if (destroyed || dictationId != null) return
         timeout?.cancel(); speechFallback?.cancel()
         if (handsFree) startListening(Conversation.needsReply()) else stopSelf()
     }
     private fun endCommandWindow() {
         if (destroyed) return
+        dictationId?.let { PlannerSpeech.finish(it, VoiceState.state.value.transcript) }
         if (handsFree) startListening(false) else stopSelf()
     }
     private fun fail(message: String) {
+        dictationId?.let { PlannerSpeech.consume(it) }
         Conversation.notice(message)
         VoiceState.mutable.value = VoiceView(status = message)
         stopSelf()
     }
     override fun onDestroy() {
+        dictationId?.takeIf { PlannerSpeech.isActive(it) }?.let { PlannerSpeech.consume(it) }
         destroyed = true; releaseRecorder(); scope.cancel(); tts?.stop(); tts?.shutdown(); model?.close(); tone?.release()
         VoiceState.mutable.value = VoiceView()
         super.onDestroy()
@@ -172,6 +187,8 @@ class VoiceService : Service() {
     companion object {
         const val ENABLE = "com.mirage.voice.ENABLE"
         const val LISTEN = "com.mirage.voice.LISTEN"
+        const val DICTATE = "com.mirage.voice.DICTATE"
+        const val EXTRA_PLANNER_REQUEST_ID = "planner_request_id"
         const val OFF = "com.mirage.voice.OFF"
     }
 }
