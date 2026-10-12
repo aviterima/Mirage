@@ -13,7 +13,7 @@ class VoiceFollowUp {
         if(session!=epoch || now>expires) { clear(); return null }
         val upcoming=stops.drop(currentIndex+1)
         val target=upcoming.singleOrNull{it.id==stopId} ?: return null
-        if(upcoming.count{it.stop.name.equals(target.stop.name,true)}!=1) return null
+        if(upcoming.count{VoiceNameMatcher.matches(it.stop.name, target.stop.name)}!=1) return null
         val normalized=CommandParser.normalize(text).removePrefix("actually ")
         val stay=Regex("^(?:make|set|change) (?:its|the) stay (?:to )?(.+)$").matchEntire(normalized)
         if(stay!=null) {
@@ -23,7 +23,7 @@ class VoiceFollowUp {
         val after=Regex("^(?:put|move) it after (.+)$").matchEntire(normalized)
         if(after!=null) {
             val rest=upcoming.filterNot{it.id==target.id}
-            val anchor=rest.singleOrNull{it.stop.name.equals(after.groupValues[1],true)} ?: return null
+            val anchor=rest.singleOrNull{VoiceNameMatcher.matches(it.stop.name, after.groupValues[1])} ?: return null
             return VoiceIntent("move",target.stop.name,position=rest.indexOf(anchor)+2)
         }
         if(normalized in setOf("remove it","delete that stop")) return VoiceIntent("remove",target.stop.name)

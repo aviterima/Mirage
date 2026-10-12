@@ -10,6 +10,8 @@ The city comes from structured Places address components: `locality`, then `post
 
 When saving a location in Jump mode, the editable Name field starts with the selected location name. Typing a custom name keeps that edit through recomposition. Route, itinerary and active-trip names retain their existing behavior. Existing saved records and custom labels are not renamed or migrated.
 
+Voice comparisons accept the full spoken name and city without parentheses, such as "Western Digital Irvine". All name and city words must match; ambiguous names still require clarification, and trip changes still require confirmation. Displayed and stored names keep their parentheses.
+
 No extra place-details or geocoding request is introduced. The Places search field mask requests address components in the existing response; the gateway already forwards this field mask. No server deployment is needed. Audit privacy boundaries remain unchanged: place names, addresses and query text are not recorded.
 
 ## Verification

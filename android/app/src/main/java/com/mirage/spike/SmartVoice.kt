@@ -84,13 +84,13 @@ object SmartVoice {
         val currentView=LiveSession.state.value
         val contextIntent=followUp.resolve(text,currentView.stops,currentView.index,LiveSession.epoch)
         val afterName=afterMatch?.groupValues?.get(1)?.trim()?.trimEnd(',')
-        val afterId=if(afterName!=null) currentView.stops.drop(currentView.index.coerceAtLeast(0)).singleOrNull { it.stop.name.equals(afterName,true) }?.id else null
+        val afterId=if(afterName!=null) currentView.stops.drop(currentView.index.coerceAtLeast(0)).singleOrNull { VoiceNameMatcher.matches(it.stop.name, afterName) }?.id else null
         if(afterName!=null && afterId==null) {
             audit(AuditOutcome.BLOCKED, AuditControl.EDIT, AuditReason.MISSING_ITEM, AuditTrail.newOperation())
             spoken=isSpoken;say("Name one current or upcoming stop to add after.");return true
         }
         val savedMatches=model.savedScenarios.filter { item ->
-            (listOf(item.name)+item.aliases).any { alias -> alias.isNotBlank() && Regex("(?i)(?<![\\p{L}\\p{N}])"+Regex.escape(alias)+"(?![\\p{L}\\p{N}])").containsMatchIn(commandText) }
+            (listOf(item.name)+item.aliases).any { alias -> VoiceNameMatcher.mentioned(alias, commandText) }
         }
         val adding=Regex("^(?:please )?(?:add|take me to|go to|after |next|drive to|walk to)",RegexOption.IGNORE_CASE).containsMatchIn(text.trim())
         val savedIntent=if(adding && savedMatches.size==1 && !Regex("(?i)\\b(and|then|also)\\b").containsMatchIn(text)) VoiceIntent("add_saved",savedMatches.single().name,
@@ -124,8 +124,9 @@ object SmartVoice {
                 val intent = direct ?: VoiceIntent.parse(LocalLanguageModel.interpret(prompt))
                 ensureActive(); if (serial != generation) return@launch
                 check(epoch == LiveSession.epoch) { "The simulation changed. Please repeat your instruction." }
-                val normalizedIntent = if (intent.action == "add_place" && model.savedScenarios.count { it.name.equals(intent.target,true) } == 1)
-                    intent.copy(action="add_saved") else intent
+                val view = LiveSession.state.value
+                val normalizedIntent = VoiceNameMatcher.bind(intent, model.savedScenarios.map { it.name },
+                    view.stops.drop(view.index + 1).map { it.stop.name })
                 check(direct != null || normalizedIntent.groundedIn(text)) { "Please say the actual saved name or full destination; I won't guess what 'there' means." }
                 prepare(normalizedIntent)
                 if (serial == generation && auditOperation == operation) {
