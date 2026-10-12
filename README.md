@@ -1,6 +1,8 @@
 # Mirage 0.16.0 — local interaction audit
 
-**Setup → Interaction audit** (also available from planner Settings) records a bounded local timeline of actions, outcomes and safe app state. After a problem, mark it and export a diagnostic report to share for debugging. Place names, coordinates, typed queries, voice content and credentials are excluded. Recording can be paused and history cleared; reports are never uploaded automatically. See [the specification and quick start](docs/INTERACTION_AUDIT_0.16.0.md). Build and acceptance validation are pending.
+**Setup → Interaction audit** (also available from planner Settings) records a bounded local timeline of actions, outcomes and safe app state. After a problem, mark it and export a diagnostic report to share for debugging. Place names, coordinates, typed queries, voice content and credentials are excluded. Recording can be paused and history cleared; reports are never uploaded automatically. See [the specification and quick start](docs/INTERACTION_AUDIT_0.16.0.md).
+
+Validated October 11, 2026 Pacific: **182 JVM tests and 36 emulator tests passed**, including native report export and the in-place upgrade from 0.15.2. Blocking lint, pinned signing and live trail-service checks passed. See [validation, exact APK identity and remaining phone checks](docs/VALIDATION_0.16.0.md). Tested source: `e3a2f477e54b81a816e5d39debd9ca7ac8b5745b`.
 
 # Mirage 0.15.2 — choose saved places while planning
 

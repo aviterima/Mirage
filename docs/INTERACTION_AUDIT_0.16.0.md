@@ -1,10 +1,10 @@
 # Mirage 0.16.0 — interaction audit
 
-Status: implementation complete; automated build and acceptance pending. Package `com.mirage.app`, version code 41. Development branch: `codex/interaction-audit-20261011`, based on 0.15.2 at `2db5905f5b4f051d8a2621c92ef004d513103b61`.
+Status: implemented and automatically validated on October 11, 2026 Pacific (October 12 UTC). All 182 JVM tests and 36 emulator tests passed, including native export and the in-place upgrade from 0.15.2. Physical-phone acceptance remains open; see [validation and installer identity](VALIDATION_0.16.0.md). Package `com.mirage.app`, version code 41. Development branch: `codex/interaction-audit-20261011`, based on 0.15.2 at `2db5905f5b4f051d8a2621c92ef004d513103b61`.
 
 ## Purpose and use
 
-An interaction timeline makes a reported problem reproducible: what the person tried, which planner state was active, and whether each action succeeded, was blocked, failed, was canceled or produced a stale result. It supports debugging and reviewing interaction design. It does not perform automatic learning, screen recording, full crash capture or remote telemetry.
+An interaction timeline helps reconstruct a reported problem: what the person tried, which planner state was active, and whether each action succeeded, was blocked, failed, was canceled or produced a stale result. It supports debugging and reviewing interaction design. It does not perform automatic learning, screen recording, full crash capture or remote telemetry.
 
 Open **Setup → Interaction audit**, or **Settings → Interaction audit** from the planner. Recording is enabled on first use. After reproducing a problem, choose **Mark a problem**, then **Export diagnostic report**. Android asks where to save the JSON file. Share that file in the support conversation with what you expected, what happened and the displayed marker ID. The file is sent only when the user separately shares it.
 

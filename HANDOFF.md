@@ -1,6 +1,8 @@
 # Mirage 0.16.0 — interaction audit
 
-Current branch: `codex/interaction-audit-20261011`, based on verified 0.15.2 at `2db5905f5b4f051d8a2621c92ef004d513103b61`. Adds a private bounded audit store, typed interaction/outcome instrumentation and user-controlled problem markers/export/pause/clear. See [scope, privacy boundaries and acceptance requirements](docs/INTERACTION_AUDIT_0.16.0.md). Build and emulator validation are pending; previous release evidence below remains version-specific. Do not commit users' diagnostic exports to this repository.
+Current branch: `codex/interaction-audit-20261011`, based on verified 0.15.2 at `2db5905f5b4f051d8a2621c92ef004d513103b61`. Adds a private bounded audit store, typed interaction/outcome instrumentation and user-controlled problem markers/export/pause/clear. See [scope, privacy boundaries and acceptance requirements](docs/INTERACTION_AUDIT_0.16.0.md). Do not commit users' diagnostic exports to this repository.
+
+Tested source: `e3a2f477e54b81a816e5d39debd9ca7ac8b5745b`. Build 38203396617 and acceptance 38203396640 passed **182 JVM tests and 36 emulator tests**, blocking lint, pinned signing, live trail service and the in-place 0.15.2 upgrade. Native Android report export passed with independent file readback. The delivered installer is the exact acceptance APK. The final documentation commit changes five Markdown files only. See [validation, installer identity and visual limitations](docs/VALIDATION_0.16.0.md). Physical-phone acceptance remains open; earlier release evidence below remains version-specific.
 
 # Mirage 0.15.2 — direct saved-place planning
 
