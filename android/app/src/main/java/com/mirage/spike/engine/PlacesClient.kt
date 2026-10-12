@@ -6,6 +6,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 
 data class PlaceHit(val latLng: LatLng, val name: String, val address: String = "", val placeId: String = "")
@@ -48,7 +49,7 @@ class GooglePlaces(
         val req = Request.Builder()
             .url(cfg.placesSearchUrl())
             .apply { cfg.headers(places = true).forEach { (k, v) -> addHeader(k, v) } }
-            .addHeader("X-Goog-FieldMask", "places.id,places.location,places.displayName,places.formattedAddress")
+            .addHeader("X-Goog-FieldMask", "places.id,places.location,places.displayName,places.formattedAddress,places.addressComponents")
             .post(payload.toString().toRequestBody(jsonType))
             .build()
 
@@ -66,9 +67,30 @@ class GooglePlaces(
                 val loc = pl.optJSONObject("location") ?: return@mapNotNull null
                 val lat = loc.optDouble("latitude", Double.NaN); val lng = loc.optDouble("longitude", Double.NaN)
                 if (lat.isNaN() || lng.isNaN()) return@mapNotNull null
-                val name = pl.optJSONObject("displayName")?.optString("text").takeUnless { it.isNullOrBlank() } ?: query
-                PlaceHit(LatLng(lat, lng), name, pl.optString("formattedAddress"), pl.optString("id"))
+                val name = (pl.optJSONObject("displayName")?.opt("text") as? String)
+                    ?.trim()?.takeIf { it.isNotEmpty() } ?: query.trim()
+                PlaceHit(
+                    LatLng(lat, lng),
+                    nameWithCity(name, pl.optJSONArray("addressComponents")),
+                    pl.optString("formattedAddress"),
+                    pl.optString("id"),
+                )
             }
         }
+    }
+
+    private fun nameWithCity(name: String, components: JSONArray?): String {
+        // Components are unordered. Prefer a city/locality, then a postal town;
+        // counties, neighborhoods and comma-separated address fragments are not cities.
+        val city = listOf("locality", "postal_town").firstNotNullOfOrNull { type ->
+            (0 until (components?.length() ?: 0)).firstNotNullOfOrNull component@ { index ->
+                val component = components?.optJSONObject(index) ?: return@component null
+                val types = component.optJSONArray("types") ?: return@component null
+                if ((0 until types.length()).none { types.optString(it) == type }) null
+                else (component.opt("longText") as? String)?.trim()?.takeIf { it.isNotEmpty() }
+            }
+        } ?: return name
+        if (name.equals(city, ignoreCase = true) || name.endsWith(" ($city)", ignoreCase = true)) return name
+        return "$name ($city)"
     }
 }

@@ -120,7 +120,7 @@ class WorkflowUiAcceptanceTest {
 
     private fun savePlannerAndReopen(name: String): SavedScenario {
         compose.onNodeWithContentDescription("Saved plans").performScrollTo().performClick()
-        compose.onNodeWithText("Name, e.g. Lunch run").performTextInput(name)
+        compose.onNodeWithTag("savedPlanName").performTextReplacement(name)
         compose.onNode(hasText("Save") and hasAnyAncestor(isDialog())).performScrollTo().performClick()
         compose.waitUntil(5_000) { PrefsScenarioStore(context).load().any { it.name == name } }
         val stored = PrefsScenarioStore(context).load().first { it.name == name }
@@ -283,7 +283,7 @@ class WorkflowUiAcceptanceTest {
         compose.onNodeWithText("Move down").performClick()
         compose.onNodeWithContentDescription("Reorder stop 3: First").performScrollTo().assertIsDisplayed()
         saved()
-        compose.onNodeWithText("Name, e.g. Lunch run").performTextInput("Reordered fixture")
+        compose.onNodeWithTag("savedPlanName").performTextReplacement("Reordered fixture")
         compose.onNodeWithText("Save", useUnmergedTree = false).performClick()
         compose.waitUntil(5_000) { PrefsScenarioStore(context).load().any { it.name == "Reordered fixture" } }
         val stored = PrefsScenarioStore(context).load().first { it.name == "Reordered fixture" }

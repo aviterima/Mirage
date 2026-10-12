@@ -1,3 +1,7 @@
+# Mirage 0.16.1 — place names with cities
+
+Current branch: codex/place-city-labels-20261012, based on verified 0.16.0. Structured Places city labels flow into selections; the new-location save form prefills the chosen name. Existing saved labels remain intact. See [behavior and validation](docs/PLACE_NAMES_0.16.1.md). Build and acceptance are pending; older results below remain version-specific.
+
 # Mirage 0.16.0 — interaction audit
 
 Current branch: `codex/interaction-audit-20261011`, based on verified 0.15.2 at `2db5905f5b4f051d8a2621c92ef004d513103b61`. Adds a private bounded audit store, typed interaction/outcome instrumentation and user-controlled problem markers/export/pause/clear. See [scope, privacy boundaries and acceptance requirements](docs/INTERACTION_AUDIT_0.16.0.md). Do not commit users' diagnostic exports to this repository.

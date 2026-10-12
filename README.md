@@ -1,3 +1,7 @@
+# Mirage 0.16.1 — place names with cities
+
+Looked-up locations use **Name (City)**, for example **Western Digital (Irvine)**. Saving a location in Jump mode prefills that editable name. See [behavior and validation](docs/PLACE_NAMES_0.16.1.md). Automated validation is pending.
+
 # Mirage 0.16.0 — local interaction audit
 
 **Setup → Interaction audit** (also available from planner Settings) records a bounded local timeline of actions, outcomes and safe app state. After a problem, mark it and export a diagnostic report to share for debugging. Place names, coordinates, typed queries, voice content and credentials are excluded. Recording can be paused and history cleared; reports are never uploaded automatically. See [the specification and quick start](docs/INTERACTION_AUDIT_0.16.0.md).

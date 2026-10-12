@@ -12,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -31,7 +32,7 @@ internal fun SavedPlansDialog(vm: MirageViewModel, active: Boolean = false, onDi
     var kind by remember { mutableStateOf("All") }
     var favorites by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<String?>(null) }
-    var name by remember { mutableStateOf("") }
+    var name by remember { mutableStateOf(if (!active && vm.planMode == PlanMode.SNAP) vm.destName else "") }
     var message by remember { mutableStateOf("") }
     var edit by remember { mutableStateOf<Pair<SavedScenario,String>?>(null) }
     var editText by remember { mutableStateOf("") }
@@ -65,7 +66,7 @@ internal fun SavedPlansDialog(vm: MirageViewModel, active: Boolean = false, onDi
                 TextButton(onClick={ import.launch(arrayOf("application/json","text/plain","application/octet-stream")) }) { Text("Import backup") }
             }
             Row {
-                OutlinedTextField(name,{name=it},placeholder={Text("Name, e.g. Lunch run")},modifier=Modifier.weight(1f),singleLine=true)
+                OutlinedTextField(name,{name=it},label={Text("Name")},placeholder={Text("Name, e.g. Lunch run")},modifier=Modifier.weight(1f).testTag("savedPlanName"),singleLine=true)
                 TextButton(onClick={
                     val saved=if(active) vm.saveActiveScenario(name) else vm.saveScenario(name)
                     message=if(saved) "Saved $name" else vm.error ?: "Could not save"

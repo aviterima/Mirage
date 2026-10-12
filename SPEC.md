@@ -1,3 +1,7 @@
+# Mirage 0.16.1 — place names with cities
+
+[The current naming specification](docs/PLACE_NAMES_0.16.1.md) defines **Name (City)** lookup labels and editable prefilled new-location names. Existing saved names and route/itinerary naming remain intact.
+
 # Mirage 0.16.0 — interaction audit
 
 [The current audit specification](docs/INTERACTION_AUDIT_0.16.0.md) defines the typed local event timeline, safe state/operation correlation, bounded storage outside Android backup, user-controlled diagnostics and privacy/acceptance boundaries. No remote telemetry or automatic learning is included. All **182 JVM tests and 36 emulator tests passed**, including native report export and the signed upgrade from 0.15.2; see [validation and remaining physical-phone acceptance](docs/VALIDATION_0.16.0.md). Existing trip behavior remains governed by the specifications below.
