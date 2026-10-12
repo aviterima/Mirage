@@ -313,13 +313,13 @@ internal class AuditTrailEngine(
         }
         require(!json.has("state") || json.isNull("state") || state != null)
         val value = json.getJSONObject("details")
-        val details = AuditDetails(value.enumRequired("reason"), value.enumOrNull("source"),
+        val details = AuditDetails(value.enumRequired<AuditReason>("reason"), value.enumOrNull<AuditSource>("source"),
             value.intOrNull("localMatches"), value.intOrNull("remoteMatches"),
             value.longOrNull("elapsedMs", 0, retentionMs), value.intOrNull("index"),
-            value.intOrNull("count"), value.enumOrNull("control"))
+            value.intOrNull("count"), value.enumOrNull<AuditControl>("control"))
         return AuditEvent(json.long("timeMs", 0, Long.MAX_VALUE), eventSession,
-            json.long("sequence", 1, Long.MAX_VALUE), json.enumRequired("action"),
-            json.enumRequired("outcome"), state, details, json.longOrNull("operation", 1, Long.MAX_VALUE),
+            json.long("sequence", 1, Long.MAX_VALUE), json.enumRequired<AuditAction>("action"),
+            json.enumRequired<AuditOutcome>("outcome"), state, details, json.longOrNull("operation", 1, Long.MAX_VALUE),
             if (json.has("marker")) json.uuid("marker") else null,
             json.longOrNull("versionCode", 0, Int.MAX_VALUE.toLong())?.toInt(),
             json.longOrNull("apiLevel", 0, 1000)?.toInt())
@@ -366,7 +366,7 @@ private inline fun <reified T : Enum<T>> JSONObject.enumRequired(key: String): T
     return enumValues<T>().firstOrNull { it.name == value } ?: throw IllegalArgumentException("Invalid audit enum")
 }
 private inline fun <reified T : Enum<T>> JSONObject.enumOrNull(key: String): T? =
-    if (!has(key)) null else enumRequired(key)
+    if (!has(key)) null else enumRequired<T>(key)
 private fun JSONObject.uuid(key: String): String {
     val value = get(key); require(value is String && value.length == 36)
     require(UUID.fromString(value).toString() == value)
