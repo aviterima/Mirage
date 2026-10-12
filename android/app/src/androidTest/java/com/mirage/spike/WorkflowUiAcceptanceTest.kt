@@ -31,6 +31,7 @@ class WorkflowUiAcceptanceTest {
         MockState.reset(); LiveSession.clear(); PlaybackSource.clearQueue()
         PlaybackSource.paused = false; PlaybackSource.signal = Signal.GOOD
         val home = snap("fixture-home", "Fixture Home", LatLng(33.50, -112.0))
+            .copy(aliases = listOf("My house"))
         val office = snap("fixture-office", "Fixture Office", LatLng(33.60, -112.1))
         val route = home.copy(id = "fixture-route", name = "Fixture commute", kind = "ROUTE",
             start = home.dest, startName = home.name, dest = office.dest, destName = office.name)
@@ -106,6 +107,80 @@ class WorkflowUiAcceptanceTest {
         screenshot("saved-snaps-route-endpoints")
     }
 
+    private fun pickPlannerPlace(buttonTag: String, id: String, query: String? = null) {
+        compose.onNodeWithTag(buttonTag).performScrollTo().performClick()
+        compose.onNodeWithTag("plannerSavedPlaces").assertIsDisplayed()
+        compose.onNodeWithTag("plannerSavedPlace-fixture-route").assertDoesNotExist()
+        if (query != null) compose.onNodeWithTag("plannerSavedPlaceSearch").performTextInput(query)
+        compose.onNodeWithTag("plannerSavedPlace-$id").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("plannerSavedPlaces").assertDoesNotExist()
+        assertFalse(MockState.status.value.running)
+        assertNull(LiveSession.plan)
+    }
+
+    private fun savePlannerAndReopen(name: String): SavedScenario {
+        compose.onNodeWithContentDescription("Saved plans").performScrollTo().performClick()
+        compose.onNodeWithText("Name, e.g. Lunch run").performTextInput(name)
+        compose.onNode(hasText("Save") and hasAnyAncestor(isDialog())).performScrollTo().performClick()
+        compose.waitUntil(5_000) { PrefsScenarioStore(context).load().any { it.name == name } }
+        val stored = PrefsScenarioStore(context).load().first { it.name == name }
+        compose.onNodeWithContentDescription("Load $name").performScrollTo().performClick()
+        assertFalse(MockState.status.value.running)
+        assertNull(LiveSession.plan)
+        return stored
+    }
+
+    @Test fun newRouteSelectsHomeAtDestinationAndCancelPreservesDraft() {
+        pickPlannerPlace("plannerSavedStart", "fixture-office")
+        pickPlannerPlace("plannerSavedDestination", "fixture-home", "My house")
+        compose.onNodeWithTag("plannerStartInput").assertTextContains("Fixture Office")
+        compose.onNodeWithTag("plannerDestinationInput").assertTextContains("Fixture Home")
+
+        compose.onNodeWithTag("plannerSavedDestination").performScrollTo().performClick()
+        compose.onNodeWithTag("plannerSavedPlaceSearch").performTextInput("Office")
+        compose.onNodeWithText("Cancel").performClick()
+        compose.onNodeWithTag("plannerStartInput").assertTextContains("Fixture Office")
+        compose.onNodeWithTag("plannerDestinationInput").assertTextContains("Fixture Home")
+
+        val stored = savePlannerAndReopen("New route home")
+        assertEquals("ROUTE", stored.kind)
+        assertEquals(LatLng(33.60, -112.1), stored.start)
+        assertEquals(LatLng(33.50, -112.0), stored.dest)
+        assertEquals("Fixture Home", stored.destName)
+        compose.onNodeWithTag("plannerDestinationInput").performScrollTo().assertTextContains("Fixture Home")
+        screenshot("planner-new-route-saved-home")
+    }
+
+    @Test fun newItineraryAddsSavedHomeAfterOfficeAndReopensWithoutStarting() {
+        compose.onNodeWithText("Itinerary").performClick()
+        pickPlannerPlace("plannerSavedStart", "fixture-home")
+        pickPlannerPlace("plannerSavedStop", "fixture-office")
+        compose.onNodeWithContentDescription("Reorder stop 1: Fixture Office").performScrollTo().assertIsDisplayed()
+        pickPlannerPlace("plannerSavedStop", "fixture-home")
+        compose.onNodeWithContentDescription("Reorder stop 1: Fixture Office").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("Reorder stop 2: Fixture Home").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Start itinerary").assertIsDisplayed()
+        val stored = savePlannerAndReopen("New day home")
+        assertEquals("ITINERARY", stored.kind)
+        assertEquals(LatLng(33.50, -112.0), stored.start)
+        assertEquals(listOf("Fixture Office", "Fixture Home"), stored.stops.map { it.name })
+        assertEquals(listOf(33.60, 33.50), stored.stops.map { it.lat })
+        compose.onNodeWithContentDescription("Reorder stop 2: Fixture Home").performScrollTo().assertIsDisplayed()
+        screenshot("planner-new-itinerary-saved-home")
+    }
+
+    @Test fun typingSavedAliasOffersHomeInNewDestinationField() {
+        pickPlannerPlace("plannerSavedStart", "fixture-office")
+        compose.onNodeWithTag("plannerDestinationInput").performScrollTo().performClick().performTextInput("my house")
+        compose.onNodeWithTag("plannerSavedSuggestion-fixture-home").performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithTag("plannerStartInput").assertTextContains("Fixture Office")
+        compose.onNodeWithTag("plannerDestinationInput").assertTextContains("Fixture Home")
+        compose.onNodeWithTag("plannerSavedSuggestion-fixture-home").assertDoesNotExist()
+        assertFalse(MockState.status.value.running)
+        assertNull(LiveSession.plan)
+        screenshot("planner-saved-home-typeahead")
+    }
+
     @Test fun planningActionsRemainVisibleAndDraftRestoresWithoutStarting() {
         saved()
         compose.onNodeWithContentDescription("Load Fixture day").performScrollTo().performClick()
@@ -118,7 +193,7 @@ class WorkflowUiAcceptanceTest {
         compose.onNodeWithText("Restore your previous trip?").assertIsDisplayed()
         assertFalse(MockState.status.value.running)
         compose.onNodeWithText("Restore for editing").performClick()
-        compose.onNodeWithContentDescription("Reorder stop 1: First").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Reorder stop 1: First").performScrollTo().assertIsDisplayed()
         assertFalse(MockState.status.value.running)
     }
 
@@ -159,6 +234,10 @@ class WorkflowUiAcceptanceTest {
             assertTrue("Keyboard must not let the footer cover the input",input.fetchSemanticsNode().boundsInRoot.bottom<=compose.onNodeWithTag("plannerFooter").fetchSemanticsNode().boundsInRoot.top)
             screenshot("large-text-keyboard-planner")
             device.pressBack()
+            pickPlannerPlace("plannerSavedStop", "fixture-home")
+            compose.onNodeWithContentDescription("Reorder stop 25: Fixture Home").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithText("Start itinerary").assertIsDisplayed()
+            assertFalse(MockState.status.value.running)
         } finally {device.executeShellCommand("settings put system font_scale 1.0")}
     }
 

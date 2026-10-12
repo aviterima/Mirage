@@ -28,8 +28,8 @@ android {
         externalNativeBuild { cmake { arguments += "-DCMAKE_BUILD_TYPE=Release" } }
         minSdk = 26
         targetSdk = 34
-        versionCode = 39
-        versionName = "0.15.1"
+        versionCode = 40
+        versionName = "0.15.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
         buildConfigField("String", "MAPS_API_KEY", "\"$mapsApiKey\"")

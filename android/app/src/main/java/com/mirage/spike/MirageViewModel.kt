@@ -41,6 +41,7 @@ import com.mirage.spike.store.InMemoryScenarioStore
 import com.mirage.spike.store.SavedScenario
 import com.mirage.spike.store.SavedStop
 import com.mirage.spike.store.ScenarioStore
+import com.mirage.spike.store.savedItemSearch
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
@@ -176,6 +177,7 @@ class MirageViewModel(
     val dwellTotalMinutes: Int get() = stops.sumOf { it.dwellMinutes }
 
     // ---- Type-ahead: matching places for what the user is typing ------------
+    val savedPlaceSuggestions = mutableStateListOf<SavedScenario>()
     val suggestions = mutableStateListOf<PlaceHit>()
     var suggestBusy by mutableStateOf(false)
         private set
@@ -428,10 +430,14 @@ class MirageViewModel(
     private fun requestSearch(query: String, bias: LatLng?, debounce: Boolean) {
         clearSuggestions()
         val q = query.trim()
+        suggestedField = activeField
+        error = null
+        if (q.isNotEmpty()) {
+            savedPlaceSuggestions.addAll(savedItemSearch(savedScenarios, q, PlanMode.SNAP.name).filter { it.dest != null })
+        }
         if (q.length < 2 || !hasKey) return
         val serial = searchSerial
         val field = activeField
-        suggestedField = field
         suggestBusy = true
         suggestJob = viewModelScope.launch {
             try {
@@ -439,13 +445,17 @@ class MirageViewModel(
                 val hits = placeSearch(api, q, bias ?: tripStart())
                 if (!isActive || serial != searchSerial || field != activeField) return@launch
                 suggestions.addAll(hits)
-                error = if (hits.isEmpty()) "No matches. Try a full address or city." else null
+                error = if (hits.isEmpty() && savedPlaceSuggestions.isEmpty()) "No matches. Try a full address or city." else null
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { if (serial == searchSerial) error = describe(e, "Places search failed") }
             finally { if (serial == searchSerial) suggestBusy = false }
         }
     }
-    fun clearSuggestions() { searchSerial++; suggestJob?.cancel(); suggestions.clear(); suggestBusy = false }
+    fun clearSuggestions() {
+        searchSerial++
+        suggestJob?.cancel(); suggestJob = null
+        savedPlaceSuggestions.clear(); suggestions.clear(); suggestBusy = false
+    }
     fun pickSuggestion(hit: PlaceHit) {
         if (suggestedField != activeField || hit !in suggestions) return
         val field = activeField
@@ -460,8 +470,10 @@ class MirageViewModel(
     }
     /** Enter fetches choices and never silently chooses a previous result. */
     fun search(query: String, onFound: (LatLng) -> Unit) {
-        if (!hasKey) { error = "Add MAPS_API_KEY to search by name"; return }
         requestSearch(query, tripStart(), false)
+        if (!hasKey && savedPlaceSuggestions.isEmpty() && query.isNotBlank()) {
+            error = "No saved places match. Add a Maps key in Setup to search other places."
+        }
     }
 
     // ---- Single trip -------------------------------------------------------------
@@ -488,7 +500,9 @@ class MirageViewModel(
                 autoStartAfterRoute?.let { go -> autoStartAfterRoute = null; startSim(go) }
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: Exception) { error = describe(e, "Routing failed"); phase = Phase.IDLE }
+            } catch (e: Exception) {
+                if (isActive) { error = describe(e, "Routing failed"); phase = Phase.IDLE }
+            }
         }
     }
 
@@ -786,30 +800,60 @@ class MirageViewModel(
         plan.markSaved(sc.id, sc.name, original)
     }
 
+    private fun validSavedPlace(sc: SavedScenario): Boolean {
+        fun validPoint(point: LatLng) = point.lat.isFinite() && point.lng.isFinite() &&
+            point.lat in -90.0..90.0 && point.lng in -180.0..180.0
+        if (sc.kind != PlanMode.SNAP.name || sc.dest == null || !validPoint(sc.dest) ||
+            (sc.entrance != null && !validPoint(sc.entrance)) || sc.defaultStayMinutes !in 0..1440) {
+            error = "Choose a saved place with a valid location and stay."
+            return false
+        }
+        return true
+    }
+
+    /** Apply one saved place to the chosen draft field without loading or starting its plan. */
+    fun pickSavedPlace(sc: SavedScenario, field: Field): Boolean {
+        if (!validSavedPlace(sc)) return false
+        val point = sc.dest ?: return false
+        clearSuggestions()
+        autoStartAfterRoute = null
+        activeField = field
+        if (field == Field.START) {
+            setStartPoint(point, sc.name, sc.destAddress, sc.destPlaceId)
+        } else {
+            arrivalActivity = sc.arrivalActivity
+            arrivalEntrance = sc.entrance
+            stayUntilLeave = sc.stayUntilLeave
+            defaultStayMinutes = sc.defaultStayMinutes
+            if (planMode == PlanMode.ITINERARY) rememberDraftEdit()
+            setDestPoint(point, sc.name, sc.entrance)
+            if (planMode == PlanMode.ITINERARY) {
+                stops[stops.lastIndex] = stops.last().copy(address = sc.destAddress, placeId = sc.destPlaceId)
+            } else {
+                destAddress = sc.destAddress; destPlaceId = sc.destPlaceId
+            }
+        }
+        recordSavedUse(sc.id)
+        error = null
+        return true
+    }
+
     fun useSavedPlaceAsStart(sc: SavedScenario) {
-        val point = sc.dest ?: return
+        if (!validSavedPlace(sc)) return
         if (planMode == PlanMode.SNAP) choosePlanMode(PlanMode.ROUTE)
-        setStartPoint(point, sc.name, sc.destAddress, sc.destPlaceId)
+        pickSavedPlace(sc, Field.START)
     }
 
     fun useSavedPlaceAsDestination(sc: SavedScenario) {
-        arrivalActivity=sc.arrivalActivity
-        arrivalEntrance=sc.entrance; stayUntilLeave=sc.stayUntilLeave; defaultStayMinutes=sc.defaultStayMinutes
-        val point = sc.dest ?: return
+        if (!validSavedPlace(sc)) return
         if (planMode == PlanMode.SNAP) choosePlanMode(PlanMode.ROUTE)
-        setDestPoint(point, sc.name, sc.entrance)
-        if (planMode == PlanMode.ITINERARY && stops.isNotEmpty()) stops[stops.lastIndex] = stops.last().copy(address = sc.destAddress, placeId = sc.destPlaceId, arrivalActivity=sc.arrivalActivity,entrance=sc.entrance,stayUntilLeave=sc.stayUntilLeave)
-        else { destAddress = sc.destAddress; destPlaceId = sc.destPlaceId }
+        pickSavedPlace(sc, Field.END)
     }
 
     fun addSavedPlaceStop(sc: SavedScenario) {
-        val point = sc.dest ?: return
+        if (!validSavedPlace(sc)) return
         choosePlanMode(PlanMode.ITINERARY)
-        arrivalActivity=sc.arrivalActivity
-        arrivalEntrance=sc.entrance; stayUntilLeave=sc.stayUntilLeave; defaultStayMinutes=sc.defaultStayMinutes
-        setDestPoint(point, sc.name, sc.entrance)
-        if (planMode == PlanMode.ITINERARY && stops.isNotEmpty()) stops[stops.lastIndex] = stops.last().copy(address = sc.destAddress, placeId = sc.destPlaceId, arrivalActivity=sc.arrivalActivity,entrance=sc.entrance,stayUntilLeave=sc.stayUntilLeave)
-        else { destAddress = sc.destAddress; destPlaceId = sc.destPlaceId }
+        pickSavedPlace(sc, Field.END)
     }
 
     /** Append in the draft only. A disconnected route requires an explicit connector. */

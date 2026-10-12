@@ -461,6 +461,7 @@ fun MapScreen(
         var startFocused by remember { mutableStateOf(false) }
         var endFocused by remember { mutableStateOf(false) }
         var snapMenu by remember { mutableStateOf<Field?>(null) }
+        var savedPlaceTarget by remember { mutableStateOf<Field?>(null) }
         // The boxes always show the chosen place: a pick, a map tap or a snap wins over
         // whatever was being typed.
         LaunchedEffect(startLabel) { if (!startFocused || startLabel.isNotBlank()) startQuery = startLabel }
@@ -470,6 +471,21 @@ fun MapScreen(
             endQuery = endLabel
         }
         val done = { keyboard?.hide(); focus.clearFocus() }
+        val openSavedPlaces: (Field) -> Unit = { field ->
+            done()
+            vm.clearSuggestions()
+            savedPlaceTarget = field
+        }
+        val pickSavedPlace: (SavedScenario, Field) -> Unit = { place, field ->
+            // Apply before clearing focus: focus callbacks may clear the suggestion list.
+            if (vm.pickSavedPlace(place, field)) {
+                if (field == Field.START) startQuery = vm.startName
+                else endQuery = vm.dest?.let { vm.destName }.orEmpty()
+                savedPlaceTarget = null
+                done()
+                place.dest?.let { goTo(it) }
+            }
+        }
         val onEnter: (String) -> Unit = { q ->
             done()
             if (q.isNotBlank()) vm.search(q) { p -> syncBoxes(); goTo(p) }
@@ -589,6 +605,10 @@ fun MapScreen(
                                 },
                                 onEnter = { onEnter(startQuery) },
                                 trailing = { snapButton(Field.START, true) },
+                                label = "Start",
+                                inputTag = "plannerStartInput",
+                                savedTag = "plannerSavedStart",
+                                onSaved = { openSavedPlaces(Field.START) },
                             )
                             HorizontalDivider(color = MUTED.copy(alpha = 0.15f), modifier = Modifier.padding(horizontal = 8.dp))
                         }
@@ -640,6 +660,14 @@ fun MapScreen(
                             },
                             onEnter = { onEnter(endQuery) },
                             trailing = { snapButton(Field.END, false) },
+                            label = when (vm.planMode) {
+                                PlanMode.SNAP -> "Place"
+                                PlanMode.ROUTE -> "Destination"
+                                PlanMode.ITINERARY -> "Next stop"
+                            },
+                            inputTag = "plannerDestinationInput",
+                            savedTag = if (vm.planMode == PlanMode.ITINERARY) "plannerSavedStop" else "plannerSavedDestination",
+                            onSaved = { openSavedPlaces(Field.END) },
                         )
                         }
                         if (vm.planMode == PlanMode.ROUTE) {
@@ -667,6 +695,15 @@ fun MapScreen(
                     }
                 }
             }
+            if (vm.savedPlaceSuggestions.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                PlannerSavedMatches(vm.savedPlaceSuggestions, when {
+                    vm.activeField == Field.START -> "start"
+                    vm.planMode == PlanMode.ITINERARY -> "next stop"
+                    vm.planMode == PlanMode.SNAP -> "place"
+                    else -> "destination"
+                }) { place -> pickSavedPlace(place, vm.activeField) }
+            }
             if (vm.suggestions.isNotEmpty() || vm.suggestBusy) {
                 Spacer(Modifier.height(6.dp))
                 SuggestionList(
@@ -682,6 +719,15 @@ fun MapScreen(
                     onPick = { hit -> done(); vm.pickSuggestion(hit); syncBoxes(); goTo(hit.latLng) },
                 )
             }
+        }
+
+        savedPlaceTarget?.let { field ->
+            PlannerSavedPlacesSheet(vm.savedScenarios, when {
+                field == Field.START -> "the starting place"
+                vm.planMode == PlanMode.ITINERARY -> "the next stop"
+                vm.planMode == PlanMode.SNAP -> "the place"
+                else -> "the destination"
+            }, onPick = { pickSavedPlace(it, field) }, onDismiss = { savedPlaceTarget = null })
         }
 
         val picking=addition?.pinTarget ?: plannerPinPick
@@ -871,12 +917,22 @@ private fun LocationBox(
     onFocus: (Boolean) -> Unit,
     onEnter: () -> Unit,
     trailing: @Composable () -> Unit,
+    label: String,
+    inputTag: String,
+    savedTag: String,
+    onSaved: () -> Unit,
 ) {
     val bringIntoView=remember {BringIntoViewRequester()}
     var focused by remember {mutableStateOf(false)}
     val imeBottom=WindowInsets.ime.getBottom(LocalDensity.current)
     LaunchedEffect(focused,imeBottom) {
         if(focused && imeBottom>0) { kotlinx.coroutines.delay(150);bringIntoView.bringIntoView() }
+    }
+    Column {
+    Row(Modifier.fillMaxWidth().padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+        TextButton(onClick = onSaved, modifier = Modifier.testTag(savedTag)
+            .semantics { contentDescription = "Saved places for ${label.lowercase()}" }) { Text("Saved places") }
     }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.padding(start = 8.dp, end = 4.dp).size(10.dp).background(dot, CircleShape))
@@ -892,9 +948,10 @@ private fun LocationBox(
             ),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { onEnter() }),
-            modifier = Modifier.weight(1f).bringIntoViewRequester(bringIntoView).onFocusChanged { focused=it.isFocused;onFocus(it.isFocused) },
+            modifier = Modifier.weight(1f).testTag(inputTag).bringIntoViewRequester(bringIntoView).onFocusChanged { focused=it.isFocused;onFocus(it.isFocused) },
         )
         trailing()
+    }
     }
 }
 
