@@ -308,12 +308,13 @@ class MirageViewModel(
     }
     /**
      * AUTOMATIC real fix (launch, after Stop). Adopts it as the start only when that does
-     * not destroy the user's work: no start yet, a start that already came from a real fix,
-     * or no route built. Never touches [useSimulatedStart] — that is the user's choice.
+     * not destroy the user's work: no start yet, or a start that already came from a real
+     * fix. Explicit starts are protected even before routing. Never touches
+     * [useSimulatedStart] — that is the user's choice.
      */
     fun useMyLocation(p: LatLng) {
         lastReal = p
-        if (start != null && !startFromReal && routePts.isNotEmpty()) return
+        if (start != null && !startFromReal) return
         val moved = start?.let { Geo.haversine(it, p) >= 100.0 } ?: true
         startAddress = ""; startPlaceId = ""
         start = p; startName = "My location"; startFromReal = true
@@ -447,7 +448,9 @@ class MirageViewModel(
                 suggestions.addAll(hits)
                 error = if (hits.isEmpty() && savedPlaceSuggestions.isEmpty()) "No matches. Try a full address or city." else null
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { if (serial == searchSerial) error = describe(e, "Places search failed") }
+            catch (e: Exception) {
+                if (serial == searchSerial && savedPlaceSuggestions.isEmpty()) error = describe(e, "Places search failed")
+            }
             finally { if (serial == searchSerial) suggestBusy = false }
         }
     }

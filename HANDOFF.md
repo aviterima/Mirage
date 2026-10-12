@@ -1,3 +1,7 @@
+# Mirage 0.15.2 — direct saved-place planning
+
+Development branch: `codex/planner-saved-places-20261011`, based on 0.15.1 at `eae0433087424de87e19edc352fb64298fdccd45`. Saved places can be selected directly for Start, Destination or Next stop; typed saved names and aliases offer local choices. Planning mode and other endpoints/stops are preserved, and saving does not start simulation. Build and acceptance results are pending; see [the current behavior and acceptance scope](docs/PLANNER_SAVED_PLACES_0.15.2.md).
+
 # Mirage 0.15.1 — browse trails from the route planner
 
 Choose **Route** or **Itinerary** in the top planner, then **+ Add hiking trail**. Leave the trail name blank to browse nearby trails, or enter a city/park and tap **Browse hiking trails**. If several areas match, choose one. A specific trail name remains optional.

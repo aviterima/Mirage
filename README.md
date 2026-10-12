@@ -1,3 +1,9 @@
+# Mirage 0.15.2 — choose saved places while planning
+
+The Start, Destination and Next stop fields have a direct **Saved places** button. To plan a route home, choose **Destination → Saved places → Home**. In Itinerary mode, the same picker appends Home to the existing stop list. Typing a saved name or alias also offers local matches. Saving a plan does not start simulation.
+
+Build and acceptance validation are pending. See [behavior and acceptance scope](docs/PLANNER_SAVED_PLACES_0.15.2.md). Earlier validation below applies only to the stated version.
+
 # Mirage 0.15.1 — browse trails from the route planner
 
 Choose **Route** or **Itinerary** in the top planner, then **+ Add hiking trail**. Leave the trail name blank to browse nearby trails, or enter a city/park and tap **Browse hiking trails**. If several areas match, choose one. A specific trail name remains optional.
