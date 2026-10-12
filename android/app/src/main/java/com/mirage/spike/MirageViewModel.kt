@@ -197,13 +197,17 @@ class MirageViewModel(
     private var suggestJob: Job? = null
     private var searchSerial = 0L
     private var suggestedField = Field.END
-    fun editLocationQuery(field: Field, query: String, bias: LatLng?) {
+    fun editLocationQuery(field: Field, query: String, bias: LatLng?, preserveSelection: Boolean = false) {
         activeField = field
         if ((field == Field.START && start != null) || (field == Field.END && dest != null))
             auditEvent(AuditAction.INPUT_EDIT, AuditOutcome.REQUESTED, AuditDetails(control = AuditControl.EDIT))
-        if (field == Field.END) { dest = null; destName = ""; destAddress = ""; destPlaceId = "" }
-        else { startAddress = ""; startPlaceId = ""; start = null; startName = ""; startFromReal = false; useSimulatedStart = false; queueAfterCurrent = false }
-        invalidateRoute()
+        // The planner buffers text because a partial word can become an instruction.
+        // Only a place selection or an explicit Clear changes its resolved endpoint.
+        if (!preserveSelection) {
+            if (field == Field.END) { dest = null; destName = ""; destAddress = ""; destPlaceId = "" }
+            else { startAddress = ""; startPlaceId = ""; start = null; startName = ""; startFromReal = false; useSimulatedStart = false; queueAfterCurrent = false }
+            invalidateRoute()
+        }
         suggest(query, bias)
     }
 

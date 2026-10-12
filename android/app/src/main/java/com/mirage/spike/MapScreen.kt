@@ -525,7 +525,12 @@ fun MapScreen(
             if (field == Field.START) startQuery = value else endQuery = value
             if (replying || isPlannerInstruction(value)) {
                 vm.activeField = field; vm.clearSuggestions()
-            } else vm.editLocationQuery(field, value, camera.position.target.toE())
+            } else vm.editLocationQuery(field, value, camera.position.target.toE(), preserveSelection = true)
+        }
+        val clearEntry: (Field) -> Unit = { field ->
+            cancelDictation(); Conversation.clearPlannerFeedback()
+            if (field == Field.START) startQuery = "" else endQuery = ""
+            vm.editLocationQuery(field, "", camera.position.target.toE())
         }
         LaunchedEffect(plannerChat.lines.lastOrNull()) {
             val last = plannerChat.lines.lastOrNull()
@@ -622,7 +627,7 @@ fun MapScreen(
                     DropdownMenuItem(
                         text = { Text("Clear entry") },
                         onClick = {
-                            snapMenu = null; cancelDictation(); Conversation.clearPlannerFeedback(); editEntry(field, "")
+                            snapMenu = null; clearEntry(field)
                         },
                     )
                 }
@@ -691,7 +696,7 @@ fun MapScreen(
                                 trailing = { snapButton(Field.START, true) },
                                 microphone = { PlannerMicrophone(onListen = { beginDictation(Field.START) }, modifier = Modifier.testTag("plannerMicStart"),
                                     contentDescription = "Speak starting place", listening = speech.active && speech.target == Field.START, onCancel = cancelDictation) },
-                                onClear = { cancelDictation(); Conversation.clearPlannerFeedback(); editEntry(Field.START, "") },
+                                onClear = { clearEntry(Field.START) },
                                 clearTag = "plannerClearStart",
                                 label = "Start",
                                 inputTag = "plannerStartInput",
@@ -759,7 +764,7 @@ fun MapScreen(
                             microphone = { PlannerMicrophone(onListen = { beginDictation(Field.END) }, modifier = Modifier.testTag("plannerMicEnd"),
                                 contentDescription = if (vm.planMode == PlanMode.ITINERARY) "Speak next stop" else "Speak destination",
                                 listening = speech.active && speech.target == Field.END, onCancel = cancelDictation) },
-                            onClear = { cancelDictation(); Conversation.clearPlannerFeedback(); editEntry(Field.END, "") },
+                            onClear = { clearEntry(Field.END) },
                             clearTag = "plannerClearEnd",
                             label = when (vm.planMode) {
                                 PlanMode.SNAP -> "Place"
@@ -869,9 +874,9 @@ fun MapScreen(
                 vm.notice?.let {Text(it,style=MaterialTheme.typography.bodySmall)}
                 TripRecovery.failure?.let {Text(it,color=RED)}
                 vm.error?.let { Text(it,color=RED);TextButton(onClick={vm.clearError()}){Text("Dismiss")}}
-                if (speech.active || plannerChat.busy || Conversation.needsReply() ||
-                    isPlannerInstruction(if (vm.activeField == Field.START) startQuery else endQuery)) {
-                    BigButton("Finish or clear the current instruction", enabled = false, icon = null, onClick = {})
+                val pendingEntry = (vm.planMode != PlanMode.SNAP && startQuery != startLabel) || endQuery != endLabel
+                if (speech.active || plannerChat.busy || Conversation.needsReply() || pendingEntry) {
+                    BigButton("Finish or clear the current entry", enabled = false, icon = null, onClick = {})
                 } else PrimaryAction(vm, false, actions)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     TextButton(onClick = {

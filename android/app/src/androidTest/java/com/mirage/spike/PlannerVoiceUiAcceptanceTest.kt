@@ -263,4 +263,46 @@ class PlannerVoiceUiAcceptanceTest {
         compose.runOnIdle { assertEquals(listOf("Home", "Office"), vm.stops.map { it.name }); assertIdle() }
         device.pressBack()
     }
+
+    @Test fun typingSaveInstructionCharacterByCharacterPreservesBothRouteEndpoints() {
+        launchPlanner()
+        compose.runOnIdle {
+            assertEquals(PlanMode.ROUTE, vm.planMode)
+            assertTrue(vm.pickSavedPlace(home, Field.START))
+            assertTrue(vm.pickSavedPlace(office, Field.END))
+        }
+        fun assertEndpoints() {
+            assertEquals(home.dest, vm.start); assertEquals("Home", vm.startName)
+            assertEquals(office.dest, vm.dest); assertEquals("Office", vm.destName)
+            assertIdle()
+        }
+        fun typeAndSave(fieldTag: String, name: String) {
+            val input = compose.onNodeWithTag(fieldTag)
+            // Replace the displayed place by typing into the field, without pressing Clear.
+            input.performScrollTo().performClick().performTextReplacement("")
+            compose.runOnIdle { assertEndpoints() }
+            val command = "save this trip as $name"
+            command.forEach { character ->
+                input.performTextInput(character.toString())
+                // In particular, s / sa / sav must not discard a resolved endpoint.
+                compose.runOnIdle { assertEndpoints() }
+            }
+            input.assertTextContains(command)
+            device.pressBack()
+            compose.onNodeWithTag("plannerInputSubmit").performScrollTo().performClick()
+            compose.waitUntil(5_000) { SmartVoice.needsReply() }
+            compose.onNodeWithTag("plannerVoiceConfirm").performScrollTo().performClick()
+            compose.waitUntil(5_000) { PrefsScenarioStore(context).load().any { it.name == name } }
+            val saved = PrefsScenarioStore(context).load().single { it.name == name }
+            assertEquals("ROUTE", saved.kind)
+            assertEquals(home.dest, saved.start); assertEquals("Home", saved.startName)
+            assertEquals(office.dest, saved.dest); assertEquals("Office", saved.destName)
+            compose.runOnIdle { assertEndpoints() }
+        }
+        typeAndSave("plannerDestinationInput", "Friday")
+        compose.runOnIdle { Conversation.clearPlannerFeedback() }
+        typeAndSave("plannerStartInput", "Saturday")
+        assertEquals(setOf("Friday", "Saturday"), PrefsScenarioStore(context).load()
+            .filter { it.kind == "ROUTE" }.map { it.name }.toSet())
+    }
 }
