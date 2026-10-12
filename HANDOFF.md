@@ -1,3 +1,7 @@
+# Mirage 0.16.0 — interaction audit
+
+Current branch: `codex/interaction-audit-20261011`, based on verified 0.15.2 at `2db5905f5b4f051d8a2621c92ef004d513103b61`. Adds a private bounded audit store, typed interaction/outcome instrumentation and user-controlled problem markers/export/pause/clear. See [scope, privacy boundaries and acceptance requirements](docs/INTERACTION_AUDIT_0.16.0.md). Build and emulator validation are pending; previous release evidence below remains version-specific. Do not commit users' diagnostic exports to this repository.
+
 # Mirage 0.15.2 — direct saved-place planning
 
 Development branch: `codex/planner-saved-places-20261011`, based on 0.15.1 at `eae0433087424de87e19edc352fb64298fdccd45`. Saved places can be selected directly for Start, Destination or Next stop; typed saved names and aliases offer local choices. Planning mode and other endpoints/stops are preserved, and saving does not start simulation. See [the current behavior and acceptance scope](docs/PLANNER_SAVED_PLACES_0.15.2.md).

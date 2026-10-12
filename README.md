@@ -1,3 +1,7 @@
+# Mirage 0.16.0 — local interaction audit
+
+**Setup → Interaction audit** (also available from planner Settings) records a bounded local timeline of actions, outcomes and safe app state. After a problem, mark it and export a diagnostic report to share for debugging. Place names, coordinates, typed queries, voice content and credentials are excluded. Recording can be paused and history cleared; reports are never uploaded automatically. See [the specification and quick start](docs/INTERACTION_AUDIT_0.16.0.md). Build and acceptance validation are pending.
+
 # Mirage 0.15.2 — choose saved places while planning
 
 The Start, Destination and Next stop fields have a direct **Saved places** button. To plan a route home, choose **Destination → Saved places → Home**. In Itinerary mode, the same picker appends Home to the existing stop list. Typing a saved name or alias also offers local matches. Saving a plan does not start simulation.

@@ -3,6 +3,7 @@ package com.mirage.spike
 import android.content.Context
 import com.mirage.spike.engine.*
 import com.mirage.spike.store.SavedScenario
+import com.mirage.spike.audit.*
 import kotlinx.coroutines.*
 import org.json.JSONArray
 import org.json.JSONObject
@@ -27,6 +28,12 @@ object SmartVoice {
     private var planningSnapshot: SavedScenario?=null
     private var planningSaved: SavedScenario?=null
     private var planningHit: PlaceHit?=null
+    private var auditOperation: Long? = null
+    private fun audit(outcome: AuditOutcome, control: AuditControl, reason: AuditReason = AuditReason.NONE,
+        operation: Long? = auditOperation) {
+        AuditTrail.record(AuditAction.VOICE, outcome, vm?.auditState(),
+            AuditDetails(reason = reason, source = AuditSource.VOICE, control = control), operation)
+    }
     fun needsReply() = pending != null || hits.isNotEmpty()
     fun hasChoices() = hits.isNotEmpty()
     fun bind(context: Context, model: MirageViewModel, onStart: () -> Unit) {
@@ -36,6 +43,8 @@ object SmartVoice {
         if (instructions.isBlank()) instructions = context.assets.open("voice-intent-prompt.txt").bufferedReader().use { it.readText() }
     }
     fun cancel() {
+        if (auditOperation != null) audit(AuditOutcome.CANCELLED, AuditControl.CLOSE)
+        auditOperation = null
         generation++; job?.cancel(); job=null; LocalLanguageModel.cancel()
         if (pendingDraft != null && vm?.continuation?.state === pendingDraft) vm?.continuation?.cancel()
         pending=null; pendingDraft=null; hits=emptyList();planningRequest=false;planningSnapshot=null;planningSaved=null;planningHit=null
@@ -76,7 +85,10 @@ object SmartVoice {
         val contextIntent=followUp.resolve(text,currentView.stops,currentView.index,LiveSession.epoch)
         val afterName=afterMatch?.groupValues?.get(1)?.trim()?.trimEnd(',')
         val afterId=if(afterName!=null) currentView.stops.drop(currentView.index.coerceAtLeast(0)).singleOrNull { it.stop.name.equals(afterName,true) }?.id else null
-        if(afterName!=null && afterId==null) {spoken=isSpoken;say("Name one current or upcoming stop to add after.");return true}
+        if(afterName!=null && afterId==null) {
+            audit(AuditOutcome.BLOCKED, AuditControl.EDIT, AuditReason.MISSING_ITEM, AuditTrail.newOperation())
+            spoken=isSpoken;say("Name one current or upcoming stop to add after.");return true
+        }
         val savedMatches=model.savedScenarios.filter { item ->
             (listOf(item.name)+item.aliases).any { alias -> alias.isNotBlank() && Regex("(?i)(?<![\\p{L}\\p{N}])"+Regex.escape(alias)+"(?![\\p{L}\\p{N}])").containsMatchIn(commandText) }
         }
@@ -97,6 +109,9 @@ object SmartVoice {
         Conversation.cancelPending()
         cancel(); spoken=isSpoken
         val serial = generation
+        val operation = AuditTrail.newOperation()
+        auditOperation = operation
+        audit(AuditOutcome.REQUESTED, AuditControl.EDIT, operation = operation)
         epoch = LiveSession.epoch; stopSnapshot = LiveSession.state.value.stops
         job = scope.launch {
             Conversation.smartBusy(true)
@@ -113,8 +128,17 @@ object SmartVoice {
                     intent.copy(action="add_saved") else intent
                 check(direct != null || normalizedIntent.groundedIn(text)) { "Please say the actual saved name or full destination; I won't guess what 'there' means." }
                 prepare(normalizedIntent)
-            } catch (e: CancellationException) { throw e }
+                if (serial == generation && auditOperation == operation) {
+                    audit(AuditOutcome.SUCCEEDED, AuditControl.EDIT, operation = operation)
+                    if (!needsReply()) auditOperation = null
+                }
+            } catch (e: CancellationException) {
+                audit(AuditOutcome.CANCELLED, AuditControl.EDIT, operation = operation)
+                throw e
+            }
             catch (e: Throwable) { if (serial == generation) {
+                audit(AuditOutcome.FAILED, AuditControl.EDIT, auditReason(e), operation)
+                auditOperation = null
                 if (pending != null) model.continuation.cancel()
                 cancel(); say(e.message ?: "Could not understand that instruction. Try one change at a time.")
             } }
@@ -124,7 +148,11 @@ object SmartVoice {
     }
     private suspend fun prepare(intent: VoiceIntent) {
         val model=vm ?: return
-        if (intent.action == "clarify") { say("Please name the saved item or destination and make one change at a time."); return }
+        if (intent.action == "clarify") {
+            audit(AuditOutcome.BLOCKED, AuditControl.EDIT, AuditReason.INVALID_INPUT)
+            auditOperation = null
+            say("Please name the saved item or destination and make one change at a time."); return
+        }
         if (intent.action in setOf("status","pause","resume")) {
             Conversation.executeBasic(intent.action,spoken); return
         }
@@ -197,7 +225,11 @@ object SmartVoice {
             }
             "save_new" -> say("Save the planned itinerary as ${intent.target}? Say yes or cancel.")
             "save_changes" -> {check(model.draftSavedName!=null){"Name this itinerary first: save this trip as followed by a name"};say("Update ${model.draftSavedName} with the current plan? Say yes or cancel.")}
-            else -> {cancel();say("This command needs a running trip. You can add a saved place or save the plan before starting.")}
+            else -> {
+                audit(AuditOutcome.BLOCKED, AuditControl.EDIT, AuditReason.NOT_READY)
+                auditOperation = null
+                cancel();say("This command needs a running trip. You can add a saved place or save the plan before starting.")
+            }
         }
     }
     private fun confirmPlanning(action: VoiceIntent) {
@@ -217,6 +249,7 @@ object SmartVoice {
             "save_new" -> check(model.saveScenario(action.target)){model.error ?: "Could not save"}
             "save_changes" -> check(model.saveScenario(model.draftSavedName ?: error("Name the itinerary"),true)){model.error ?: "Could not save"}
         }
+        auditOperation = null // Confirmation completes this operation; clearing pending state is not cancellation.
         cancel();say("Done. The plan is updated; simulation is still off.")
     }
     private suspend fun finishPreview() {
@@ -248,11 +281,23 @@ object SmartVoice {
         }
     }
     private fun confirm() {
-        val action=pending ?: run { say("Choose a location first."); return }
-        if(hits.isNotEmpty()) { say("Choose a location by number first."); return }
+        val operation = auditOperation ?: AuditTrail.newOperation()
+        audit(AuditOutcome.REQUESTED, AuditControl.CONFIRM, operation = operation)
+        val action=pending ?: run {
+            audit(AuditOutcome.BLOCKED, AuditControl.CONFIRM, AuditReason.NOT_READY, operation)
+            say("Choose a location first."); return
+        }
+        if(hits.isNotEmpty()) {
+            audit(AuditOutcome.BLOCKED, AuditControl.CONFIRM, AuditReason.NOT_READY, operation)
+            say("Choose a location by number first."); return
+        }
         val model=vm ?: return
         try {
-            if(planningRequest) {confirmPlanning(action);return}
+            if(planningRequest) {
+                confirmPlanning(action)
+                audit(AuditOutcome.SUCCEEDED, AuditControl.CONFIRM, operation = operation)
+                return
+            }
             check(MockState.status.value.running && epoch==LiveSession.epoch && stopSnapshot==LiveSession.state.value.stops) { "The itinerary changed. Please repeat your instruction before confirming." }
             val plan=LiveSession.plan ?: error("No live itinerary")
             if (action.action in setOf("stay","extend") && action.target.isBlank()) check(plan.view().index == pendingIndex) { "The current stop changed. Please repeat your instruction." }
@@ -280,7 +325,13 @@ object SmartVoice {
                 view.stops.drop(view.index+1).singleOrNull { it.stop.name.equals(target,true) }?.let { followUp.remember(it.id,LiveSession.epoch) }
             }
             pending=null; pendingDraft=null
+            audit(AuditOutcome.SUCCEEDED, AuditControl.CONFIRM, operation = operation)
+            auditOperation = null
             say(if(action.action.startsWith("save")) "Saved. Your simulation continues." else "Done. The itinerary is updated. Say save changes to keep it.")
-        } catch(e: Exception) { cancel(); say(e.message ?: "Could not apply the change") }
+        } catch(e: Exception) {
+            audit(AuditOutcome.FAILED, AuditControl.CONFIRM, auditReason(e), operation)
+            auditOperation = null
+            cancel(); say(e.message ?: "Could not apply the change")
+        }
     }
 }

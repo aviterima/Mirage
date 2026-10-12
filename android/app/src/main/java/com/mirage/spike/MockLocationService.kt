@@ -26,6 +26,7 @@ import com.mirage.spike.engine.DwellModel
 import com.mirage.spike.engine.Fix
 import com.mirage.spike.engine.LatLng
 import com.mirage.spike.engine.PlaybackSource
+import com.mirage.spike.audit.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -83,39 +84,56 @@ class MockLocationService : Service() {
     private var tick = 0
     private var notifTick = 0
 
+    override fun onCreate() {
+        super.onCreate()
+        AuditTrail.initialize(this)
+    }
+
+    private fun audit(control: AuditControl, outcome: AuditOutcome, reason: AuditReason = AuditReason.NONE,
+        operation: Long? = null, action: AuditAction = AuditAction.SIMULATION) {
+        AuditTrail.record(action, outcome,
+            details = AuditDetails(reason = reason, source = AuditSource.SERVICE, control = control), operation = operation)
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         lastStartId = startId
+        val operation = AuditTrail.newOperation()
         if (intent == null) {
             // Restarted by the system after a process death: nothing armed survives that,
             // so never spoof a stale point. Just make sure no mock is left behind and stop.
             // (No foreground promotion here — from the background that can itself throw.)
             generation++
             revertToReal("Simulation stopped — waiting for real location", blocked = false)
+            audit(AuditControl.STOP, AuditOutcome.SUCCEEDED, AuditReason.NOT_READY, operation)
             return START_NOT_STICKY
         }
         if (intent.action == ACTION_STOP) {
+            audit(AuditControl.STOP, AuditOutcome.REQUESTED, operation = operation)
             TripRecovery.configure(this); TripRecovery.clearLive()
             stopEverything()
+            audit(AuditControl.STOP, AuditOutcome.SUCCEEDED, operation = operation)
             return START_NOT_STICKY
         }
         // Live controls (notification actions, automation): no restart of the playback.
         when (intent.action) {
-            ACTION_PAUSE -> { PlaybackSource.paused = true; refreshNotification(); return START_NOT_STICKY }
-            ACTION_RESUME -> { PlaybackSource.paused = false; refreshNotification(); return START_NOT_STICKY }
-            ACTION_SKIP -> { PlaybackSource.requestSkip(); return START_NOT_STICKY }
+            ACTION_PAUSE -> { PlaybackSource.paused = true; refreshNotification(); audit(AuditControl.PAUSE, AuditOutcome.SUCCEEDED, operation = operation); return START_NOT_STICKY }
+            ACTION_RESUME -> { PlaybackSource.paused = false; refreshNotification(); audit(AuditControl.RESUME, AuditOutcome.SUCCEEDED, operation = operation); return START_NOT_STICKY }
+            ACTION_SKIP -> { PlaybackSource.requestSkip(); audit(AuditControl.SKIP, AuditOutcome.REQUESTED, operation = operation); return START_NOT_STICKY }
         }
+        audit(AuditControl.START, AuditOutcome.REQUESTED, operation = operation)
         if (!hasLocationPermission()) {
             // A location-type foreground service cannot even be promoted without it (API 34).
             MockState.update {
                 it.copy(running = false, starting = false, health = Health.RED,
                     message = "Location permission is required — grant it and tap Start again")
             }
+            audit(AuditControl.START, AuditOutcome.BLOCKED, AuditReason.PERMISSION, operation, AuditAction.PERMISSION)
             stopSelfResult(startId)
             return START_NOT_STICKY
         }
-        if (!startAsForeground()) {
+        if (!startAsForeground(operation)) {
             stopSelfResult(startId)
             return START_NOT_STICKY
         }
@@ -126,8 +144,8 @@ class MockLocationService : Service() {
         PlaybackSource.consumeSkip()
         loop?.cancel()
         loop = null
-        if (setupProviders()) {
-            loop = scope.launch { runPlayback(gen) }
+        if (setupProviders(operation)) {
+            loop = scope.launch { runPlayback(gen, operation) }
         } else {
             revertToReal("Not the selected mock-location app", blocked = true)
             return START_NOT_STICKY
@@ -141,7 +159,7 @@ class MockLocationService : Service() {
 
     // --- provider setup -----------------------------------------------------
 
-    private fun setupProviders(): Boolean {
+    private fun setupProviders(operation: Long): Boolean {
         return try {
             for (p in providers) addOneProvider(p)
             // Asynchronous on the GMS side: do not block on it, but do not feed the fused
@@ -154,10 +172,12 @@ class MockLocationService : Service() {
                 .addOnFailureListener { e ->
                     if (gen != generation) return@addOnFailureListener
                     if (isDenied(e)) {
+                        audit(AuditControl.START, AuditOutcome.BLOCKED, AuditReason.PERMISSION, operation, AuditAction.PERMISSION)
                         generation++
                         loop?.cancel(); loop = null
                         revertToReal("Not the selected mock-location app", blocked = true)
                     } else {
+                        audit(AuditControl.START, AuditOutcome.FAILED, auditReason(e), operation)
                         MockState.update { it.copy(health = Health.AMBER, message = "Google feed: ${e.message ?: "mock mode failed"}") }
                     }
                 }
@@ -171,6 +191,7 @@ class MockLocationService : Service() {
             }
             true
         } catch (e: SecurityException) {
+            audit(AuditControl.START, AuditOutcome.BLOCKED, AuditReason.PERMISSION, operation, AuditAction.PERMISSION)
             MockState.update {
                 it.copy(mockAppSelected = false, blocked = true, running = false, starting = false,
                     health = Health.RED, message = "Not the selected mock-location app")
@@ -199,9 +220,20 @@ class MockLocationService : Service() {
 
     // --- playback -----------------------------------------------------------
 
-    private suspend fun runPlayback(gen: Int) {
+    private suspend fun runPlayback(gen: Int, operation: Long) {
         var src = PlaybackSource.current
         var last: Fix? = null
+        var startRecorded = false
+        fun emitFix(fix: Fix) {
+            pushFix(fix, gen)
+            val status = MockState.status.value
+            // One event for this playback generation after a provider accepts a fix.
+            // Launching playback, or simulated signal loss before any output, is not success.
+            if (!startRecorded && gen == generation && status.running && status.lastFixMillis > 0L) {
+                startRecorded = true
+                audit(AuditControl.START, AuditOutcome.SUCCEEDED, operation = operation)
+            }
+        }
         LiveSession.clear()
         while (currentCoroutineContext().isActive && gen == generation) {
             try {
@@ -209,16 +241,17 @@ class MockLocationService : Service() {
                     if (PlaybackSource.paused && gen == generation) {
                         val anchor = (last ?: fix).copy(speedMps = 0f)
                         while (PlaybackSource.paused && gen == generation && currentCoroutineContext().isActive) {
-                            pushFix(anchor, gen)
+                            emitFix(anchor)
                             delay(INTERVAL_MS)
                         }
                     }
-                    if (gen == generation) { pushFix(fix, gen); last = fix }
+                    if (gen == generation) { emitFix(fix); last = fix }
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 if (gen != generation) return
+                audit(AuditControl.START, AuditOutcome.FAILED, auditReason(e), operation)
                 MockState.update { it.copy(stepLabel = "Route failed: ${e.message}. Holding here; choose a new destination.") }
                 Conversation.notice("Route failed: ${e.message}. Holding the last position.")
                 // Never silently continue the queue after an execution failure.
@@ -226,13 +259,16 @@ class MockLocationService : Service() {
             }
             if (gen != generation || !currentCoroutineContext().isActive) return
             val point = last?.let { LatLng(it.lat, it.lng) } ?: PlaybackSource.routePoints.firstOrNull()
-            if (point == null) { revertToReal("Nothing to simulate — real location restored", false); return }
+            if (point == null) {
+                audit(AuditControl.START, AuditOutcome.BLOCKED, AuditReason.NOT_READY, operation)
+                revertToReal("Nothing to simulate — real location restored", false); return
+            }
             val anchor = Fix(point.lat, point.lng, 0f, 0f, 4f, altitudeM = last?.altitudeM ?: 12.0)
             LiveSession.holding(PlaybackSource.label, listOf(point))
             val dwell = DwellModel(anchor)
             var next = PlaybackSource.pollQueue()
             while (next == null && gen == generation && currentCoroutineContext().isActive) {
-                pushFix(if (PlaybackSource.paused) anchor else dwell.next(0.2 * PlaybackSource.timeScale), gen)
+                emitFix(if (PlaybackSource.paused) anchor else dwell.next(0.2 * PlaybackSource.timeScale))
                 delay(INTERVAL_MS)
                 next = PlaybackSource.pollQueue()
             }
@@ -431,7 +467,7 @@ class MockLocationService : Service() {
     }
 
     /** Promote to foreground; false (with a visible reason) if the platform refuses. */
-    private fun startAsForeground(): Boolean {
+    private fun startAsForeground(operation: Long): Boolean {
         return try {
             ensureChannel()
             val notification = buildNotification("Starting…")
@@ -442,6 +478,7 @@ class MockLocationService : Service() {
             }
             true
         } catch (e: Exception) {
+            audit(AuditControl.START, AuditOutcome.FAILED, auditReason(e), operation)
             MockState.update {
                 it.copy(running = false, starting = false, health = Health.RED,
                     message = "Cannot start: ${e.message ?: e::class.simpleName}")

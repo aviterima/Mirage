@@ -29,11 +29,20 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import com.mirage.spike.audit.AuditTrail
+import com.mirage.spike.audit.AuditAction
+import com.mirage.spike.audit.AuditOutcome
+import com.mirage.spike.audit.AuditDetails
+import com.mirage.spike.audit.AuditSource
+import com.mirage.spike.audit.AuditControl
 
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AuditTrail.initialize(applicationContext)
+        AuditTrail.record(AuditAction.APP_SESSION, AuditOutcome.SUCCEEDED,
+            details = AuditDetails(source = AuditSource.TOUCH, control = AuditControl.OPEN))
         enableEdgeToEdge()
         dispatchCommand(intent)
         setContent {

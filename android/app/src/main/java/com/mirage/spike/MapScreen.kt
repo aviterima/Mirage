@@ -1,5 +1,7 @@
 package com.mirage.spike
 
+import com.mirage.spike.audit.*
+
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
@@ -103,6 +105,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.testTag
@@ -220,6 +223,7 @@ fun MapScreen(
     var follow by remember { mutableStateOf(true) }
     val live = status.running && !planning
     var showSetup by remember { mutableStateOf(false) }
+    var showAudit by rememberSaveable { mutableStateOf(false) }
     var showSaved by remember { mutableStateOf(false) }
     var plannerPinPick by remember { mutableStateOf<String?>(null) }
     var footerPx by remember {mutableStateOf(0)}
@@ -475,10 +479,12 @@ fun MapScreen(
             done()
             vm.clearSuggestions()
             savedPlaceTarget = field
+            AuditTrail.record(AuditAction.SAVED_PICKER, AuditOutcome.REQUESTED, vm.auditState(field),
+                AuditDetails(source = AuditSource.TOUCH, control = AuditControl.OPEN))
         }
         val pickSavedPlace: (SavedScenario, Field) -> Unit = { place, field ->
             // Apply before clearing focus: focus callbacks may clear the suggestion list.
-            if (vm.pickSavedPlace(place, field)) {
+            if (vm.pickSavedPlace(place, field, if (savedPlaceTarget == null) AuditSource.TYPEAHEAD else AuditSource.SAVED_PLACE)) {
                 if (field == Field.START) startQuery = vm.startName
                 else endQuery = vm.dest?.let { vm.destName }.orEmpty()
                 savedPlaceTarget = null
@@ -727,7 +733,11 @@ fun MapScreen(
                 vm.planMode == PlanMode.ITINERARY -> "the next stop"
                 vm.planMode == PlanMode.SNAP -> "the place"
                 else -> "the destination"
-            }, onPick = { pickSavedPlace(it, field) }, onDismiss = { savedPlaceTarget = null })
+            }, onPick = { pickSavedPlace(it, field) }, onDismiss = {
+                AuditTrail.record(AuditAction.SAVED_PICKER, AuditOutcome.CANCELLED, vm.auditState(field),
+                    AuditDetails(source = AuditSource.TOUCH, control = AuditControl.CLOSE))
+                savedPlaceTarget = null
+            })
         }
 
         val picking=addition?.pinTarget ?: plannerPinPick
@@ -812,6 +822,9 @@ fun MapScreen(
                 Text("Replay exact road path",Modifier.weight(1f))
             }
             Text(if(vm.replayExactRoute) "Saved road geometry and timing; begin at the original start." else "Routes recalculate when used.",style=MaterialTheme.typography.bodySmall)
+            TextButton(modifier = Modifier.testTag("plannerDiagnostics"), onClick = {
+                showPlannerSettings = false; focus.clearFocus(); keyboard?.hide(); showAudit = true
+            }) { Text("Interaction audit") }
             Controls(vm, status, !status.running && status.blocked, { showSetup = true }, actions)
             TextButton(onClick = { showPlannerSettings = false }) { Text("Back to map") }
         }
@@ -902,8 +915,10 @@ fun MapScreen(
             onDev = onOpenDevSettings,
             onPerms = onRequestPermissions,
             onBattery = onRequestBattery,
+            onDiagnostics = { showSetup = false; focus.clearFocus(); keyboard?.hide(); showAudit = true },
         )
     }
+    if (showAudit) AuditDiagnosticsDialog(onDismiss = { showAudit = false })
 }
 
 /** One compact location box: coloured dot, editable text, optional trailing control. */
@@ -1239,13 +1254,19 @@ private fun SetupDialog(
     onDev: () -> Unit,
     onPerms: () -> Unit,
     onBattery: () -> Unit,
+    onDiagnostics: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
         title = { Text("Setup") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                Modifier.heightIn(max = (LocalConfiguration.current.screenHeightDp * .62f).dp)
+                    .imePadding().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                TextButton(onClick = onDiagnostics, modifier = Modifier.testTag("setupDiagnostics")) { Text("Interaction audit") }
                 Text("One-time device setup. Each step shows its current state.", fontSize = 12.sp, color = MUTED)
                 SetupRow(
                     ok = status.mockAppSelected, title = "Mock-location app",

@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.mirage.spike.engine.*
 import com.mirage.spike.store.SavedScenario
+import com.mirage.spike.audit.*
 import kotlinx.coroutines.*
 
 enum class Placement(val label: String) { NOW("Go now"), NEXT("After current stop"), END("At end of trip") }
@@ -44,10 +45,22 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
     private var selectedSavedId: String? = null
     private var searchJob: Job? = null
     private var previewJob: Job? = null
+    private var auditOperation: Long? = null
+
+    private fun audit(outcome: AuditOutcome, reason: AuditReason = AuditReason.NONE, control: AuditControl = AuditControl.OPEN) {
+        AuditTrail.record(AuditAction.CONTINUATION, outcome, vm.auditState(),
+            AuditDetails(reason = reason, count = state?.stops?.size, control = control), auditOperation)
+    }
 
     fun begin(placement: Placement? = null, source: DestinationSource = DestinationSource.SEARCH) {
         cancel()
-        if (!MockState.status.value.running) return
+        auditOperation = AuditTrail.newOperation()
+        audit(AuditOutcome.REQUESTED)
+        if (!MockState.status.value.running) {
+            audit(AuditOutcome.BLOCKED, AuditReason.NOT_READY)
+            auditOperation = null
+            return
+        }
         val view = LiveSession.state.value
         val current = view.stops.getOrNull(view.index)
         val holding = view.activity == ActivityKind.HOLDING && view.routeFailure == null
@@ -95,7 +108,11 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
         val d = state ?: return
         if(d.stops.size == 1) state = d.copy(stops = listOf(d.stops.single().copy(arrivalActivity = value)))
     }
-    fun cancel() { selectedSavedId=null; serial++; searchJob?.cancel(); previewJob?.cancel(); state = null }
+    fun cancel() {
+        if (auditOperation != null) audit(AuditOutcome.CANCELLED, control = AuditControl.CLOSE)
+        auditOperation = null
+        selectedSavedId=null; serial++; searchJob?.cancel(); previewJob?.cancel(); state = null
+    }
     fun edit(open: Boolean) { state = state?.copy(editorOpen = open) }
     fun source(value: DestinationSource) {
         val d = state ?: return
@@ -169,14 +186,31 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
             points = emptyList(), ready = false, previewBusy = false, error = null)
         if (q.length < 2) return
         searchJob = scope.launch {
+            var operation: Long? = null
+            var started = 0L
+            fun result(outcome: AuditOutcome, reason: AuditReason = AuditReason.NONE, matches: Int? = null) {
+                if (operation != null) AuditTrail.record(AuditAction.SEARCH, outcome, vm.auditState(),
+                    AuditDetails(reason = reason, remoteMatches = matches, elapsedMs = (System.nanoTime() - started) / 1_000_000,
+                        control = AuditControl.EDIT), operation)
+            }
             try {
                 if (!immediate) delay(350)
+                operation = AuditTrail.newOperation(); started = System.nanoTime()
+                AuditTrail.record(AuditAction.SEARCH, AuditOutcome.REQUESTED, vm.auditState(),
+                    AuditDetails(control = AuditControl.EDIT), operation)
                 check(vm.hasKey) { "Add your Maps key in Setup to search." }
                 val hits = vm.placeSearch(vm.api, q, origin(d))
-                if (isActive && generation == serial) state = state?.copy(hits = hits, searching = false,
-                    error = if (hits.isEmpty()) "No matches. Try the full address and city." else null)
-            } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { if (generation == serial) state = state?.copy(searching = false, error = e.message) }
+                if (isActive && generation == serial) {
+                    state = state?.copy(hits = hits, searching = false,
+                        error = if (hits.isEmpty()) "No matches. Try the full address and city." else null)
+                    result(AuditOutcome.SUCCEEDED, if (hits.isEmpty()) AuditReason.NO_RESULTS else AuditReason.NONE, hits.size)
+                } else result(AuditOutcome.IGNORED, AuditReason.STALE)
+            } catch (e: CancellationException) { result(AuditOutcome.CANCELLED); throw e }
+            catch (e: Exception) {
+                result(if (generation == serial) AuditOutcome.FAILED else AuditOutcome.IGNORED,
+                    if (generation != serial) AuditReason.STALE else if (!vm.hasKey) AuditReason.NO_API else auditReason(e))
+                if (generation == serial) state = state?.copy(searching = false, error = e.message)
+            }
         }
     }
     fun pickResolved(hit: PlaceHit) { state=state?.copy(hits=listOf(hit));pick(hit) }
@@ -233,6 +267,14 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
         state = d.copy(ready = false, points = emptyList(), summary = "", error = null, searching = false, previewBusy = d.stops.isNotEmpty())
         if (d.stops.isEmpty()) return
         previewJob = scope.launch {
+            val operation = AuditTrail.newOperation()
+            val started = System.nanoTime()
+            fun result(outcome: AuditOutcome, reason: AuditReason = AuditReason.NONE) {
+                AuditTrail.record(AuditAction.ROUTE_BUILD, outcome, vm.auditState(),
+                    AuditDetails(reason = reason, elapsedMs = (System.nanoTime() - started) / 1_000_000,
+                        count = d.stops.size, control = AuditControl.EDIT), operation)
+            }
+            result(AuditOutcome.REQUESTED)
             try {
                 val from = origin(d)
                 val first = block(d, from).first()
@@ -250,16 +292,27 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
                         transitPreference = if (first.ownRoutingPreferences) first.routingTransitPref else vm.transitPref))
                     points = route.points; summary = "${first.mode.name.lowercase()} · ${fmtMiles(route.distanceMeters)}"
                 }
-                if (isActive && generation == serial) state = state?.copy(points = points, summary = summary, ready = true, previewBusy = false)
-            } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { if (generation == serial) state = state?.copy(error = e.message ?: "Could not prepare route", previewBusy = false) }
+                if (isActive && generation == serial) {
+                    state = state?.copy(points = points, summary = summary, ready = true, previewBusy = false)
+                    result(AuditOutcome.SUCCEEDED)
+                } else result(AuditOutcome.IGNORED, AuditReason.STALE)
+            } catch (e: CancellationException) { result(AuditOutcome.CANCELLED); throw e }
+            catch (e: Exception) {
+                result(if (generation == serial) AuditOutcome.FAILED else AuditOutcome.IGNORED,
+                    if (generation != serial) AuditReason.STALE else auditReason(e))
+                if (generation == serial) state = state?.copy(error = e.message ?: "Could not prepare route", previewBusy = false)
+            }
         }
     }
     fun retryPreview() = refresh()
     /** Only the explicit confirmation button commits, once. */
     fun commit(onStart: () -> Unit): Boolean {
-        val d = state ?: return false
-        if (!d.ready || d.previewBusy || d.stops.isEmpty()) return false
+        audit(AuditOutcome.REQUESTED, control = AuditControl.CONFIRM)
+        val d = state ?: run { audit(AuditOutcome.BLOCKED, AuditReason.NOT_READY, AuditControl.CONFIRM); return false }
+        if (!d.ready || d.previewBusy || d.stops.isEmpty()) {
+            audit(AuditOutcome.BLOCKED, if (d.stops.isEmpty()) AuditReason.NO_STOPS else AuditReason.NOT_READY, AuditControl.CONFIRM)
+            return false
+        }
         try {
             val from = origin(d)
             val additions = block(d, from)
@@ -284,9 +337,12 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
                 onStart()
             }
             selectedSavedId?.let{vm.recordSavedUse(it)}
+            audit(AuditOutcome.SUCCEEDED, control = AuditControl.CONFIRM)
+            auditOperation = null // Completing an addition is not a cancellation.
             cancel()
             return true
         } catch (e: Exception) {
+            audit(AuditOutcome.FAILED, auditReason(e), AuditControl.CONFIRM)
             state = state?.copy(error = e.message, ready = false, editorOpen = true)
             return false
         }

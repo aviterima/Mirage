@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.mirage.spike.audit.*
 import com.mirage.spike.engine.ArrivalActivity
 import com.mirage.spike.engine.ActivityKind
 import com.mirage.spike.engine.ApiCheck
@@ -63,6 +64,18 @@ enum class PlanMode { SNAP, ROUTE, ITINERARY }
 class MirageViewModel(
     val placeSearch: suspend (ApiConfig, String, LatLng?) -> List<PlaceHit> = { cfg, query, bias -> GooglePlaces(cfg).searchMany(query, bias, 8) },
 ) : ViewModel() {
+    /** A diagnostic snapshot deliberately has no place names, coordinates or input text. */
+    fun auditState(field: Field? = activeField) = AuditState(
+        planMode = planMode, phase = phase, field = field, stopCount = stops.size,
+        hasStart = tripStart() != null, hasDestination = dest != null,
+        running = MockState.status.value.running, paused = PlaybackSource.paused,
+        startFromReal = startFromReal, useSimulatedStart = useSimulatedStart,
+        queueAfterCurrent = queueAfterCurrent,
+    )
+    internal fun auditEvent(action: AuditAction, outcome: AuditOutcome,
+        details: AuditDetails = AuditDetails(), operation: Long? = null, field: Field? = activeField) {
+        AuditTrail.record(action, outcome, auditState(field), details, operation)
+    }
     val continuation = ContinuationPlanner(this, viewModelScope)
     val hiking = com.mirage.spike.hiking.HikingPlanner(viewModelScope,
         places = { query, near -> placeSearch(api, query, near) },
@@ -186,6 +199,8 @@ class MirageViewModel(
     private var suggestedField = Field.END
     fun editLocationQuery(field: Field, query: String, bias: LatLng?) {
         activeField = field
+        if ((field == Field.START && start != null) || (field == Field.END && dest != null))
+            auditEvent(AuditAction.INPUT_EDIT, AuditOutcome.REQUESTED, AuditDetails(control = AuditControl.EDIT))
         if (field == Field.END) { dest = null; destName = ""; destAddress = ""; destPlaceId = "" }
         else { startAddress = ""; startPlaceId = ""; start = null; startName = ""; startFromReal = false; useSimulatedStart = false; queueAfterCurrent = false }
         invalidateRoute()
@@ -225,6 +240,7 @@ class MirageViewModel(
     fun setStartPoint(p: LatLng, name: String = "Dropped pin", address: String = "", placeId: String = "") {
         startAddress = address; startPlaceId = placeId;
         start = p; startName = name; startFromReal = false; useSimulatedStart = false; queueAfterCurrent = false; invalidateRoute()
+        auditEvent(AuditAction.START_SOURCE, AuditOutcome.SUCCEEDED, field = Field.START)
     }
 
     /** ⌖ → "My real location" chosen by the user for the Start box. */
@@ -232,13 +248,14 @@ class MirageViewModel(
         lastReal = p
         startAddress = ""; startPlaceId = ""
         start = p; startName = "My location"; startFromReal = true; useSimulatedStart = false; queueAfterCurrent = false; invalidateRoute()
+        auditEvent(AuditAction.START_SOURCE, AuditOutcome.SUCCEEDED, AuditDetails(source = AuditSource.REAL_LOCATION))
     }
 
     /** ⌖ → "Where the current trip ends": plan from there and queue behind the current plan. */
-    fun useTripEnd() { queueAfterCurrent = true; useSimulatedStart = false; invalidateRoute() }
+    fun useTripEnd() { queueAfterCurrent = true; useSimulatedStart = false; invalidateRoute(); auditEvent(AuditAction.START_SOURCE, AuditOutcome.SUCCEEDED, AuditDetails(source = AuditSource.TRIP_END)) }
 
     /** Back to "begin where the simulation is now" (only meaningful while running). */
-    fun useSimulatedPosition() { useSimulatedStart = true; queueAfterCurrent = false; invalidateRoute() }
+    fun useSimulatedPosition() { useSimulatedStart = true; queueAfterCurrent = false; invalidateRoute(); auditEvent(AuditAction.START_SOURCE, AuditOutcome.SUCCEEDED, AuditDetails(source = AuditSource.SIMULATED_LOCATION)) }
 
     /** Where the next trip begins: the live simulated position while running (unless the
      *  user chose an explicit start), else the start pin. */
@@ -272,16 +289,17 @@ class MirageViewModel(
         activeField = Field.END
         error = null
         // A return journey may use different roads. Prepare new directions without starting it.
+        auditEvent(AuditAction.STOP_EDIT, AuditOutcome.SUCCEEDED, AuditDetails(control = AuditControl.SWAP))
         if (mode == TravelMode.FLY || hasKey) buildRoute()
         return true
     }
 
     // ---- Live controls while simulating ----------------------------------------------
 
-    fun pause() { PlaybackSource.paused = true }
-    fun resume() { PlaybackSource.paused = false }
+    fun pause() { PlaybackSource.paused = true; auditEvent(AuditAction.SIMULATION, AuditOutcome.SUCCEEDED, AuditDetails(control = AuditControl.PAUSE)) }
+    fun resume() { PlaybackSource.paused = false; auditEvent(AuditAction.SIMULATION, AuditOutcome.SUCCEEDED, AuditDetails(control = AuditControl.RESUME)) }
     /** Jump to the end of the leg / stay that is playing right now. */
-    fun skipAhead() { PlaybackSource.requestSkip() }
+    fun skipAhead() { PlaybackSource.requestSkip(); auditEvent(AuditAction.SIMULATION, AuditOutcome.REQUESTED, AuditDetails(control = AuditControl.SKIP)) }
 
     /** Driving: cruise this many mph over the posted limit (live; may be negative). */
     private var overLimitState by mutableStateOf(5f)
@@ -337,7 +355,7 @@ class MirageViewModel(
     }
 
     /** A Snap started: the next plan begins from where the simulation now is. */
-    fun onSnapStarted() { useSimulatedStart = true }
+    fun onSnapStarted() { useSimulatedStart = true; auditEvent(AuditAction.SIMULATION, AuditOutcome.REQUESTED, AuditDetails(control = AuditControl.START)) }
     /**
      * The End box / map tap. In Itinerary mode a chosen place is appended to the chain
      * as the next stop (with the mode and speed currently set), so building a day is
@@ -363,6 +381,7 @@ class MirageViewModel(
         } else {
             dest = p; destName = name; invalidateRoute()
         }
+        auditEvent(AuditAction.PLACE_SELECT, AuditOutcome.SUCCEEDED, field = Field.END)
     }
 
     fun choosePlanMode(m: PlanMode) {
@@ -380,6 +399,7 @@ class MirageViewModel(
         }
         planMode = m
         invalidateRoute()
+        auditEvent(AuditAction.PLANNER_MODE, AuditOutcome.SUCCEEDED)
     }
     fun clearError() { error = null }
 
@@ -426,6 +446,8 @@ class MirageViewModel(
 
     // ---- Search ----------------------------------------------------------------
 
+    private var lastLocalAudit: Pair<Field, Int>? = null
+
     /** Last keystroke and active field win, including uncancellable responses. */
     fun suggest(query: String, bias: LatLng?) = requestSearch(query, bias, true)
     private fun requestSearch(query: String, bias: LatLng?, debounce: Boolean) {
@@ -436,20 +458,50 @@ class MirageViewModel(
         if (q.isNotEmpty()) {
             savedPlaceSuggestions.addAll(savedItemSearch(savedScenarios, q, PlanMode.SNAP.name).filter { it.dest != null })
         }
+        // Record result-count changes, never keystrokes or query content.
+        val localAudit = activeField to savedPlaceSuggestions.size
+        if (q.isNotEmpty() && lastLocalAudit != localAudit) {
+            auditEvent(AuditAction.SEARCH, AuditOutcome.SUCCEEDED,
+                AuditDetails(source = AuditSource.SAVED_PLACE, localMatches = savedPlaceSuggestions.size))
+        }
+        lastLocalAudit = localAudit.takeIf { q.isNotEmpty() }
         if (q.length < 2 || !hasKey) return
         val serial = searchSerial
         val field = activeField
         suggestBusy = true
         suggestJob = viewModelScope.launch {
+            var operation: Long? = null
+            var started = 0L
+            val state = auditState(field)
             try {
                 if (debounce) delay(350)
+                operation = AuditTrail.newOperation()
+                started = System.nanoTime()
+                AuditTrail.record(AuditAction.SEARCH, AuditOutcome.REQUESTED, state,
+                    AuditDetails(source = AuditSource.TYPEAHEAD, localMatches = savedPlaceSuggestions.size), operation)
                 val hits = placeSearch(api, q, bias ?: tripStart())
-                if (!isActive || serial != searchSerial || field != activeField) return@launch
+                if (!isActive || serial != searchSerial || field != activeField) {
+                    AuditTrail.record(AuditAction.SEARCH, AuditOutcome.IGNORED, state,
+                        AuditDetails(reason = AuditReason.STALE, elapsedMs = (System.nanoTime() - started) / 1_000_000), operation)
+                    return@launch
+                }
                 suggestions.addAll(hits)
                 error = if (hits.isEmpty() && savedPlaceSuggestions.isEmpty()) "No matches. Try a full address or city." else null
-            } catch (e: CancellationException) { throw e }
+                AuditTrail.record(AuditAction.SEARCH, AuditOutcome.SUCCEEDED, auditState(field),
+                    AuditDetails(reason = if (hits.isEmpty()) AuditReason.NO_RESULTS else AuditReason.NONE,
+                        source = AuditSource.TYPEAHEAD, localMatches = savedPlaceSuggestions.size,
+                        remoteMatches = hits.size, elapsedMs = (System.nanoTime() - started) / 1_000_000), operation)
+            } catch (e: CancellationException) {
+                if (operation != null) AuditTrail.record(AuditAction.SEARCH, AuditOutcome.CANCELLED, state,
+                    AuditDetails(elapsedMs = (System.nanoTime() - started) / 1_000_000), operation)
+                throw e
+            }
             catch (e: Exception) {
                 if (serial == searchSerial && savedPlaceSuggestions.isEmpty()) error = describe(e, "Places search failed")
+                if (operation != null) AuditTrail.record(AuditAction.SEARCH,
+                    if (serial == searchSerial) AuditOutcome.FAILED else AuditOutcome.IGNORED, state,
+                    AuditDetails(reason = if (serial == searchSerial) auditReason(e) else AuditReason.STALE,
+                        elapsedMs = (System.nanoTime() - started) / 1_000_000), operation)
             }
             finally { if (serial == searchSerial) suggestBusy = false }
         }
@@ -460,7 +512,10 @@ class MirageViewModel(
         savedPlaceSuggestions.clear(); suggestions.clear(); suggestBusy = false
     }
     fun pickSuggestion(hit: PlaceHit) {
-        if (suggestedField != activeField || hit !in suggestions) return
+        if (suggestedField != activeField || hit !in suggestions) {
+            auditEvent(AuditAction.PLACE_SELECT, AuditOutcome.IGNORED, AuditDetails(reason = AuditReason.STALE, source = AuditSource.TYPEAHEAD))
+            return
+        }
         val field = activeField
         clearSuggestions()
         if (field == Field.START) setStartPoint(hit.latLng, hit.name, hit.address, hit.placeId) else {
@@ -470,49 +525,62 @@ class MirageViewModel(
             } else { destAddress = hit.address; destPlaceId = hit.placeId }
         }
         error = null
+        lastLocalAudit = null
+        auditEvent(AuditAction.PLACE_SELECT, AuditOutcome.SUCCEEDED, AuditDetails(source = AuditSource.TYPEAHEAD))
     }
     /** Enter fetches choices and never silently chooses a previous result. */
     fun search(query: String, onFound: (LatLng) -> Unit) {
         requestSearch(query, tripStart(), false)
         if (!hasKey && savedPlaceSuggestions.isEmpty() && query.isNotBlank()) {
             error = "No saved places match. Add a Maps key in Setup to search other places."
+            auditEvent(AuditAction.SEARCH, AuditOutcome.BLOCKED, AuditDetails(reason = AuditReason.NO_API))
         }
     }
 
     // ---- Single trip -------------------------------------------------------------
 
     fun buildRoute() {
-        val s = tripStart() ?: run { error = "Set a start point"; return }
-        val d = dest ?: run { error = "Set a destination"; return }
+        val operation = AuditTrail.newOperation()
+        auditEvent(AuditAction.ROUTE_BUILD, AuditOutcome.REQUESTED, operation = operation)
+        val s = tripStart() ?: run { error = "Set a start point"; auditEvent(AuditAction.ROUTE_BUILD, AuditOutcome.BLOCKED, AuditDetails(reason = AuditReason.NO_START), operation); return }
+        val d = dest ?: run { error = "Set a destination"; auditEvent(AuditAction.ROUTE_BUILD, AuditOutcome.BLOCKED, AuditDetails(reason = AuditReason.NO_DESTINATION), operation); return }
         if (mode == TravelMode.FLY) {
             // Great-circle flight: computed locally, no routing API needed.
             val fm = FlightModel(s, d)
             routePts = fm.pathPoints; routeDistanceM = fm.totalMeters; isFlight = true; lastRoute = null; flightOrigin = s
             error = null; phase = Phase.READY
+            auditEvent(AuditAction.ROUTE_BUILD, AuditOutcome.SUCCEEDED, operation = operation)
             return
         }
-        if (!hasKey) { error = "Add MAPS_API_KEY to route"; return }
+        if (!hasKey) { error = "Add MAPS_API_KEY to route"; auditEvent(AuditAction.ROUTE_BUILD, AuditOutcome.BLOCKED, AuditDetails(reason = AuditReason.NO_API), operation); return }
         routeJob?.cancel()
         routeJob = viewModelScope.launch {
             error = null; phase = Phase.ROUTING
+            val started = System.nanoTime()
             try {
                 val r = routeEngine.route(RouteSpec(s, arrivalEntrance ?: d, mode = mode, transitPreference = transitPref))
-                if (!isActive) return@launch
+                if (!isActive) { auditEvent(AuditAction.ROUTE_BUILD, AuditOutcome.IGNORED, AuditDetails(reason = AuditReason.STALE), operation); return@launch }
                 lastRoute = r; routePts = r.points; routeDistanceM = r.distanceMeters; isFlight = false
                 phase = Phase.READY
+                auditEvent(AuditAction.ROUTE_BUILD, AuditOutcome.SUCCEEDED, AuditDetails(elapsedMs = (System.nanoTime() - started) / 1_000_000), operation)
                 autoStartAfterRoute?.let { go -> autoStartAfterRoute = null; startSim(go) }
             } catch (e: CancellationException) {
+                auditEvent(AuditAction.ROUTE_BUILD, AuditOutcome.CANCELLED, AuditDetails(elapsedMs = (System.nanoTime() - started) / 1_000_000), operation)
                 throw e
             } catch (e: Exception) {
                 if (isActive) { error = describe(e, "Routing failed"); phase = Phase.IDLE }
+                auditEvent(AuditAction.ROUTE_BUILD, if (isActive) AuditOutcome.FAILED else AuditOutcome.IGNORED,
+                    AuditDetails(reason = if (isActive) auditReason(e) else AuditReason.STALE,
+                        elapsedMs = (System.nanoTime() - started) / 1_000_000), operation)
             }
         }
     }
 
     fun startSim(onStart: () -> Unit) {
-        val origin = tripStart() ?: run { error = "Set a start point"; return }
-        val destination = dest ?: run { error = "Set a destination"; return }
-        if (!canStart) { error = "Route was reset — tap Get route again"; return }
+        auditEvent(AuditAction.SIMULATION, AuditOutcome.REQUESTED, AuditDetails(control = AuditControl.START))
+        val origin = tripStart() ?: run { error = "Set a start point"; auditEvent(AuditAction.SIMULATION, AuditOutcome.BLOCKED, AuditDetails(control = AuditControl.START, reason = AuditReason.NO_START)); return }
+        val destination = dest ?: run { error = "Set a destination"; auditEvent(AuditAction.SIMULATION, AuditOutcome.BLOCKED, AuditDetails(control = AuditControl.START, reason = AuditReason.NO_DESTINATION)); return }
+        if (!canStart) { error = "Route was reset — tap Get route again"; auditEvent(AuditAction.SIMULATION, AuditOutcome.BLOCKED, AuditDetails(control = AuditControl.START, reason = AuditReason.NOT_READY)); return }
         val stop = ItineraryStop(destName, destination, defaultStayMinutes, mode, avgMph, destAddress, destPlaceId, frozenRoute=if(replayExactRoute) lastRoute else null, arrivalActivity=arrivalActivity,entrance=arrivalEntrance,stayUntilLeave=stayUntilLeave)
         if (MockState.status.value.running && queueAfterCurrent && LiveSession.plan != null) {
             LiveSession.plan?.append(stop)
@@ -574,6 +642,7 @@ class MirageViewModel(
         val before=draftUndo ?: return
         stops.clear(); stops.addAll(before); draftUndo=null; draftUndoAvailable=false
         dwellEditIndex=null; invalidateRoute()
+        auditEvent(AuditAction.STOP_EDIT, AuditOutcome.SUCCEEDED, AuditDetails(control = AuditControl.UNDO))
     }
     fun removeStop(index: Int) {
         if (index !in stops.indices) return
@@ -581,6 +650,7 @@ class MirageViewModel(
         stops.removeAt(index)
         dwellEditIndex = null
         invalidateRoute()
+        auditEvent(AuditAction.STOP_EDIT, AuditOutcome.SUCCEEDED, AuditDetails(control = AuditControl.REMOVE, index = index))
     }
 
     /** Cycle a stop's travel mode (Drive -> Bike -> Walk -> Fly) and give it that mode's speed. */
@@ -607,6 +677,7 @@ class MirageViewModel(
         stops.add(to, stops.removeAt(from))
         dwellEditIndex = null
         invalidateRoute()
+        auditEvent(AuditAction.STOP_EDIT, AuditOutcome.SUCCEEDED, AuditDetails(control = AuditControl.MOVE, index = to))
     }
 
     fun setStopMode(index: Int, m: TravelMode) {
@@ -614,6 +685,7 @@ class MirageViewModel(
         rememberDraftEdit()
         stops[index] = stops[index].copy(mode = m, avgMph = modeSpeeds[m] ?: defaultSpeed(m),frozenRoute=null)
         invalidateRoute()
+        auditEvent(AuditAction.STOP_EDIT, AuditOutcome.SUCCEEDED, AuditDetails(control = AuditControl.EDIT, index = index))
     }
 
     /** Finish the day where it began. */
@@ -658,6 +730,7 @@ class MirageViewModel(
         if (index !in stops.indices) return
         rememberDraftEdit()
         stops[index] = stops[index].copy(dwellMinutes = minutes.coerceIn(0, 24 * 60))
+        auditEvent(AuditAction.STOP_EDIT, AuditOutcome.SUCCEEDED, AuditDetails(control = AuditControl.EDIT, index = index))
     }
 
     // ---- Saved plans (Snap / Route / Itinerary by name) --------------------------
@@ -736,11 +809,18 @@ class MirageViewModel(
         }
 
     fun saveScenario(name: String, replace: Boolean = false): Boolean {
+        val operation = AuditTrail.newOperation()
+        val control = if (replace) AuditControl.REPLACE else AuditControl.SAVE_COPY
+        auditEvent(AuditAction.PLAN_SAVE, AuditOutcome.REQUESTED, AuditDetails(control = control), operation)
+        fun finish(outcome: AuditOutcome, reason: AuditReason = AuditReason.NONE): Boolean {
+            auditEvent(AuditAction.PLAN_SAVE, outcome, AuditDetails(control = control, reason = reason), operation)
+            return outcome == AuditOutcome.SUCCEEDED
+        }
         val replacing=if(replace)loadedScenario?.id else null
         val n = name.trim()
-        if(replace && savedScenarios.none{it.id==replacing}) {error="The saved original no longer exists. Save a copy instead.";return false}
-        if (n.isBlank() || !canSaveScenario) return false
-        if (savedScenarios.any { it.name.equals(n, true) && it.id!=replacing }) { error = "That name already exists. Choose a different name."; return false }
+        if(replace && savedScenarios.none{it.id==replacing}) {error="The saved original no longer exists. Save a copy instead.";return finish(AuditOutcome.BLOCKED, AuditReason.MISSING_ITEM)}
+        if (n.isBlank() || !canSaveScenario) return finish(AuditOutcome.BLOCKED, AuditReason.INVALID_INPUT)
+        if (savedScenarios.any { it.name.equals(n, true) && it.id!=replacing }) { error = "That name already exists. Choose a different name."; return finish(AuditOutcome.BLOCKED, AuditReason.DUPLICATE_NAME) }
         val effectiveStart = tripStart()
         val realOrigin = startFromReal && !useSimulatedStart && !queueAfterCurrent
         val sc = SavedScenario(
@@ -760,19 +840,26 @@ class MirageViewModel(
         val persisted=sc.copy(favorite=previous?.favorite ?: false,aliases=previous?.aliases ?: emptyList(),lastUsedAt=previous?.lastUsedAt ?: 0L)
         val ok=writeLibrary(listOf(persisted) + savedScenarios.filterNot{it.id==sc.id})
         if(ok)loadedScenario=sc
-        return ok
+        return finish(if (ok) AuditOutcome.SUCCEEDED else AuditOutcome.FAILED, if (ok) AuditReason.NONE else AuditReason.STORAGE)
     }
 
     /** Save the active plan including live stop edits, independent of the draft form. */
     fun saveActiveScenario(name: String, replace: Boolean = false): Boolean {
+        val operation = AuditTrail.newOperation()
+        val control = if (replace) AuditControl.REPLACE else AuditControl.SAVE_COPY
+        auditEvent(AuditAction.PLAN_SAVE, AuditOutcome.REQUESTED, AuditDetails(control = control), operation)
+        fun finish(outcome: AuditOutcome, reason: AuditReason = AuditReason.NONE): Boolean {
+            auditEvent(AuditAction.PLAN_SAVE, outcome, AuditDetails(control = control, reason = reason), operation)
+            return outcome == AuditOutcome.SUCCEEDED
+        }
         val n = name.trim()
-        val plan = LiveSession.plan ?: return false
+        val plan = LiveSession.plan ?: return finish(AuditOutcome.BLOCKED, AuditReason.NOT_READY)
         val view = plan.view()
-        if (n.isBlank() || view.stops.isEmpty()) return false
+        if (n.isBlank() || view.stops.isEmpty()) return finish(AuditOutcome.BLOCKED, AuditReason.INVALID_INPUT)
         val existingId = if (replace) view.savedId else null
-        if (replace && existingId == null) { error = "Save this trip under a name first."; return false }
-        if (replace && savedScenarios.none { it.id == existingId }) { error = "The saved original no longer exists. Save as new instead."; return false }
-        if (savedScenarios.any { it.name.equals(n, true) && it.id != existingId }) { error = "That name already exists. Choose a different name."; return false }
+        if (replace && existingId == null) { error = "Save this trip under a name first."; return finish(AuditOutcome.BLOCKED, AuditReason.MISSING_ITEM) }
+        if (replace && savedScenarios.none { it.id == existingId }) { error = "The saved original no longer exists. Save as new instead."; return finish(AuditOutcome.BLOCKED, AuditReason.MISSING_ITEM) }
+        if (savedScenarios.any { it.name.equals(n, true) && it.id != existingId }) { error = "That name already exists. Choose a different name."; return finish(AuditOutcome.BLOCKED, AuditReason.DUPLICATE_NAME) }
         val activeStops = plan.stopsForSave()
         val last = activeStops.last()
         val kind = PlanMode.ITINERARY
@@ -789,11 +876,11 @@ class MirageViewModel(
         val previous=savedScenarios.firstOrNull{it.id==sc.id}
         val persisted=sc.copy(favorite=previous?.favorite ?: false,aliases=previous?.aliases ?: emptyList(),lastUsedAt=previous?.lastUsedAt ?: 0L)
         val updated = savedScenarios.filterNot { it.id == sc.id }.toMutableList().apply { add(0, persisted) }
-        try { store.save(updated) } catch (e: Exception) { error = "Could not save: ${e.message}"; return false }
+        try { store.save(updated) } catch (e: Exception) { error = "Could not save: ${e.message}"; return finish(AuditOutcome.FAILED, AuditReason.STORAGE) }
         savedScenarios.clear(); savedScenarios.addAll(updated)
         plan.markSaved(sc.id, sc.name, activeStops)
         notice = "Saved ${sc.name}"
-        return true
+        return finish(AuditOutcome.SUCCEEDED)
     }
 
     private fun linkLoadedPlan(plan: LivePlan) {
@@ -815,8 +902,13 @@ class MirageViewModel(
     }
 
     /** Apply one saved place to the chosen draft field without loading or starting its plan. */
-    fun pickSavedPlace(sc: SavedScenario, field: Field): Boolean {
-        if (!validSavedPlace(sc)) return false
+    fun pickSavedPlace(sc: SavedScenario, field: Field, source: AuditSource = AuditSource.SAVED_PLACE): Boolean {
+        val operation = AuditTrail.newOperation()
+        AuditTrail.record(AuditAction.SAVED_SELECT, AuditOutcome.REQUESTED, auditState(field), AuditDetails(source = source), operation)
+        if (!validSavedPlace(sc)) {
+            AuditTrail.record(AuditAction.SAVED_SELECT, AuditOutcome.BLOCKED, auditState(field), AuditDetails(reason = AuditReason.INVALID_INPUT, source = source), operation)
+            return false
+        }
         val point = sc.dest ?: return false
         clearSuggestions()
         autoStartAfterRoute = null
@@ -838,6 +930,8 @@ class MirageViewModel(
         }
         recordSavedUse(sc.id)
         error = null
+        lastLocalAudit = null
+        AuditTrail.record(AuditAction.SAVED_SELECT, AuditOutcome.SUCCEEDED, auditState(field), AuditDetails(source = source), operation)
         return true
     }
 
@@ -968,12 +1062,18 @@ class MirageViewModel(
 
     /** Put a saved plan back on screen. A "real location" start uses today's real position. */
     fun loadScenario(sc: SavedScenario) {
+        val operation = AuditTrail.newOperation()
+        auditEvent(AuditAction.PLAN_LOAD, AuditOutcome.REQUESTED, operation = operation)
+        var recentWriteFailed = false
         loadedScenario = sc
         departureMillis=sc.departureMillis
         arrivalActivity=sc.arrivalActivity
         arrivalEntrance=sc.entrance; stayUntilLeave=sc.stayUntilLeave; defaultStayMinutes=sc.defaultStayMinutes
         val used = savedScenarios.map { if(it.id == sc.id) it.copy(lastUsedAt=System.currentTimeMillis()) else it }
-        try { store.save(used); savedScenarios.clear(); savedScenarios.addAll(used) } catch (_: Exception) { /* Opening still works if recent metadata cannot be written. */ }
+        try { store.save(used); savedScenarios.clear(); savedScenarios.addAll(used) } catch (_: Exception) {
+            recentWriteFailed = true
+            /* Opening still works if recent metadata cannot be written. */
+        }
         startAddress = ""; startPlaceId = ""
         queueAfterCurrent = false
         clearSuggestions()
@@ -997,6 +1097,8 @@ class MirageViewModel(
         destPlaceId = if(planMode==PlanMode.ITINERARY)"" else sc.destPlaceId
         invalidateRoute()
         error = null
+        auditEvent(AuditAction.PLAN_LOAD, AuditOutcome.SUCCEEDED,
+            AuditDetails(reason = if (recentWriteFailed) AuditReason.STORAGE else AuditReason.NONE), operation)
         // Routes can be prepared straight away; the user then just taps Start.
         if(sc.frozenRoute!=null && mode in setOf(TravelMode.DRIVE,TravelMode.BIKE,TravelMode.WALK)) {
             lastRoute=sc.frozenRoute;routePts=sc.frozenRoute.points;routeDistanceM=sc.frozenRoute.distanceMeters;phase=Phase.READY;replayExactRoute=true
@@ -1005,9 +1107,10 @@ class MirageViewModel(
 
     /** Snapshot the draft; subsequent edits use LiveSession and stable stop IDs. */
     fun startItinerary(onStart: () -> Unit) {
-        val origin = tripStart() ?: run { error = "Set a start point"; return }
-        if (stops.isEmpty()) { error = "Add at least one stop"; return }
-        if (stops.any { it.mode != TravelMode.FLY && it.frozenRoute==null } && !hasKey) { error = "Add a Maps key in Setup"; return }
+        auditEvent(AuditAction.SIMULATION, AuditOutcome.REQUESTED, AuditDetails(control = AuditControl.START))
+        val origin = tripStart() ?: run { error = "Set a start point"; auditEvent(AuditAction.SIMULATION, AuditOutcome.BLOCKED, AuditDetails(control = AuditControl.START, reason = AuditReason.NO_START)); return }
+        if (stops.isEmpty()) { error = "Add at least one stop"; auditEvent(AuditAction.SIMULATION, AuditOutcome.BLOCKED, AuditDetails(control = AuditControl.START, reason = AuditReason.NO_STOPS)); return }
+        if (stops.any { it.mode != TravelMode.FLY && it.frozenRoute==null } && !hasKey) { error = "Add a Maps key in Setup"; auditEvent(AuditAction.SIMULATION, AuditOutcome.BLOCKED, AuditDetails(control = AuditControl.START, reason = AuditReason.NO_API)); return }
         val snapshot = stops.toList()
         if (MockState.status.value.running && queueAfterCurrent && LiveSession.plan != null) {
             LiveSession.plan?.appendAll(snapshot)
@@ -1028,6 +1131,7 @@ class MirageViewModel(
     fun onStopped() {
         continuation.cancel(); clearSuggestions()
         phase = if (routePts.isEmpty()) Phase.IDLE else Phase.READY
+        auditEvent(AuditAction.SIMULATION, AuditOutcome.SUCCEEDED, AuditDetails(control = AuditControl.STOP))
     }
 
     // ---- Automation (adb / scripts): see README "Automation" ------------------------

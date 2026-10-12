@@ -1,3 +1,7 @@
+# Mirage 0.16.0 — interaction audit
+
+[The current audit specification](docs/INTERACTION_AUDIT_0.16.0.md) defines the typed local event timeline, safe state/operation correlation, bounded storage outside Android backup, user-controlled diagnostics and privacy/acceptance boundaries. No remote telemetry or automatic learning is included. Existing trip behavior remains governed by the specifications below.
+
 # Mirage 0.15.2 — saved places in the planner
 
 Start, Destination and Next stop provide direct Saved places selectors. Saved names and aliases also appear in local typeahead results. Selection retains the planning mode and existing endpoints/stops, carries remembered arrival/stay settings and never starts simulation. See [the current specification](docs/PLANNER_SAVED_PLACES_0.15.2.md) and [validation](docs/VALIDATION_0.15.2.md). All 164 JVM tests and 32 emulator tests passed; physical-phone acceptance remains open.
