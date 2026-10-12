@@ -190,7 +190,8 @@ class PlannerVoiceUiAcceptanceTest {
         compose.onNodeWithText("Itinerary").performClick()
         previewAddition("Home")
         compose.runOnIdle { assertTrue(vm.stops.isEmpty()); assertIdle() }
-        compose.onNodeWithTag("plannerVoiceConfirm").performClick()
+        dictate(Field.END, "yes")
+        compose.onNodeWithTag("plannerInputSubmit").performScrollTo().performClick()
         compose.waitUntil(5_000) { vm.stops.size == 1 }
         previewAddition("Office")
         compose.runOnIdle { assertEquals(listOf("Home"), vm.stops.map { it.name }); assertIdle() }
