@@ -172,6 +172,15 @@ class WorkflowUiAcceptanceTest {
     @Test fun typingSavedAliasOffersHomeInNewDestinationField() {
         pickPlannerPlace("plannerSavedStart", "fixture-office")
         compose.onNodeWithTag("plannerDestinationInput").performScrollTo().performClick().performTextInput("my house")
+        // Wait for the system keyboard before scrolling to and tapping its result.
+        // Compose idleness alone does not wait for the IME window to open.
+        compose.waitUntil(5_000) {
+            var keyboardVisible = false
+            activity.onActivity { keyboardVisible = it.window.decorView.rootWindowInsets
+                ?.isVisible(android.view.WindowInsets.Type.ime()) == true }
+            keyboardVisible
+        }
+        compose.waitForIdle()
         compose.onNodeWithTag("plannerSavedSuggestion-fixture-home").performScrollTo().assertIsDisplayed().performClick()
         compose.onNodeWithTag("plannerStartInput").assertTextContains("Fixture Office")
         compose.onNodeWithTag("plannerDestinationInput").assertTextContains("Fixture Home")

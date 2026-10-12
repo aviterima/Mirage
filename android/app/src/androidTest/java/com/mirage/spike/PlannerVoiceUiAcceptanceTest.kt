@@ -229,13 +229,13 @@ class PlannerVoiceUiAcceptanceTest {
             val request = PlannerSpeech.begin(Field.END)
             PlannerSpeech.partial(request, "unfinished instruction")
         }
-        compose.onNodeWithTag("plannerNewItinerary").performScrollTo().performClick()
+        compose.onNodeWithTag("plannerNewItinerary").assertIsDisplayed().performClick()
         compose.onNodeWithTag("plannerNewCancel").assertIsDisplayed().performClick()
         compose.runOnIdle {
             assertEquals(listOf("Home", "Office"), vm.stops.map { it.name })
             assertNotNull(TripRecovery.draft())
         }
-        compose.onNodeWithTag("plannerNewItinerary").performScrollTo().performClick()
+        compose.onNodeWithTag("plannerNewItinerary").assertIsDisplayed().performClick()
         compose.onNodeWithTag("plannerNewConfirm").assertIsDisplayed().performClick()
         compose.runOnIdle {
             assertEquals(PlanMode.ITINERARY, vm.planMode)

@@ -1072,7 +1072,7 @@ internal fun LocationBox(
     var focused by remember {mutableStateOf(false)}
     val imeBottom=WindowInsets.ime.getBottom(LocalDensity.current)
     LaunchedEffect(focused,imeBottom) {
-        if(focused && imeBottom>0) { kotlinx.coroutines.delay(150);bringIntoView.bringIntoView() }
+        if(focused && imeBottom>0) bringIntoView.bringIntoView()
     }
     Column {
     Row(Modifier.fillMaxWidth().padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
