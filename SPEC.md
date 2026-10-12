@@ -1,6 +1,6 @@
 # Mirage 0.16.1 — place names with cities
 
-[The current naming specification](docs/PLACE_NAMES_0.16.1.md) defines **Name (City)** lookup labels and editable prefilled new-location names. Existing saved names and route/itinerary naming remain intact.
+[The current naming specification and validation](docs/PLACE_NAMES_0.16.1.md) define **Name (City)** lookup labels and editable prefilled new-location names. Existing saved names and route/itinerary naming remain intact. All **195 JVM tests and 38 emulator tests passed**, including both new save journeys and the signed upgrade from 0.16.0. Physical-phone acceptance remains open.
 
 # Mirage 0.16.0 — interaction audit
 

@@ -1,6 +1,6 @@
 # Mirage 0.16.1 — place names with cities
 
-Looked-up locations use **Name (City)**, for example **Western Digital (Irvine)**. Saving a location in Jump mode prefills that editable name. See [behavior and validation](docs/PLACE_NAMES_0.16.1.md). Automated validation is pending.
+Looked-up locations use **Name (City)**, for example **Western Digital (Irvine)**. Saving a location in Jump mode prefills that editable name. Validated October 12, 2026: **195 JVM tests and 38 emulator tests passed**, with blocking lint, pinned signing and the in-place upgrade from 0.16.0. See [behavior, exact APK identity and remaining phone checks](docs/PLACE_NAMES_0.16.1.md).
 
 # Mirage 0.16.0 — local interaction audit
 
