@@ -32,6 +32,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -78,9 +80,12 @@ internal fun PlannerMicrophone(
     onCancel: (() -> Unit)? = null
 ) {
     var showSetup by remember { mutableStateOf(false) }
+    val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
     LaunchedEffect(enabled) { if (!enabled) showSetup = false }
     IconButton(
         onClick = {
+            focus.clearFocus(); keyboard?.hide()
             when {
                 listening -> onCancel?.invoke()
                 voiceReady -> onListen()

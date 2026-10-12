@@ -274,7 +274,7 @@ fun MapScreen(
     // Saved plans and the user's own key live on the device.
     val keyStore = remember { PrefsKeyStore(context) }
     val recovery = remember { TripRecovery.configure(context); TripRecovery.live() }
-    val recoveredDraft = remember { TripRecovery.draft() }
+    var recoveredDraft by remember { mutableStateOf(TripRecovery.draft()) }
     var showRecovery by remember { mutableStateOf(!status.running && !vm.canSaveScenario && (recovery != null || recoveredDraft != null)) }
     LaunchedEffect(Unit) {
         androidx.compose.runtime.snapshotFlow { vm.draftGeneration to vm.draftSnapshot() }.debounce(400).collect { (generation, draft) ->
@@ -892,7 +892,7 @@ fun MapScreen(
                 cancelDictation()
                 if (vm.startNewItinerary()) {
                     startQuery = vm.startName; endQuery = ""; newestStop = null; orderProposal = null
-                    savedPlaceTarget = null; snapMenu = null; plannerPinPick = null; showRecovery = false
+                    savedPlaceTarget = null; snapMenu = null; plannerPinPick = null; showRecovery = false; recoveredDraft = null
                 }
                 showNewItinerary = false
             }, modifier = Modifier.testTag("plannerNewConfirm")) { Text("Start new") } },
