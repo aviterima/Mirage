@@ -2,7 +2,7 @@
 
 The Start, Destination and Next stop fields have a direct **Saved places** button. To plan a route home, choose **Destination → Saved places → Home**. In Itinerary mode, the same picker appends Home to the existing stop list. Typing a saved name or alias also offers local matches. Saving a plan does not start simulation.
 
-Build and acceptance validation are pending. See [behavior and acceptance scope](docs/PLANNER_SAVED_PLACES_0.15.2.md). Earlier validation below applies only to the stated version.
+Validated October 11, 2026 Pacific: **164 JVM tests and 32 emulator tests passed**; blocking lint, pinned signing and the in-place upgrade from 0.15.1 passed. See [behavior and acceptance scope](docs/PLANNER_SAVED_PLACES_0.15.2.md), [release notes](docs/RELEASE_NOTES_0.15.2.md) and [validation with APK identity and remaining phone/layout checks](docs/VALIDATION_0.15.2.md). Tested source: `51de0d09c488180a5df24f98485665e006d4fbdd`. Earlier validation below applies only to the stated version.
 
 # Mirage 0.15.1 — browse trails from the route planner
 

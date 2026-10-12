@@ -1,3 +1,7 @@
+# Mirage 0.15.2 — saved places in the planner
+
+Start, Destination and Next stop provide direct Saved places selectors. Saved names and aliases also appear in local typeahead results. Selection retains the planning mode and existing endpoints/stops, carries remembered arrival/stay settings and never starts simulation. See [the current specification](docs/PLANNER_SAVED_PLACES_0.15.2.md) and [validation](docs/VALIDATION_0.15.2.md). All 164 JVM tests and 32 emulator tests passed; physical-phone acceptance remains open.
+
 # Mirage 0.15.1 — browse trails from the route planner
 
 Choose **Route** or **Itinerary** in the top planner, then **+ Add hiking trail**. Leave the trail name blank to browse nearby trails, or enter a city/park and tap **Browse hiking trails**. If several areas match, choose one. A specific trail name remains optional.

@@ -1,6 +1,6 @@
 # Mirage 0.15.2 — saved places in the planner
 
-Status: implementation in progress; new build and acceptance results pending.
+Status: implemented and verified October 11, 2026 Pacific. All 164 JVM tests and 32 emulator tests passed, along with blocking lint, pinned signing, the live trail check and the in-place 0.15.1 upgrade. See [validation and installer identity](VALIDATION_0.15.2.md) and [release notes](RELEASE_NOTES_0.15.2.md). Physical-phone acceptance remains open.
 
 ## Problem and behavior
 
@@ -12,7 +12,7 @@ Typing a saved name also displays local matches, even without a Maps key. Select
 
 Use Save in the planning footer to store a named route or itinerary without starting it. Later, Open loads the saved draft for editing. Start remains explicit.
 
-## Acceptance required
+## Acceptance covered
 
 - Fresh route: select an origin, choose saved Home as destination, save and reopen; origin and destination must survive and simulation must remain off.
 - Fresh itinerary: add existing stops, choose saved Home as the next stop, save and reopen; order, stay settings and origin must survive.
