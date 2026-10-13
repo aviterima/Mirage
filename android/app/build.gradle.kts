@@ -24,8 +24,6 @@ android {
     defaultConfig {
         applicationId = "com.mirage.app"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
-        // Native inference must be optimized even in the signed debug-distribution APK.
-        externalNativeBuild { cmake { arguments += "-DCMAKE_BUILD_TYPE=Release" } }
         minSdk = 26
         targetSdk = 34
         versionCode = 44
@@ -48,9 +46,6 @@ android {
         }
     }
 
-    ndkVersion = "27.2.12479018"
-    externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt"); version = "3.22.1" } }
-
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -70,12 +65,17 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
 
 dependencies {
+    // Pinned mobile runtime. Both arm64-v8a and x86_64 are supplied by this AAR.
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.18.0")
     implementation("net.java.dev.jna:jna:5.18.1@aar")
     implementation("com.alphacephei:vosk-android:0.3.75@aar")
     implementation("androidx.core:core-ktx:1.13.1")
@@ -87,7 +87,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.5")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.5")
     implementation("androidx.navigation:navigation-compose:2.8.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
 
     // Location + maps
     implementation("com.google.android.gms:play-services-location:21.3.0")
@@ -108,7 +108,7 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     // Unit tests run against a stub android.jar whose org.json returns nothing; use the real one.
     testImplementation("org.json:json:20240303")
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
 }
 
 // Versioned upstream model, packaged into the APK. No first-run model download.

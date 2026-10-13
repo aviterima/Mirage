@@ -202,17 +202,17 @@ internal fun VoiceSetupSheet(
                     OutlinedButton(
                         onClick = onCancelDownload,
                         modifier = Modifier.fillMaxWidth().testTag("voiceDownloadCancel")
-                    ) { Text("Cancel download") }
+                    ) { Text("Pause download") }
                 }
                 else -> Button(
                     onClick = onDownload,
                     modifier = Modifier.fillMaxWidth().testTag("voiceDownload")
                 ) {
-                    Text(if (modelStatus.startsWith("Advanced voice not downloaded")) "Download voice · 610 MB" else "Retry download · 610 MB")
+                    Text(if (modelStatus.startsWith("Advanced voice")) "Download voice · ${LocalLanguageModel.DOWNLOAD_SIZE}" else "Resume download · ${LocalLanguageModel.DOWNLOAD_SIZE}")
                 }
             }
             if (!voiceReady) Text(
-                "Use Wi-Fi for the 610 MB download and keep at least 750 MB free. You can keep typing while it downloads.",
+                "Use Wi-Fi for the ${LocalLanguageModel.DOWNLOAD_SIZE} download and keep at least ${LocalLanguageModel.FREE_SPACE} free. Interrupted downloads resume from saved progress. You can keep typing while it downloads.",
                 style = MaterialTheme.typography.bodySmall
             )
             Text(

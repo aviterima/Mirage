@@ -2,7 +2,7 @@
 
 Current branch: `codex/contextual-voice-input-20261012`, based on verified 0.17.0 documentation HEAD `49c18c661e098484f2b469bac3a06f4f9d512938`. Tested source `d1926dbb9d2cf234f8f8b5606cafdcd764ae20e4` passed [build 38334541465](https://github.com/aviterima/Mirage/actions/runs/38334541465), including 259 JVM tests, blocking lint and pinned signing. [Acceptance 38334541496](https://github.com/aviterima/Mirage/actions/runs/38334541496) passed 53 of 55 Android tests; only the two native-model quality checks failed. All planner, field, workflow and continuation UI journeys passed, as did the signed upgrade fixture. Downloaded XML confirms zero errors or skipped tests. Exact results, prior failures and remaining work are in the [candidate report](docs/CONTEXTUAL_VOICE_0.18.0.md).
 
-**Model quality currently blocks a release claim.** No larger local model or hosted provider has been enabled. See [actual inference evidence and the pending interpretation-engine choice](docs/MODEL_EVALUATION_0.18.0.md). Continue from this branch without replacing or resetting older sources. The latest verified delivery remains 0.17.0; historical evidence below applies only to its named version.
+**Model quality currently blocks a release claim.** On October 13 the user approved [the newer on-device model update](docs/GEMMA_LOCAL_UPDATE_0.18.0.md). The LiteRT/Gemma integration is under evaluation and needs fresh build and acceptance checks; earlier Qwen results do not validate it. No hosted provider is enabled. Continue from this branch without replacing or resetting older sources. The latest verified delivery remains 0.17.0; historical evidence below applies only to its named version.
 
 # Mirage 0.17.0 — voice in the planner
 

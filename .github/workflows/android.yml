@@ -90,6 +90,17 @@ jobs:
       - name: Verify offline voice model is packaged
         run: unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'assets/model-en-us/am/final.mdl'
 
+      - name: Verify local language runtime is packaged for phone and emulator
+        run: |
+          python3 - <<'PY'
+          from zipfile import ZipFile
+          with ZipFile('app/build/outputs/apk/debug/app-debug.apk') as apk:
+              for abi in ('arm64-v8a', 'x86_64'):
+                  name = f'lib/{abi}/liblitertlm_jni.so'
+                  assert apk.getinfo(name).file_size > 0, f'Missing local language runtime: {abi}'
+              assert not any(name.endswith('/libmirage_voice.so') for name in apk.namelist()), 'Obsolete language runtime is still packaged'
+          PY
+
       - name: Verify APK signing identity before distribution
         env:
           MIRAGE_SIGNING_CERT_SHA256: ${{ vars.MIRAGE_SIGNING_CERT_SHA256 }}

@@ -2,7 +2,7 @@
 
 The [candidate specification](docs/CONTEXTUAL_VOICE_0.18.0.md) extends shared typed/spoken input to all app-owned fields and proposes complete plans for explicit review, correction, atomic Apply and Undo. Interruptions preserve unfinished words; Start new clears planning context durably. Exact credentials bypass interpretation and draft persistence. Saving and starting remain separate actions.
 
-Build and UI verification passed: 259 JVM tests and 53 of 55 Android tests passed; only the two native language-quality checks failed. [Actual local-model tests failed the required language quality](docs/MODEL_EVALUATION_0.18.0.md), so broad free-form interpretation is not accepted and the candidate is not released. No hosted processing or alternate default model is approved by this candidate. The latest verified specification is 0.17.0 below.
+Before the new runtime integration, build and UI verification passed: 259 JVM tests and 53 of 55 Android tests passed; only the two native language-quality checks failed. [Those Qwen tests failed the required language quality](docs/MODEL_EVALUATION_0.18.0.md), so broad free-form interpretation is not accepted and the candidate is not released. The user approved a [newer on-device model update](docs/GEMMA_LOCAL_UPDATE_0.18.0.md) on October 13; it requires fresh quality and integration checks. Hosted processing remains disabled. The latest verified specification is 0.17.0 below.
 
 # Mirage 0.17.0 — voice in the planner
 

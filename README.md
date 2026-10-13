@@ -1,8 +1,8 @@
 # Mirage 0.18.0 candidate — contextual input under validation
 
-The candidate adds microphones to app-owned text fields, recoverable interrupted input, and whole-plan review with corrections and Undo. **It is not a verified release.** The tested local language models did not reliably interpret the requested instructions; an interpretation-engine decision is pending. See the [candidate specification](docs/CONTEXTUAL_VOICE_0.18.0.md) and [measured model results](docs/MODEL_EVALUATION_0.18.0.md). The latest verified installer remains 0.17.0.
+The candidate adds microphones to app-owned text fields, recoverable interrupted input, and whole-plan review with corrections and Undo. **It is not a verified release.** On October 13 the user approved a [newer on-device model update](docs/GEMMA_LOCAL_UPDATE_0.18.0.md); its integration and quality verification are in progress. Online interpretation remains disabled. See the [candidate specification](docs/CONTEXTUAL_VOICE_0.18.0.md) and [prior measured model failures](docs/MODEL_EVALUATION_0.18.0.md). The latest verified installer remains 0.17.0.
 
-Candidate verification: 259 JVM tests passed; 53 of 55 Android tests passed, with only the two native language-quality checks failing. UI journeys, lint, signing and the upgrade fixture passed. The failed model-quality gate still blocks release.
+Previous candidate verification, before the new runtime integration: 259 JVM tests passed; 53 of 55 Android tests passed, with only the two native language-quality checks failing. UI journeys, lint, signing and the upgrade fixture passed. New integration verification is required before release.
 
 # Mirage 0.17.0 — voice in the planner
 

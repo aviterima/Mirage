@@ -1,5 +1,13 @@
 # Voice dependencies
 
+## 0.18.0 on-device update under evaluation
+
+- LiteRT-LM Android 0.18.0: Google AI Edge, Apache License 2.0; https://github.com/google-ai-edge/LiteRT-LM/tree/v0.18.0 . The runtime AAR includes arm64-v8a and x86_64 native libraries.
+- Gemma 4 E2B/E4B LiteRT models: Apache License 2.0, per the public model cards linked from https://developers.google.com/edge/litert-lm/models/gemma-4 . Exact evaluated downloads, immutable revisions and SHA-256 identities are in [the integration report](GEMMA_LOCAL_UPDATE_0.18.0.md).
+- The candidate replaces the compiled llama.cpp inference dependency with LiteRT-LM. Historical C++ sources and prior downloaded model files are preserved. Vosk speech recognition remains bundled; language-model files are downloaded separately. Instructions stay on-device.
+
+Earlier dependencies and release provenance follow.
+
 - Vosk Android 0.3.75 — Alpha Cephei, Apache License 2.0.
   Source: https://github.com/alphacep/vosk-api
 - Vosk small US English model 0.15 — Apache License 2.0, per the upstream model catalog.

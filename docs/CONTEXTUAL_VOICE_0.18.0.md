@@ -1,6 +1,6 @@
 # Contextual input — 0.18.0 candidate
 
-Status: build and UI checks passed; native language quality failed. An interpretation-engine decision is pending, and 0.18.0 is not released. The verified delivery remains 0.17.0.
+Status: prior build and UI checks passed; Qwen native language quality failed. On October 13 the user approved the [newer on-device model update](GEMMA_LOCAL_UPDATE_0.18.0.md), now under integration and evaluation. It needs fresh verification, and 0.18.0 is not released. The verified delivery remains 0.17.0. Historical engine-choice discussion below records the earlier state.
 
 ## Requested behavior
 

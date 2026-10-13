@@ -164,9 +164,8 @@ object SmartVoice {
                 val current = LiveSession.state.value
                 val catalog = JSONArray(model.savedScenarios.sortedByDescending { item -> text.lowercase().split(" ").count { word -> word.length>2 && item.name.contains(word,true) } }.take(40).map { it.name })
                 val upcoming = JSONArray(current.stops.drop(current.index+1).map { it.stop.name })
-                val user = "Saved catalog: $catalog\nUpcoming stops: $upcoming\nInstruction: " + JSONObject.quote(text.take(600).replace("<|","< |"))
-                val prompt = "<|im_start|>system\n$instructions<|im_end|>\n<|im_start|>user\n$user<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
-                val intent = direct ?: VoiceIntent.parse(LocalLanguageModel.interpret(prompt))
+                val user = "Saved catalog: $catalog\nUpcoming stops: $upcoming\nInstruction: " + JSONObject.quote(text.take(600))
+                val intent = direct ?: VoiceIntent.parse(LocalLanguageModel.interpret(instructions, user))
                 ensureActive(); if (serial != generation) return@launch
                 check(epoch == LiveSession.epoch) { "The simulation changed. Please repeat your instruction." }
                 val view = LiveSession.state.value

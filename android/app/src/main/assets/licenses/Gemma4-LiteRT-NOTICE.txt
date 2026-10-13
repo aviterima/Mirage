@@ -1,0 +1,14 @@
+Mirage on-device language understanding candidate
+
+Gemma 4 model artifacts, Google / LiteRT Community
+https://developers.google.com/edge/litert-lm/models/gemma-4
+https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm
+License: Apache License, Version 2.0
+
+LiteRT-LM Android 0.18.0, Google AI Edge
+https://github.com/google-ai-edge/LiteRT-LM/tree/v0.18.0
+License: Apache License, Version 2.0
+
+The Apache 2.0 license text is included in Gemma4-LiteRT-LICENSE.txt.
+These dependencies are not public domain. Mirage's prompts, validation,
+place resolution and review controls are separate application code.

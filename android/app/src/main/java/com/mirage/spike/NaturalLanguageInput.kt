@@ -39,14 +39,14 @@ object NaturalLanguageInput {
         check(fieldInstructions.isNotBlank()) { "Open voice setup before reviewing an instruction." }
         val data = "Field: ${JSONObject.quote(label)}\nValue format: ${fieldFormat(kind)}\nCurrent value: ${JSONObject.quote(currentValue)}\n" +
             "Local now: ${localNow.format(DateTimeFormatter.ISO_ZONED_DATE_TIME)}\nContext: $context\nInstruction: ${JSONObject.quote(text)}"
-        return parseField(LocalLanguageModel.interpretStructured(prompt(fieldInstructions, data), "field"), kind)
+        return parseField(LocalLanguageModel.interpretStructured(fieldInstructions, data, "field"), kind)
     }
 
     suspend fun interpretPlan(text: String, context: String): PlanInterpretation {
         checkInput(text, context)
         check(planInstructions.isNotBlank()) { "Open voice setup before reviewing an instruction." }
         val data = "Context: $context\nInstruction: ${JSONObject.quote(text)}"
-        return parsePlan(LocalLanguageModel.interpretStructured(prompt(planInstructions, data), "plan"))
+        return parsePlan(LocalLanguageModel.interpretStructured(planInstructions, data, "plan"))
     }
 
     internal fun checkInput(text: String, context: String) {
@@ -63,12 +63,6 @@ object NaturalLanguageInput {
         "place" -> "Place search query. Keep the intended place name and city; no coordinates or invented city."
         "name" -> "The intended name as text."
         else -> "The intended field content as text."
-    }
-
-    private fun prompt(instructions: String, data: String): String {
-        // Prevent input or saved names from introducing model chat delimiters.
-        val content = data.replace("<|", "< |")
-        return "<|im_start|>system\n$instructions<|im_end|>\n<|im_start|>user\n$content<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
     }
 
     internal fun parseField(raw: String, kind: String): FieldInterpretation {
