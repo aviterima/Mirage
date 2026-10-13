@@ -1,6 +1,6 @@
 # Contextual input — 0.18.0 candidate
 
-Status: implementation and verification in progress. The verified public delivery remains 0.17.0. No 0.18.0 acceptance or model-quality pass is claimed.
+Status: implementation and verification in progress. The verified delivery remains 0.17.0. No 0.18.0 acceptance or model-quality pass is claimed.
 
 ## Requested behavior
 
@@ -19,3 +19,15 @@ The local model proposes schema-limited values without coordinates or execution 
 Required checks: meaningful reducer/transaction/persistence tests, Android input/review/correction/undo/reset journeys, real-model held-out cases, signed upgrade from the checksum-pinned 0.17.0 APK, blocking lint, artifact checksum/identity verification. A fixture-driven UI pass does not establish model quality or physical microphone performance.
 
 Actual local inference failed the quality gate: the concise 0.6B approach passed 0/20 cases; the 4B experiment produced only 3/20 production-valid matches, and distinct few-shot examples passed only 1/6 fresh held-out cases. Thinking probes did not establish a reliable solution. See the [model evidence, runtime differences and limitations](MODEL_EVALUATION_0.18.0.md). Model tuning has stopped pending a product decision. No alternate model or remote processing is enabled by this candidate, and broad free-form interpretation must not be described as complete.
+
+At source `e8244d7`, CI passed the Android/native build, all 259 JVM tests, blocking lint and signing checks. Emulator acceptance passed 50 of 55 tests, with two native-model quality failures and three UI-selector failures. Cancellation stress behavior and physical microphone performance are not established by those checks. No release acceptance is claimed.
+
+The engine choice remains pending. A local dictation/manual-planning release first needs the new free-form Review path disabled or separated, and bundled Vosk dictation decoupled from the current 610 MB Qwen readiness gate. An opt-in hosted path first needs an implemented provider, explicit data/network/cost handling and fresh held-out quality evaluation; no hosted engine has been evaluated. These are required changes, not available fallbacks. The [model evaluation report](MODEL_EVALUATION_0.18.0.md#candidate-validation-and-remaining-work) records the prerequisites for each choice.
+
+## Verification history
+
+- Source `e8244d7e2779ae97dc435bbc4de9a9d06b6afda4`: [build 38331964588](https://github.com/aviterima/Mirage/actions/runs/38331964588) passed 259 JVM tests, lint, native compilation and signing. [Acceptance 38331964561](https://github.com/aviterima/Mirage/actions/runs/38331964561) ran 55 Android tests: 50 passed, five failed, none errored or skipped. All ten planner-voice journeys passed. The contextual-field and whole-plan native-model categories failed at their first cases; the field clarification test used a merged-tree selector for an unmerged supporting-text node, and two workflow tests searched for a replaced placeholder. The UI test follow-up corrects those selectors and checks current automatic draft restoration; its changed assertions still need execution. The separate live-trail check and signed 0.17.0-to-0.18.0 upgrade passed. Saved scenario and key/installation-identity fixture files were independently compared byte-for-byte and matched. The upgrade fixture does not cover every preference or itinerary.
+- Source `1f5a054c458e9fe7368c29850514aabae53aa3d4`: [build 38331199634](https://github.com/aviterima/Mirage/actions/runs/38331199634) passed 259 JVM tests, lint and signing. [Acceptance 38331199625](https://github.com/aviterima/Mirage/actions/runs/38331199625) failed test compilation because two UI actions chained a click after a Unit-returning text replacement; the current source fixes those two test calls without changing production code.
+- Initial source `d500acdb782fa058aa7a709fbb2ee0993dade876`: [build 38329790920](https://github.com/aviterima/Mirage/actions/runs/38329790920) passed 249 JVM tests, lint and signing. [Acceptance 38329790901](https://github.com/aviterima/Mirage/actions/runs/38329790901) was superseded and cancelled after seven completed Android passes, with the eighth test interrupted. The signed upgrade fixture passed before cancellation. This incomplete attempt is not an acceptance pass.
+
+No 0.18.0 installer has been delivered. The latest verified installer and its exact identity remain recorded in [the 0.17.0 report](INLINE_VOICE_PLANNER_0.17.0.md).

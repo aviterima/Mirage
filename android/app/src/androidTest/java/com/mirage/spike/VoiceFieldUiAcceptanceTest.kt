@@ -171,7 +171,7 @@ class VoiceFieldUiAcceptanceTest {
         }
         compose.onNodeWithTag("datetimeInput").performClick().performTextReplacement("tomorrow at nine")
         compose.onNodeWithTag("voiceReview-$key").performScrollTo().performClick()
-        compose.onNodeWithTag("voiceStatus-$key").assertTextContains("Nine in the morning or evening?")
+        compose.onNodeWithTag("voiceStatus-$key", useUnmergedTree = true).assertTextContains("Nine in the morning or evening?")
         compose.runOnIdle { visible = false }
         compose.onNodeWithText("Time editor closed").assertExists()
         compose.runOnIdle {
@@ -179,7 +179,8 @@ class VoiceFieldUiAcceptanceTest {
             assertTrue(saved.getString("clarification").contains("tomorrow at nine"))
             visible = true
         }
-        compose.waitUntil(5_000) { compose.onAllNodesWithText("Nine in the morning or evening?", substring = true).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Nine in the morning or evening?", substring = true, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("voiceStatus-$key", useUnmergedTree = true).assertTextContains("Nine in the morning or evening?")
         compose.onNodeWithTag("datetimeInput").performTextReplacement("morning")
         compose.onNodeWithTag("datetimeInput").performClick()
         compose.onNodeWithTag("voiceReview-$key").performScrollTo().performClick()

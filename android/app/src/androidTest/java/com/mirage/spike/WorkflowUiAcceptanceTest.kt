@@ -194,16 +194,23 @@ class WorkflowUiAcceptanceTest {
         saved()
         compose.onNodeWithContentDescription("Load Fixture day").performScrollTo().performClick()
         compose.onNodeWithText("Start itinerary").assertIsDisplayed()
-        compose.onNodeWithText("Add a stop · search, tap the map, or ⌖").performScrollTo().assertIsDisplayed()
-        compose.waitUntil(5000) { context.getSharedPreferences("mirage_recovery",android.content.Context.MODE_PRIVATE).contains("draft") }
+        compose.onNodeWithTag("plannerDestinationInput").performScrollTo().assertIsDisplayed()
+        compose.waitUntil(5000) {
+            TripRecovery.plannerSnapshot()?.scenario?.stops?.map { it.name } == listOf("First", "Second", "Third")
+        }
         screenshot("planner-unobstructed")
         activity.close()
         activity=ActivityScenario.launch(MainActivity::class.java)
-        compose.onNodeWithText("Restore your previous trip?").assertIsDisplayed()
+        // Current planner snapshots reopen for editing without starting playback.
+        // The recovery dialog remains for interrupted live trips and legacy drafts.
+        compose.onNodeWithText("Restore your previous trip?").assertDoesNotExist()
         assertFalse(MockState.status.value.running)
-        compose.onNodeWithText("Restore for editing").performClick()
         compose.onNodeWithContentDescription("Reorder stop 1: First").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("Reorder stop 2: Second").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("Reorder stop 3: Third").performScrollTo().assertIsDisplayed()
+        assertEquals(listOf(15, 30, 45), TripRecovery.plannerSnapshot()?.scenario?.stops?.map { it.dwellMinutes })
         assertFalse(MockState.status.value.running)
+        assertNull(LiveSession.plan)
     }
 
     @Test fun longItineraryAndLargerTextKeepAddFieldAbovePlaybackControls() {
@@ -215,19 +222,31 @@ class WorkflowUiAcceptanceTest {
             device.executeShellCommand("settings put system font_scale 1.3")
             activity.recreate()
             compose.waitUntil(15000){compose.onAllNodesWithContentDescription("Saved plans").fetchSemanticsNodes().isNotEmpty()}
+            compose.waitUntil(15000) {
+                var enlarged = false
+                activity.onActivity { enlarged = it.resources.configuration.fontScale >= 1.29f }
+                enlarged
+            }
             compose.onNodeWithContentDescription("Saved plans").performClick()
             compose.onNodeWithContentDescription("Load Long day").performScrollTo().performClick()
+            val modeLabels = listOf("Place", "Route", "Itinerary").map { label ->
+                compose.onNodeWithText(label, useUnmergedTree = true).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            }
+            assertTrue("Enlarged planner mode labels must not overlap",
+                modeLabels[0].right < modeLabels[1].left && modeLabels[1].right < modeLabels[2].left)
+            // Capture while the enlarged configuration is active, before finally resets it.
+            screenshot("large-text-planner-modes")
             compose.onNodeWithText("Suggest order").performScrollTo().performClick()
             compose.onNodeWithText("24. Stop 24").performScrollTo().assertIsDisplayed()
             compose.onNodeWithText("Keep current order").performClick()
-            val add=compose.onNodeWithText("Add a stop · search, tap the map, or ⌖")
+            val add=compose.onNodeWithTag("plannerDestinationInput")
             add.performScrollTo().assertIsDisplayed()
             val action=compose.onNodeWithText("Start itinerary")
             action.assertIsDisplayed()
             assertTrue(add.fetchSemanticsNode().boundsInRoot.bottom <= action.fetchSemanticsNode().boundsInRoot.top)
             add.performClick()
-            compose.onNode(hasSetTextAction() and hasText("Add a stop · search, tap the map, or ⌖")).performTextInput("Library")
-            val input=compose.onNode(hasSetTextAction() and hasText("Library"))
+            add.performTextInput("Library")
+            val input=compose.onNodeWithTag("plannerDestinationInput").assertTextContains("Library")
             // Text injection does not guarantee that the platform IME has opened.
             // Tap the actual editor and capture it before checking the real insets and bounds.
             input.performClick()
