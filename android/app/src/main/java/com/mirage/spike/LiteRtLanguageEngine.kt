@@ -38,6 +38,7 @@ internal object LiteRtLanguageEngine {
     private const val REQUEST_TIMEOUT_MS = 90_000L
     private const val IDLE_UNLOAD_MS = 60_000L
     private const val MAX_OUTPUT_CHARS = 64 * 1024
+    private const val MAX_CONTEXT_TOKENS = 8192
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val gate = Mutex()
     private var engine: Engine? = null
@@ -87,7 +88,13 @@ internal object LiteRtLanguageEngine {
                     enableSpeculativeDecoding = false
                 )
             ).use { conversation ->
-                request.generate(conversation, userData, responseFormat)
+                val result = request.generate(conversation, userData, responseFormat)
+                // Native prefill rejects oversized input. Native decode reports a full context
+                // as completion by default, so reject that result even if its JSON looks valid.
+                check(conversation.getTokenCount() < MAX_CONTEXT_TOKENS) {
+                    "This request filled the model context; shorten the instruction or plan"
+                }
+                result
             }
         }
         try {
@@ -129,7 +136,7 @@ internal object LiteRtLanguageEngine {
             EngineConfig(
                 modelPath = path,
                 backend = Backend.CPU(threadCount = 4),
-                maxNumTokens = 8192,
+                maxNumTokens = MAX_CONTEXT_TOKENS,
                 cacheDir = cacheDir.absolutePath
             )
         )

@@ -3,7 +3,6 @@ package com.mirage.spike
 import com.mirage.spike.engine.*
 import com.mirage.spike.store.InMemoryScenarioStore
 import com.mirage.spike.store.SavedScenario
-import com.mirage.spike.store.SavedStop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.*
@@ -35,7 +34,7 @@ class SavedPlaceResolutionEquivalenceTest {
             arrivalActivity = ArrivalActivity.TABLE, entrance = entry, stayUntilLeave = true)
 
         for (requestedStay in listOf(-1, 20)) {
-            val resolved = mutableListOf<SavedStop>()
+            val resolved = mutableListOf<ItineraryStop>()
             for (reference in listOf("saved:studio-9", "ATELIER")) {
                 val vm = MirageViewModel({ _, _ -> PlanInterpretation(listOf(
                     PlanEdit("add_stop", place = reference, minutes = requestedStay))) },
