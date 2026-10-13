@@ -75,7 +75,7 @@ internal fun PlannerReviewFeedback(controller: PlannerReviewController, hasUnrev
     }
 }
 
-/** Readiness gate only: the planner owns permissions, dictation targets, and editable words. */
+/** Bundled dictation is ready to prepare locally; the owning field requests microphone permission. */
 @Composable
 fun PlannerMicrophone(
     onListen: () -> Unit,
@@ -85,6 +85,14 @@ fun PlannerMicrophone(
     listening: Boolean = false,
     onCancel: (() -> Unit)? = null
 ) {
+    if (!LocalLanguageModel.interpretationEnabled) {
+        PlannerMicrophone(
+            voiceReady = true, modelStatus = "", onDownload = {}, onCancelDownload = {},
+            onListen = onListen, modifier = modifier, contentDescription = contentDescription,
+            enabled = enabled, listening = listening, onCancel = onCancel
+        )
+        return
+    }
     val context = LocalContext.current
     val modelStatus by LocalLanguageModel.state.collectAsState(context = Dispatchers.Main.immediate)
     LaunchedEffect(context) { LocalLanguageModel.configure(context) }
@@ -152,6 +160,10 @@ internal fun PlannerMicrophone(
 
 @Composable
 fun VoiceSetupSheet(onDismiss: () -> Unit, onUseMicrophone: () -> Unit) {
+    if (!LocalLanguageModel.interpretationEnabled) {
+        OfflineDictationSetupSheet(onDismiss, onUseMicrophone)
+        return
+    }
     val context = LocalContext.current
     val modelStatus by LocalLanguageModel.state.collectAsState(context = Dispatchers.Main.immediate)
     LaunchedEffect(context) { LocalLanguageModel.configure(context) }
@@ -163,6 +175,26 @@ fun VoiceSetupSheet(onDismiss: () -> Unit, onUseMicrophone: () -> Unit) {
         onDismiss = onDismiss,
         onUseMicrophone = onUseMicrophone
     )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun OfflineDictationSetupSheet(onDismiss: () -> Unit, onUseMicrophone: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(
+            Modifier.fillMaxWidth().testTag("voiceSetup").imePadding().padding(16.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text("Voice setup", style = MaterialTheme.typography.titleLarge)
+            Text("Offline dictation is included", Modifier.testTag("voiceSetupStatus"), style = MaterialTheme.typography.titleMedium)
+            Text("Speak into an entry, edit the words, then choose a place or use the existing action to apply them.")
+            Text("Microphone permission may be requested. The first recording prepares voice files on this phone.", style = MaterialTheme.typography.bodySmall)
+            Button(onClick = onUseMicrophone, modifier = Modifier.fillMaxWidth().testTag("voiceSetupUseMicrophone")) { Text("Use microphone") }
+            Text("Voice is processed on this phone. Place search and routing use your Maps connection.", style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = onDismiss, modifier = Modifier.testTag("voiceSetupClose")) { Text("Close") }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

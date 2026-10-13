@@ -1,0 +1,23 @@
+{
+  "runtime": "LiteRT-LM 0.18.0",
+  "classification": "NativeConstraintAssertion_ff_tokens",
+  "message": "Failed to commit token: panic: assertion failed: self.parser.inference_caps.ff_tokens",
+  "observations": [
+    {
+      "case": "Legacy Home",
+      "thinking_tokens": 256,
+      "max_output_tokens": 500,
+      "final_response": false
+    },
+    {
+      "case": "gemma_holdout_field_wrong_scope",
+      "thinking_tokens": 256,
+      "max_output_tokens": 500,
+      "final_response": false
+    }
+  ],
+  "control": "The same Legacy Home request/schema passed with thinking disabled; no-thinking eight-case regression completed without native errors.",
+  "upstream_issue": "https://github.com/google-ai-edge/LiteRT-LM/issues/3463",
+  "upstream_fix": "https://github.com/google-ai-edge/LiteRT-LM/commit/8b7bb5c231cf269942a5f13779cc7bc01a2f4205",
+  "limitation": "The fix is later than the tested 0.18.0 release. It was not installed, built or validated by these runs. The defect can affect any constrained schema when the model skips its reasoning channel."
+}

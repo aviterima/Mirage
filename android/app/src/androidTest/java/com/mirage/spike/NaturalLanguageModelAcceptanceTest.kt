@@ -5,11 +5,11 @@ import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertTrue
-import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.time.ZonedDateTime
 
 /** Actual downloaded model + production prompt/parser. These are language-quality gates, not stubs. */
+@ExperimentalLanguageModel
 class NaturalLanguageModelAcceptanceTest {
     @Test fun realModelUnderstandsContextualFieldInputs() = runBlocking { evaluate("field") }
     @Test fun realModelUnderstandsWholePlansAndCorrections() = runBlocking { evaluate("plan") }
@@ -17,7 +17,7 @@ class NaturalLanguageModelAcceptanceTest {
     private suspend fun evaluate(schema: String) {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         LocalLanguageModel.configure(instrumentation.targetContext)
-        assumeTrue("Download the verified model before the native language-quality suite", LocalLanguageModel.ready)
+        assertTrue("Experimental build and verified model are required for native quality acceptance", LocalLanguageModel.interpretationEnabled && LocalLanguageModel.ready)
         val cases = JSONArray(instrumentation.context.assets.open("natural-language-cases.json").bufferedReader().use { it.readText() })
         val failures = mutableListOf<String>()
         for (index in 0 until cases.length()) {

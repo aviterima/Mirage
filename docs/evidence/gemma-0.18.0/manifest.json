@@ -1,0 +1,79 @@
+{
+  "status": "Experimental candidate; failed model-quality gates, not release acceptance",
+  "inference": "Local synthetic inference; no hosted inference and no user transcript, credential or itinerary",
+  "host": {
+    "os": "Windows x86-64",
+    "cpu": "AMD Ryzen 5 7640HS",
+    "backend": "CPU",
+    "threads": 4,
+    "context_tokens": 8192,
+    "gpu_offload": false
+  },
+  "runtime": {
+    "package": "litert-lm-api",
+    "version": "0.18.0",
+    "source": "https://github.com/google-ai-edge/LiteRT-LM/releases/tag/v0.18.0",
+    "official_pypi_wheel": "litert_lm_api-0.18.0-py3-none-win_amd64.whl",
+    "official_pypi_wheel_expected_sha256": "eb02dc5d0fc6a894a664cfcc63e3aaf3100973ba2c9a6a7eebf4df8749a01038",
+    "installed_native_binary": {
+      "filename": "litert-lm.dll",
+      "bytes": 50051584,
+      "measured_sha256": "c6421334f409a5b4b50b32e7925d6eb9d7e62245d00a6b01a7541596c8a1a1e3"
+    }
+  },
+  "models": {
+    "E2B": {
+      "repo": "litert-community/gemma-4-E2B-it-litert-lm",
+      "revision": "b3ca0d2f076785a8f4b2219ddbd2bdb99954eae1",
+      "filename": "gemma-4-E2B-it.litertlm",
+      "url": "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/b3ca0d2f076785a8f4b2219ddbd2bdb99954eae1/gemma-4-E2B-it.litertlm",
+      "verified_size": 2588147712,
+      "verified_sha256": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c"
+    },
+    "E4B": {
+      "repo": "litert-community/gemma-4-E4B-it-litert-lm",
+      "revision": "2eee7ac325f20eb8c9ac1d0e972f7c84663062da",
+      "filename": "gemma-4-E4B-it.litertlm",
+      "url": "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/2eee7ac325f20eb8c9ac1d0e972f7c84663062da/gemma-4-E4B-it.litertlm",
+      "verified_size": 3659530240,
+      "verified_sha256": "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0"
+    }
+  },
+  "final_config": {
+    "runtime": "litert-lm-api 0.18.0 Windows CPU",
+    "threads": 4,
+    "context": 8192,
+    "thinking_tokens": 256,
+    "field_output_tokens": 500,
+    "plan_output_tokens": 1200,
+    "temperature": 0,
+    "top_k": 1,
+    "top_p": 1,
+    "seed": 0,
+    "constrained_decoding": "LL_GUIDANCE",
+    "speculative": false,
+    "case_file_sha256": "79626e930a0ad7641db4a877d6ebeb2432889ea4b9274cdd0765f8e9a71b45b6",
+    "system_text_sha256": {
+      "field": "b52cf44c0316cdd4e35e4ece0980ac35e94b7ae89cd7f9cdfccf33effd346c29",
+      "plan": "5a1a1541173f4f451ad55ca46da47c17929ca05d04f93385fd586cab23a96e6a"
+    }
+  },
+  "schema_sha256": {
+    "field": "f0728eb4fbaf72f55222d3a7cfdb54f6afa8078bec1745c365010b03011c08a4",
+    "plan": "ef6d0593c95b80acd78aedaf61f5ed0f3bb5743c4462e559c2f865bf8639e357"
+  },
+  "holdout": {
+    "cases": 16,
+    "field_cases": 8,
+    "plan_cases": 8,
+    "sha256": "79626e930a0ad7641db4a877d6ebeb2432889ea4b9274cdd0765f8e9a71b45b6",
+    "status": "Frozen before inference; run once on final configuration; no tuning after these results"
+  },
+  "limits": [
+    "Host latency and memory are not Android or physical-phone measurements.",
+    "Host strict parser parity checks and manual audits do not replace Android production acceptance.",
+    "The original twenty cases are a development set after prompt revisions.",
+    "The final sixteen cases were not included as examples or instructions in any prompt.",
+    "No internal reasoning text is in this bundle."
+  ]
+}

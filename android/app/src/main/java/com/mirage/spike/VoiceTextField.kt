@@ -44,7 +44,8 @@ fun discardVoiceField(context: Context, fieldKey: String) {
 fun voiceFieldBusy(fieldKey: String): Boolean {
     val speech by FieldSpeech.state.collectAsState()
     val reviewing by FieldSpeech.reviewing.collectAsState()
-    return (speech.active && speech.key == fieldKey) || fieldKey in reviewing
+    return (speech.active && speech.key == fieldKey) ||
+        (LocalLanguageModel.interpretationEnabled && fieldKey in reviewing)
 }
 
 /** Shared input affordance. Recognition and interpretation can edit words, never press Save. */
@@ -86,6 +87,7 @@ fun VoiceTextField(
     val currentValue by rememberUpdatedState(value)
     val changed by rememberUpdatedState(onValueChange)
     val sensitive = kind == "verbatim"
+    val interpretationEnabled = LocalLanguageModel.interpretationEnabled
     val keepDraft = persistDraft && !sensitive
     val baseline = if (keepDraft) rememberSaveable(fieldKey) { value } else remember(fieldKey) { value }
     var focused by remember(fieldKey) { mutableStateOf(false) }
@@ -174,10 +176,11 @@ fun VoiceTextField(
                 if (currentValue != draft.optString("text")) publish(draft.optString("text"))
                 lastReviewedValue = draft.optString("reviewed", baseline)
                 needsReview = draft.optBoolean("needsReview", true)
-                clarification = draft.optString("clarification").takeIf { it.length <= 12_000 }.orEmpty()
+                clarification = if (interpretationEnabled) draft.optString("clarification").takeIf { it.length <= 12_000 }.orEmpty() else ""
                 dirty = true
                 val question = runCatching { JSONArray(clarification).let { it.getJSONObject(it.length() - 1).getString("question") } }.getOrDefault("")
-                message = question.ifBlank { "Draft restored. Review or edit before applying." }
+                message = if (interpretationEnabled) question.ifBlank { "Draft restored. Review or edit before applying." }
+                    else "Draft restored. Your words are editable."
             }
         }
     }
@@ -203,7 +206,9 @@ fun VoiceTextField(
                 publish(result.transcript)
                 dirty = true; needsReview = true
                 undoText = null
-                message = if (result.interrupted) "Recording interrupted. Your words are kept for review." else "Ready for review. Edit the words if needed."
+                message = if (result.interrupted) "Recording interrupted. Your words are kept and editable."
+                    else if (interpretationEnabled) "Ready for review. Edit the words if needed."
+                    else "Words added. Edit them if needed."
             } else if (message.isBlank()) message = "No words captured. Your entry is kept; try again or keep typing."
             FieldSpeech.consume(result.requestId)
         }
@@ -273,21 +278,21 @@ fun VoiceTextField(
                     listening = listening, onCancel = { FieldSpeech.requestFinish(speech.requestId) })
             }
         },
-        supportingText = if (supportingText != null || listening || interpreting || message.isNotBlank() ||
-            (focused && value.isNotBlank()) || undoText != null) { {
+        supportingText = if (supportingText != null || listening || message.isNotBlank() ||
+            (interpretationEnabled && (interpreting || (focused && value.isNotBlank()) || undoText != null))) { {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 supportingText?.invoke()
                 if (listening) {
                     Text(if (voice.listening) "Listening…" else "Preparing microphone…", Modifier.testTag("voiceStatus-$fieldKey"))
                     if (!sensitive && speech.transcript.isNotBlank()) Text(speech.transcript)
                     TextButton(onClick = { FieldSpeech.requestFinish(speech.requestId) }, modifier = Modifier.testTag("voiceDone-$fieldKey")) { Text("Done speaking") }
-                } else if (interpreting) {
+                } else if (interpretationEnabled && interpreting) {
                     Text("Interpreting…", Modifier.testTag("voiceStatus-$fieldKey"))
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                     TextButton(onClick = { revision++; reviewJob?.cancel(); interpreting = false; FieldSpeech.setReviewing(fieldKey, false); message = "Your words are kept. You can edit or review again." }) { Text("Cancel") }
                 } else {
                     if (message.isNotBlank()) Text(message, Modifier.testTag("voiceStatus-$fieldKey"))
-                    if (enabled && !readOnly && value.isNotBlank() && (focused || message.isNotBlank())) TextButton(
+                    if (interpretationEnabled && enabled && !readOnly && value.isNotBlank() && (focused || message.isNotBlank())) TextButton(
                         onClick = {
                             val input = currentValue
                             val ticket = ++revision
@@ -325,7 +330,7 @@ fun VoiceTextField(
                             }
                         }, modifier = Modifier.testTag("voiceReview-$fieldKey")
                     ) { Text("Review") }
-                    undoText?.let { previous -> TextButton(onClick = {
+                    if (interpretationEnabled) undoText?.let { previous -> TextButton(onClick = {
                         val reviewedBefore = undoReviewedValue
                         val clarificationBefore = undoClarification
                         edit(previous); lastReviewedValue = reviewedBefore

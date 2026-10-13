@@ -1,6 +1,8 @@
 # Contextual input — 0.18.0 candidate
 
-Status: prior build and UI checks passed; Qwen native language quality failed. On October 13 the user approved the [newer on-device model update](GEMMA_LOCAL_UPDATE_0.18.0.md), now under integration and evaluation. It needs fresh verification, and 0.18.0 is not released. The verified delivery remains 0.17.0. Historical engine-choice discussion below records the earlier state.
+**Historical experimental scope.** On October 13 the user chose offline dictation and manual planning after the model failures. The [offline dictation specification](OFFLINE_DICTATION_0.18.0.md) now governs the normal 0.18.0 installer. The conversational behavior/tests below remain an explicit disabled experiment and are not release claims.
+
+Status: **not released**. The approved [Gemma update](GEMMA_LOCAL_UPDATE_0.18.0.md) passed build, 269 JVM tests, lint and signing at source `58c3897`, but passed only 11/16 fresh host language cases and encountered a native Android crash. Follow-up source `1d67ecd` is undergoing integration checks. The verified delivery remains 0.17.0. Earlier Qwen results and engine-choice discussion below are historical and do not validate Gemma.
 
 ## Requested behavior
 
@@ -18,11 +20,11 @@ The local model proposes schema-limited values without coordinates or execution 
 
 Required checks: meaningful reducer/transaction/persistence tests, Android input/review/correction/undo/reset journeys, real-model held-out cases, signed upgrade from the checksum-pinned 0.17.0 APK, blocking lint, artifact checksum/identity verification. A fixture-driven UI pass does not establish model quality or physical microphone performance.
 
-Actual local inference failed the quality gate: the concise 0.6B approach passed 0/20 cases; the 4B experiment produced only 3/20 production-valid matches, and distinct few-shot examples passed only 1/6 fresh held-out cases. Thinking probes did not establish a reliable solution. See the [model evidence, runtime differences and limitations](MODEL_EVALUATION_0.18.0.md). Model tuning has stopped pending a product decision. No alternate model or remote processing is enabled by this candidate, and broad free-form interpretation must not be described as complete.
+Earlier Qwen inference failed the quality gate: the concise 0.6B approach passed 0/20 cases; the 4B experiment produced only 3/20 production-valid matches, and distinct few-shot examples passed only 1/6 fresh held-out cases. Thinking probes did not establish a reliable solution. See the [historical model evidence, runtime differences and limitations](MODEL_EVALUATION_0.18.0.md). The subsequently approved Gemma integration is also blocked; broad free-form interpretation must not be described as complete.
 
 At tested source `d1926db`, CI passed the Android/native build, all 259 JVM tests, blocking lint and signing checks. Emulator acceptance passed 53 of 55 tests; only the two native-model quality categories failed. All ten planner voice, five field voice, fifteen workflow and twelve continuation journeys passed. This includes whole-plan review/correction/Undo, interruption and disposal recovery, clarification after reopening, calendar-based correction context, reset/load isolation and larger-text layout. Cancellation stress behavior and physical microphone performance are not established by those checks. Overall acceptance failed, and no release acceptance is claimed.
 
-The engine choice remains pending. A local dictation/manual-planning release first needs the new free-form Review path disabled or separated, and bundled Vosk dictation decoupled from the current 610 MB Qwen readiness gate. An opt-in hosted path first needs an implemented provider, explicit data/network/cost handling and fresh held-out quality evaluation; no hosted engine has been evaluated. These are required changes, not available fallbacks. The [model evaluation report](MODEL_EVALUATION_0.18.0.md#candidate-validation-and-remaining-work) records the prerequisites for each choice.
+The user selected offline dictation/manual planning. That implementation separates bundled Vosk from the large model readiness gate and disables free-form Review/Apply in normal builds; its own verification is required. No hosted interpretation is authorized or enabled. The earlier model failures remain recorded without weakened expectations.
 
 ## Verification history
 

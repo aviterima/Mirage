@@ -1,0 +1,60 @@
+{
+  "status": "Diagnostic reuse of three known failed cases; not fresh or held-out validation",
+  "original_result_unchanged": "The separately frozen sixteen-case final run remains 11/16.",
+  "configuration": {
+    "runtime": "litert-lm-api 0.18.0 Windows CPU",
+    "threads": 4,
+    "context": 8192,
+    "thinking_tokens": 256,
+    "field_output_tokens": 500,
+    "plan_output_tokens": 1200,
+    "temperature": 0,
+    "top_k": 1,
+    "top_p": 1,
+    "seed": 0,
+    "constrained_decoding": "none",
+    "speculative": false,
+    "case_file_sha256": "79626e930a0ad7641db4a877d6ebeb2432889ea4b9274cdd0765f8e9a71b45b6",
+    "system_text_sha256": {
+      "field": "b52cf44c0316cdd4e35e4ece0980ac35e94b7ae89cd7f9cdfccf33effd346c29",
+      "plan": "5a1a1541173f4f451ad55ca46da47c17929ca05d04f93385fd586cab23a96e6a"
+    }
+  },
+  "cases": 3,
+  "passed": 1,
+  "native_errors": 0,
+  "results": [
+    {
+      "id": "gemma_holdout_datetime_missing_meridiem",
+      "final_text": "{\"value\":\"2026-10-17T09:45\",\"question\":\"\"}",
+      "passed": false,
+      "production_valid": true,
+      "semantic_match": false,
+      "reasons": [
+        "expected clarification"
+      ],
+      "seconds": 30.797
+    },
+    {
+      "id": "gemma_holdout_field_wrong_scope",
+      "final_text": "{\"value\":\"\",\"question\":\"The instruction provided is to rename the trip, but the field requested is 'Distance in miles'. Should I update the distance, or is there another field you would like me to edit?\"}",
+      "passed": true,
+      "production_valid": true,
+      "semantic_match": true,
+      "reasons": [],
+      "seconds": 8.078
+    },
+    {
+      "id": "gemma_holdout_departure_current_date_preserved",
+      "final_text": "```json\n{\"edits\":[{\"op\":\"set_departure\",\"target\":\"\",\"place\":\"\",\"minutes\":-1,\"value\":\"2026-10-24T16:20\"}],\"question\":\"\"}\n```",
+      "passed": false,
+      "production_valid": false,
+      "semantic_match": false,
+      "reasons": [
+        "incomplete or oversized response"
+      ],
+      "seconds": 35.156
+    }
+  ],
+  "interpretation": "Removing runtime grammar avoids the reproduced skip-thinking native assertion on the wrong-scope case, but does not repair the two language errors. The time edit also emits a Markdown code fence that the unchanged production parser rejects. No prompt or expectation was changed and no additional model probes followed."
+}

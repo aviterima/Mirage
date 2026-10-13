@@ -1,0 +1,10 @@
+[
+ {"id":"home","catalog":["Home"],"upcoming":[],"text":"After we finish here, take me home.","expected":{"action":"add_saved","target":"Home","placement":"NEXT","minutes":0,"position":0}},
+ {"id":"searched_place","catalog":["Home"],"upcoming":[],"text":"Add Desert Botanical Garden in Phoenix at the end of this trip.","expected":{"action":"add_place","target":"Desert Botanical Garden in Phoenix","placement":"END","minutes":0,"position":0}},
+ {"id":"remove_named","catalog":[],"upcoming":["Library","Pool"],"text":"Remove the Library stop.","expected":{"action":"remove","target":"Library","placement":"NEXT","minutes":0,"position":0}},
+ {"id":"move_named","catalog":[],"upcoming":["Library","Pool"],"text":"Put Pool first in the upcoming stops.","expected":{"action":"move","target":"Pool","placement":"NEXT","minutes":0,"position":1}},
+ {"id":"named_stay","catalog":[],"upcoming":["Library","Pool"],"text":"Set the stay at Library to seventy five minutes.","expected":{"action":"stay","target":"Library","placement":"NEXT","minutes":75,"position":0}},
+ {"id":"extend_current","catalog":[],"upcoming":["Library"],"text":"Give us another fifteen minutes here.","expected":{"action":"extend","target":"","placement":"NEXT","minutes":15,"position":0}},
+ {"id":"save_new","catalog":[],"upcoming":["Library"],"text":"Save this itinerary under the name Thursday loop.","expected":{"action":"save_new","target":"Thursday loop","placement":"NEXT","minutes":0,"position":0}},
+ {"id":"missing_place","catalog":["Home","Office"],"upcoming":[],"text":"I want to go to that place next.","expected":{"action":"clarify","target":"","placement":"NEXT","minutes":0,"position":0}}
+]

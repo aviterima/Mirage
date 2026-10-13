@@ -176,6 +176,7 @@ class ContinuationUiAcceptanceTest {
         } finally { device.executeShellCommand("settings put system font_scale 1.0") }
     }
 
+    @ExperimentalLanguageModel
     @Test fun contextualVoiceUsesAliasThenEditsConfirmedUpcomingStop() {
         compose.onNodeWithText("Pause").performClick()
         compose.onNodeWithContentDescription("Talk").performClick()

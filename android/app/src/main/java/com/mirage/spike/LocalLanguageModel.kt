@@ -10,6 +10,9 @@ import java.util.concurrent.TimeUnit
 
 /** A separately downloaded, checksum-pinned model. No instruction is sent to a model service. */
 object LocalLanguageModel {
+    /** Only explicit experimental builds may download or invoke the unaccepted language model. */
+    val interpretationEnabled: Boolean get() = BuildConfig.EXPERIMENTAL_LANGUAGE_MODEL
+    private const val DISABLED_MESSAGE = "Use the editable fields and itinerary controls in this version."
     const val FILE = "gemma-4-E4B-it.litertlm"
     const val HASH = "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0"
     const val BYTES = 3659530240L
@@ -17,7 +20,7 @@ object LocalLanguageModel {
     const val FREE_SPACE = "4 GB"
     const val URL = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/2eee7ac325f20eb8c9ac1d0e972f7c84663062da/$FILE"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val mutable = MutableStateFlow("Advanced voice update needed · $DOWNLOAD_SIZE")
+    private val mutable = MutableStateFlow(if (interpretationEnabled) "Advanced voice update needed · $DOWNLOAD_SIZE" else DISABLED_MESSAGE)
     val state = mutable.asStateFlow()
     private var file: File? = null
     private var cache: File? = null
@@ -27,6 +30,11 @@ object LocalLanguageModel {
         private set
 
     fun configure(context: Context) {
+        if (!interpretationEnabled) {
+            ready = false
+            mutable.value = DISABLED_MESSAGE
+            return
+        }
         NaturalLanguageInput.configure(context)
         if (file != null) return
         file = File(context.noBackupFilesDir, FILE)
@@ -38,6 +46,11 @@ object LocalLanguageModel {
     }
 
     fun download() {
+        if (!interpretationEnabled) {
+            ready = false
+            mutable.value = DISABLED_MESSAGE
+            return
+        }
         if (downloading?.isCompleted == false || ready) return
         val dest = file ?: return
         downloading = scope.launch {
@@ -77,6 +90,8 @@ object LocalLanguageModel {
     }
 
     private suspend fun infer(systemInstruction: String, userData: String, schema: String): String {
+        // An existing model file must not enable a capability excluded from this APK.
+        check(interpretationEnabled) { DISABLED_MESSAGE }
         check(ready) { "Download the voice update in Voice setup first" }
         // Legacy commands do not need a reasoning phase. LiteRT-LM 0.18.0 also has a
         // known constrained-output error when an enabled reasoning phase is skipped.

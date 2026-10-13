@@ -35,8 +35,12 @@ internal fun VoiceTimeDialog(title: String, fieldKey: String, initial: Long?, on
             VoiceTextField(text, { text = it }, fieldKey, "$title date and time", kind = "datetime",
                 context = "Local time zone: ${ZoneId.systemDefault().id}. Preserve the date when only the time changes.",
                 modifier = Modifier.fillMaxWidth().testTag("voiceTimeInput"), singleLine = false,
-                placeholder = { Text("Tomorrow at 9 AM, or 2026-10-15T09:00") })
-            Text("${ZoneId.systemDefault().id} · Review spoken or natural-language times before setting.", style = MaterialTheme.typography.bodySmall)
+                placeholder = { Text(if (LocalLanguageModel.interpretationEnabled)
+                    "Tomorrow at 9 AM, or 2026-10-15T09:00" else "2026-10-15T09:00") })
+            Text(if (LocalLanguageModel.interpretationEnabled)
+                "${ZoneId.systemDefault().id} · Review spoken or natural-language times before setting."
+                else "${ZoneId.systemDefault().id} · Use the calendar or edit the date and time below (YYYY-MM-DDTHH:mm).",
+                style = MaterialTheme.typography.bodySmall)
             TextButton(enabled = !inputBusy, onClick = { chooseTripTime(context, parsed.getOrNull() ?: initial ?: System.currentTimeMillis()) { text = formatted(it) } }) { Text("Choose on calendar") }
         }
     }, confirmButton = { TextButton(enabled = parsed.isSuccess && !inputBusy, onClick = {

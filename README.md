@@ -1,8 +1,12 @@
-# Mirage 0.18.0 candidate — contextual input under validation
+# Mirage 0.18.0 — offline dictation, under validation
 
-The candidate adds microphones to app-owned text fields, recoverable interrupted input, and whole-plan review with corrections and Undo. **It is not a verified release.** On October 13 the user approved a [newer on-device model update](docs/GEMMA_LOCAL_UPDATE_0.18.0.md); its integration and quality verification are in progress. Online interpretation remains disabled. See the [candidate specification](docs/CONTEXTUAL_VOICE_0.18.0.md) and [prior measured model failures](docs/MODEL_EVALUATION_0.18.0.md). The latest verified installer remains 0.17.0.
+The user chose offline dictation with editable fields and manual itinerary controls. The microphone uses bundled speech recognition without a large model download. Typed and dictated place names share normal search, the itinerary list remains the preview, and Save and Start stay separate. Conversational interpretation is disabled in normal builds. See [the current scope and verification](docs/OFFLINE_DICTATION_0.18.0.md). This revision is awaiting acceptance; latest verified delivery remains 0.17.0.
 
-Previous candidate verification, before the new runtime integration: 259 JVM tests passed; 53 of 55 Android tests passed, with only the two native language-quality checks failing. UI journeys, lint, signing and the upgrade fixture passed. New integration verification is required before release.
+# Earlier 0.18.0 conversational experiment — not released
+
+The earlier conversational candidate added whole-plan review with corrections and Undo. **It was not released.** The [Gemma experiment](docs/GEMMA_LOCAL_UPDATE_0.18.0.md) built, but passed only 11 of 16 fresh language cases and encountered a native Android crash. Those failures remain unresolved and the capability is excluded from the normal installer. See the [historical specification](docs/CONTEXTUAL_VOICE_0.18.0.md) and [prior Qwen failures](docs/MODEL_EVALUATION_0.18.0.md).
+
+Gemma source `58c3897` passed 269 JVM tests, lint, signing and upgrade checks; Android acceptance stopped after 19 passes and one native crash, leaving 35 tests unrun. Follow-up source `1d67ecd` is undergoing checks with legacy reasoning disabled and a production-context native planner test. Earlier Qwen UI passes do not establish Gemma acceptance.
 
 # Mirage 0.17.0 — voice in the planner
 

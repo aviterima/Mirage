@@ -69,12 +69,12 @@ jobs:
           # Flip to hosted keys later by setting this repository VARIABLE (Settings →
           # Secrets and variables → Actions → Variables) to the Cloud Run URL. Empty = direct keys.
           MIRAGE_API_BASE: ${{ vars.MIRAGE_API_BASE }}
-        run: ./gradlew --no-daemon assembleDebug
+        run: ./gradlew --no-daemon -PexperimentalLanguageModel=false assembleDebug
 
       - name: Unit tests (blocking — a red test never ships)
         env:
           MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
-        run: ./gradlew --no-daemon testDebugUnitTest
+        run: ./gradlew --no-daemon -PexperimentalLanguageModel=false testDebugUnitTest
 
       - name: Upload test report
         if: always()
@@ -85,7 +85,15 @@ jobs:
           if-no-files-found: ignore
 
       - name: Lint (blocking)
-        run: ./gradlew --no-daemon lintDebug
+        run: ./gradlew --no-daemon -PexperimentalLanguageModel=false lintDebug
+
+      - name: Verify installer uses offline dictation only
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          source = Path('app/build/generated/source/buildConfig/debug/com/mirage/spike/BuildConfig.java').read_text()
+          assert 'EXPERIMENTAL_LANGUAGE_MODEL = false;' in source, 'Experimental interpretation must not be enabled in an installer'
+          PY
 
       - name: Verify offline voice model is packaged
         run: unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'assets/model-en-us/am/final.mdl'

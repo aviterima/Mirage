@@ -1,0 +1,152 @@
+[
+  {
+    "id": "gemma_holdout_stay_subtract",
+    "schema": "field",
+    "kind": "minutes",
+    "label": "Stay",
+    "current": "75",
+    "text": "We can cut twenty five minutes off the stay that's already set.",
+    "value": "50"
+  },
+  {
+    "id": "gemma_holdout_stay_final_fraction",
+    "schema": "field",
+    "kind": "minutes",
+    "label": "Stay",
+    "current": "30",
+    "text": "Allow ninety minutes. Sorry, I meant one and three quarters of an hour.",
+    "value": "105"
+  },
+  {
+    "id": "gemma_holdout_name_middle_edit",
+    "schema": "field",
+    "kind": "name",
+    "label": "Itinerary name",
+    "current": "Autumn coastal drive",
+    "text": "Change coastal to mountain and leave the rest of the name alone.",
+    "value": "Autumn mountain drive"
+  },
+  {
+    "id": "gemma_holdout_distance_correction",
+    "schema": "field",
+    "kind": "miles",
+    "label": "Distance in miles",
+    "current": "5",
+    "text": "Use four miles. No, make that three and three quarters of a mile.",
+    "value": "3.75"
+  },
+  {
+    "id": "gemma_holdout_city_correction",
+    "schema": "field",
+    "kind": "place",
+    "label": "Destination",
+    "current": "",
+    "text": "The science center in Mesa is what I want, not the one in Phoenix.",
+    "valueTerms": ["science", "center", "Mesa"],
+    "semanticNotes": "The value must be a place query for Mesa; it must not retain Phoenix as an alternative or include the user's negated instruction."
+  },
+  {
+    "id": "gemma_holdout_datetime_current_date_preserved",
+    "schema": "field",
+    "kind": "datetime",
+    "label": "Departure",
+    "current": "2026-10-22T16:20",
+    "context": "Current local date/time: 2026-10-12T09:00, timezone America/Phoenix.",
+    "text": "Keep the date, but move it to twenty past seven in the morning.",
+    "value": "2026-10-22T07:20"
+  },
+  {
+    "id": "gemma_holdout_datetime_missing_meridiem",
+    "schema": "field",
+    "kind": "datetime",
+    "label": "Departure",
+    "current": "",
+    "context": "Current local date/time: 2026-10-12T09:00, timezone America/Phoenix.",
+    "text": "Set it for October seventeenth at a quarter to ten.",
+    "question": true,
+    "semanticNotes": "Question must seek morning/evening (AM/PM); do not infer AM from the host clock or merely echo the instruction."
+  },
+  {
+    "id": "gemma_holdout_field_wrong_scope",
+    "schema": "field",
+    "kind": "miles",
+    "label": "Distance in miles",
+    "current": "8",
+    "text": "Rename the trip to Desert weekend.",
+    "question": true,
+    "semanticNotes": "Clarification must indicate the distance field or request a distance; it must not return a renamed trip or silently leave 8."
+  },
+  {
+    "id": "gemma_holdout_saved_sequence",
+    "schema": "plan",
+    "context": "Mode ITINERARY; active field next stop. Start Station, stops []. Saved: id=studio-9 name=Studio aliases=[atelier]; id=pool-6 name=Pool aliases=[swim center].",
+    "text": "Let's visit the atelier for fifty five minutes, followed by the swim center for an hour and ten minutes.",
+    "edits": [
+      {"op": "add_stop", "place": "saved:studio-9", "minutes": 55},
+      {"op": "add_stop", "place": "saved:pool-6", "minutes": 70}
+    ]
+  },
+  {
+    "id": "gemma_holdout_pending_replacement_preserves",
+    "schema": "plan",
+    "context": "Mode ITINERARY. Base stops: stop:1=Studio stay=40. Pending candidate stops: stop:1=Studio stay=40; stop:2=Observatory stay=65, mode=BIKE. last_mentioned_target=stop:2. Saved: id=aquarium-8 name=Aquarium aliases=[fish tanks].",
+    "text": "Use the fish tanks in place of the observatory, keeping the time there and how we travel to it.",
+    "edits": [
+      {"op": "replace_stop", "target": "stop:2", "place": "saved:aquarium-8", "minutes": -1}
+    ],
+    "semanticNotes": "One replacement with preserved stay and travel mode; no additional set_mode or set_stay edit is needed."
+  },
+  {
+    "id": "gemma_holdout_last_mentioned_duration",
+    "schema": "plan",
+    "context": "Mode ITINERARY. Stops: stop:1=Pier stay=10; stop:2=Studio stay=50; stop:3=Pool stay=20. last_mentioned_target=stop:1.",
+    "text": "Another twelve minutes there on top of the ten we already allowed, please.",
+    "edits": [
+      {"op": "set_stay", "target": "stop:1", "minutes": 22}
+    ]
+  },
+  {
+    "id": "gemma_holdout_ambiguous_museum",
+    "schema": "plan",
+    "context": "Mode ITINERARY. Stops: stop:1=Transport Museum stay=25; stop:2=Glass Museum stay=60. No selected or last_mentioned_target.",
+    "text": "We only need half an hour at the museum.",
+    "question": true,
+    "semanticNotes": "Question must distinguish which museum/stop; no edits, no guess based on current stay or list position."
+  },
+  {
+    "id": "gemma_holdout_remove_named_middle",
+    "schema": "plan",
+    "context": "Mode ITINERARY. Stops: stop:1=Pier; stop:2=Studio; stop:3=Pool; stop:4=Station.",
+    "text": "Keep the pier, pool and station. The studio can come off the itinerary.",
+    "edits": [
+      {"op": "remove_stop", "target": "stop:2"}
+    ]
+  },
+  {
+    "id": "gemma_holdout_reorder_to_middle",
+    "schema": "plan",
+    "context": "Mode ITINERARY. Stops: stop:1=Pier; stop:2=Studio; stop:3=Pool; stop:4=Station.",
+    "text": "Put the station immediately after the pier, keeping the studio before the pool.",
+    "edits": [
+      {"op": "move_stop", "target": "stop:4", "value": "2"}
+    ]
+  },
+  {
+    "id": "gemma_holdout_route_destination_mode",
+    "schema": "plan",
+    "context": "Mode ROUTE. Start Pier. Destination Studio, current travel mode DRIVE. active field destination.",
+    "text": "Let's cycle there instead of taking the car.",
+    "edits": [
+      {"op": "set_mode", "target": "destination", "value": "BIKE"}
+    ]
+  },
+  {
+    "id": "gemma_holdout_departure_current_date_preserved",
+    "schema": "plan",
+    "context": "Mode ITINERARY. Current local date/time 2026-10-12T09:00, timezone America/Phoenix. Scheduled departure 2026-10-24T11:00.",
+    "text": "The day is still right, but let's leave at twenty to four in the afternoon.",
+    "edits": [
+      {"op": "set_departure", "value": "2026-10-24T15:40"}
+    ]
+  }
+]

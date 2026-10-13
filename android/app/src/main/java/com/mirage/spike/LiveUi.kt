@@ -128,6 +128,12 @@ fun AdvancedDialog(status: MockStatus, onDismiss: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatPanel(onDismiss: () -> Unit) {
+    if (!LocalLanguageModel.interpretationEnabled) {
+        AlertDialog(onDismissRequest = onDismiss, title = { Text("Edit your trip") },
+            text = { Text("Use Add stop, Upcoming stops and the trip settings to make changes. Microphones beside entries let you dictate editable words.") },
+            confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } })
+        return
+    }
     val chat by Conversation.state.collectAsState(context = kotlinx.coroutines.Dispatchers.Main.immediate)
     val voice by VoiceState.state.collectAsState(context = kotlinx.coroutines.Dispatchers.Main.immediate)
     val context = LocalContext.current
@@ -224,7 +230,7 @@ fun CompactLiveControls(status: MockStatus, session: SessionView, onStop: () -> 
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             Button(onClick = onAdd) { Text("Add stop") }
             TextButton(onClick = { Conversation.submit(if (status.paused) "continue" else "pause") }) { Text(if (status.paused) "Resume" else "Pause") }
-            IconButton(onClick = onChat) { Icon(Icons.Filled.Mic, contentDescription = "Talk") }
+            if (LocalLanguageModel.interpretationEnabled) IconButton(onClick = onChat) { Icon(Icons.Filled.Mic, contentDescription = "Talk") }
             Button(onClick = onStop, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Stop") }
         }
     }

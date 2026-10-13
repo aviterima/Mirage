@@ -1,0 +1,132 @@
+{
+  "config": {
+    "thinking_tokens": 0,
+    "max_output_tokens": 220,
+    "threads": 4,
+    "context_tokens": 8192,
+    "temperature": 0,
+    "top_k": 1,
+    "top_p": 1,
+    "seed": 0,
+    "constrained_decoding": "LL_GUIDANCE"
+  },
+  "exact_raw_passes": 5,
+  "source_reviewed_effect_equivalent": 8,
+  "total": 8,
+  "native_errors": 0,
+  "scope": "All outputs accepted by existing VoiceIntent parser. Effect equivalence was independently checked against source; these eight actions were not executed on Android in this host evaluation.",
+  "results": [
+    {
+      "id": "home",
+      "seconds": 11.094,
+      "exact_raw_match": true,
+      "source_reviewed_effect_equivalent": true,
+      "final_output": {
+        "action": "add_saved",
+        "target": "Home",
+        "placement": "NEXT",
+        "minutes": 0,
+        "position": 0
+      },
+      "semantic_audit": "Exact raw contract match."
+    },
+    {
+      "id": "searched_place",
+      "seconds": 11.531,
+      "exact_raw_match": true,
+      "source_reviewed_effect_equivalent": true,
+      "final_output": {
+        "action": "add_place",
+        "target": "Desert Botanical Garden in Phoenix",
+        "placement": "END",
+        "minutes": 0,
+        "position": 0
+      },
+      "semantic_audit": "Exact raw contract match."
+    },
+    {
+      "id": "remove_named",
+      "seconds": 10.953,
+      "exact_raw_match": false,
+      "source_reviewed_effect_equivalent": true,
+      "final_output": {
+        "action": "remove",
+        "target": "Library",
+        "placement": "NEXT",
+        "minutes": 0,
+        "position": 1
+      },
+      "semantic_audit": "position=1 instead of0 is ignored by existing SmartVoice for this action; named target and requested duration are correct."
+    },
+    {
+      "id": "move_named",
+      "seconds": 10.75,
+      "exact_raw_match": true,
+      "source_reviewed_effect_equivalent": true,
+      "final_output": {
+        "action": "move",
+        "target": "Pool",
+        "placement": "NEXT",
+        "minutes": 0,
+        "position": 1
+      },
+      "semantic_audit": "Exact raw contract match."
+    },
+    {
+      "id": "named_stay",
+      "seconds": 10.766,
+      "exact_raw_match": false,
+      "source_reviewed_effect_equivalent": true,
+      "final_output": {
+        "action": "stay",
+        "target": "Library",
+        "placement": "NEXT",
+        "minutes": 75,
+        "position": 1
+      },
+      "semantic_audit": "position=1 instead of0 is ignored by existing SmartVoice for this action; named target and requested duration are correct."
+    },
+    {
+      "id": "extend_current",
+      "seconds": 10.922,
+      "exact_raw_match": false,
+      "source_reviewed_effect_equivalent": true,
+      "final_output": {
+        "action": "extend",
+        "target": "Library",
+        "placement": "NEXT",
+        "minutes": 15,
+        "position": 0
+      },
+      "semantic_audit": "Existing VoiceIntent.parse normalizes the unused target to empty for extend; extension applies to current stop."
+    },
+    {
+      "id": "save_new",
+      "seconds": 11.093,
+      "exact_raw_match": true,
+      "source_reviewed_effect_equivalent": true,
+      "final_output": {
+        "action": "save_new",
+        "target": "Thursday loop",
+        "placement": "NEXT",
+        "minutes": 0,
+        "position": 0
+      },
+      "semantic_audit": "Exact raw contract match."
+    },
+    {
+      "id": "missing_place",
+      "seconds": 10.563,
+      "exact_raw_match": true,
+      "source_reviewed_effect_equivalent": true,
+      "final_output": {
+        "action": "clarify",
+        "target": "",
+        "placement": "NEXT",
+        "minutes": 0,
+        "position": 0
+      },
+      "semantic_audit": "Exact raw contract match."
+    }
+  ]
+}

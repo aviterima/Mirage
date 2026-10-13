@@ -14,15 +14,15 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
-import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 /** Native inference with the real planner's JSON context, pending review and saved-place resolver. */
+@ExperimentalLanguageModel
 class ProductionPlannerModelAcceptanceTest {
     @Test fun realModelBuildsAndCorrectsAPlanThroughProductionContextWithoutStarting() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         LocalLanguageModel.configure(context)
-        assumeTrue("Download the verified model before native planner acceptance", LocalLanguageModel.ready)
+        assertTrue("Experimental build and verified model are required for native planner acceptance", LocalLanguageModel.interpretationEnabled && LocalLanguageModel.ready)
         context.stopService(Intent(context, MockLocationService::class.java))
 
         val orchard = saved("model-orchard", "Fixture Orchard", "orchard", LatLng(1.1, 1.1))

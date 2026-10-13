@@ -1,6 +1,6 @@
 # Contextual input model evaluation — 0.18.0 candidate
 
-Status: **model quality failed; this is not release acceptance**. The verified delivery remains 0.17.0. No replacement model or hosted interpretation has been enabled. Local-model tuning stopped after the experiments below; the interpretation approach needs a product decision.
+Historical Qwen evaluation: **model quality failed; this is not release acceptance**. On October 13 the user approved a newer on-device model integration; see [the subsequent Gemma evaluation and current blockers](GEMMA_LOCAL_UPDATE_0.18.0.md). Gemma is now in the unreleased candidate, but also failed fresh language checks and Android acceptance. The verified delivery remains 0.17.0. Hosted interpretation remains disabled. The Qwen method/results and earlier engine-choice discussion below are retained as history.
 
 ## Method and provenance
 

@@ -43,6 +43,7 @@ class VoiceFieldUiAcceptanceTest {
             .verticalScroll(rememberScrollState()).padding(16.dp), content = body) } } }
     }
 
+    @ExperimentalLanguageModel
     @Test fun typedDurationRemainsEditableUntilReviewAndUndoRestoresWords() {
         val key = keys[0]
         var applied = 0
@@ -68,6 +69,7 @@ class VoiceFieldUiAcceptanceTest {
         compose.runOnIdle { assertEquals(0, applied) }
     }
 
+    @ExperimentalLanguageModel
     @Test fun correctionUsesLatestReviewedNameAndStillNeedsExplicitSave() {
         val key = keys[1]
         val currentValues = mutableListOf<String>()
@@ -133,7 +135,8 @@ class VoiceFieldUiAcceptanceTest {
             Button(onClick = { discardVoiceField(context, key); text = "" }, modifier = Modifier.testTag("discardSecret")) { Text("Clear") }
         }
         compose.onNodeWithTag("secretInput").performClick().performTextInput(literal)
-        compose.onNodeWithTag("voiceReview-$key").performScrollTo().performClick()
+        if (LocalLanguageModel.interpretationEnabled) compose.onNodeWithTag("voiceReview-$key").performScrollTo().performClick()
+        else compose.onNodeWithTag("voiceReview-$key").assertDoesNotExist()
         compose.onNodeWithTag("secretInput").assertTextContains(literal)
         var request = 0L
         compose.runOnIdle {
@@ -147,6 +150,7 @@ class VoiceFieldUiAcceptanceTest {
         compose.runOnIdle { assertEquals(0, modelCalls); assertNull(InputDraftStore.read(key)); assertNull(FieldSpeech.results.value[key]) }
     }
 
+    @ExperimentalLanguageModel
     @Test fun clarificationSurvivesReopenAndCalendarSelectionBecomesCorrectionContext() {
         val key = keys[4]
         val initial = "2026-10-12T14:00"

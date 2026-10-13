@@ -36,8 +36,8 @@ object SmartVoice {
         AuditTrail.record(AuditAction.VOICE, outcome, vm?.auditState(),
             AuditDetails(reason = reason, source = AuditSource.VOICE, control = control), operation)
     }
-    fun needsReply() = pending != null || hits.isNotEmpty()
-    fun hasChoices() = hits.isNotEmpty()
+    fun needsReply() = LocalLanguageModel.interpretationEnabled && (pending != null || hits.isNotEmpty())
+    fun hasChoices() = LocalLanguageModel.interpretationEnabled && hits.isNotEmpty()
     fun bindPlanner(model: MirageViewModel) {
         if (vm !== model) resetPlanningSession()
         vm = model
@@ -45,6 +45,7 @@ object SmartVoice {
     fun bind(context: Context, model: MirageViewModel, onStart: () -> Unit) {
         bindPlanner(model)
         start = onStart
+        if (!LocalLanguageModel.interpretationEnabled) return
         LocalLanguageModel.configure(context)
         if (instructions.isBlank()) instructions = context.assets.open("voice-intent-prompt.txt").bufferedReader().use { it.readText() }
     }
@@ -64,6 +65,7 @@ object SmartVoice {
     private fun say(text: String) = Conversation.smartReply(text,spoken)
     /** Field-scoped input never invokes the Conversation journey path that starts playback. */
     fun handlePlanning(text: String, field: Field, planMode: PlanMode, isSpoken: Boolean): Boolean {
+        if (!LocalLanguageModel.interpretationEnabled) return false
         val model = vm ?: return false
         if (MockState.status.value.let { it.running || it.starting }) {
             cancel(); spoken = isSpoken
@@ -95,6 +97,7 @@ object SmartVoice {
     }
     fun handle(text: String, isSpoken: Boolean): Boolean = handle(text, isSpoken, null)
     private fun handle(text: String, isSpoken: Boolean, target: PlanningTarget?): Boolean {
+        if (!LocalLanguageModel.interpretationEnabled) return false
         val model = vm ?: return false
         val normalized = CommandParser.normalize(text)
         if (normalized in setOf("yes","confirm","do it","save it","yes please")) {

@@ -1,0 +1,492 @@
+{
+  "note": "Development scores retain exact production-contract expectations. Prompt edits and budget probes were selected using development results only.",
+  "runs": [
+    {
+      "label": "E2B-smoke-cache",
+      "cases": 2,
+      "strict_pass": 0,
+      "production_valid": 0,
+      "native_errors": 0,
+      "min_seconds": 6.344,
+      "median_seconds": 8.836,
+      "max_seconds": 11.328,
+      "peak_rss_bytes": 1815007232,
+      "system_text_sha256": {
+        "field": [
+          "78061849ec72e997de178a88ae741c7f85960ff8d704576675f980582751d495"
+        ],
+        "plan": [
+          "9adb9524f56d5ceb61195da54c871dc9bcab4abf37f4c529d4658475c69ff86f"
+        ]
+      },
+      "case_file_sha256": "e3179145ac9a1a05316eaf57e5299d2712e6120cd7540522641edc120ecfe5ff",
+      "thinking_tokens": 0,
+      "failed": [
+        {
+          "id": "field_minutes_correction",
+          "passed": false,
+          "production_valid": false,
+          "semantic_match": false,
+          "reasons": [
+            "clarification also changes the field"
+          ],
+          "manual_review_note": "",
+          "seconds": 6.344,
+          "thought_tokens": null
+        },
+        {
+          "id": "plan_two_stops",
+          "passed": false,
+          "production_valid": false,
+          "semantic_match": false,
+          "reasons": [
+            "clarification also changes the plan"
+          ],
+          "manual_review_note": "",
+          "seconds": 11.328,
+          "thought_tokens": null
+        }
+      ]
+    },
+    {
+      "label": "E2B-think256",
+      "cases": 2,
+      "strict_pass": 0,
+      "production_valid": 0,
+      "native_errors": 0,
+      "min_seconds": 21.75,
+      "median_seconds": 22.8125,
+      "max_seconds": 23.875,
+      "peak_rss_bytes": 1675526144,
+      "system_text_sha256": {
+        "field": [
+          "78061849ec72e997de178a88ae741c7f85960ff8d704576675f980582751d495"
+        ],
+        "plan": [
+          "9adb9524f56d5ceb61195da54c871dc9bcab4abf37f4c529d4658475c69ff86f"
+        ]
+      },
+      "case_file_sha256": "e3179145ac9a1a05316eaf57e5299d2712e6120cd7540522641edc120ecfe5ff",
+      "thinking_tokens": 256,
+      "failed": [
+        {
+          "id": "field_minutes_correction",
+          "passed": false,
+          "production_valid": false,
+          "semantic_match": false,
+          "reasons": [
+            "clarification also changes the field"
+          ],
+          "manual_review_note": "",
+          "seconds": 21.75,
+          "thought_tokens": null
+        },
+        {
+          "id": "plan_two_stops",
+          "passed": false,
+          "production_valid": false,
+          "semantic_match": false,
+          "reasons": [
+            "clarification also changes the plan"
+          ],
+          "manual_review_note": "",
+          "seconds": 23.875,
+          "thought_tokens": null
+        }
+      ]
+    },
+    {
+      "label": "E4B-baseline-development",
+      "cases": 20,
+      "strict_pass": 10,
+      "production_valid": 16,
+      "native_errors": 0,
+      "min_seconds": 6.36,
+      "median_seconds": 11.883,
+      "max_seconds": 14.781,
+      "peak_rss_bytes": 3415527424,
+      "system_text_sha256": {
+        "field": [
+          "78061849ec72e997de178a88ae741c7f85960ff8d704576675f980582751d495"
+        ],
+        "plan": [
+          "9adb9524f56d5ceb61195da54c871dc9bcab4abf37f4c529d4658475c69ff86f"
+        ]
+      },
+      "case_file_sha256": "e3179145ac9a1a05316eaf57e5299d2712e6120cd7540522641edc120ecfe5ff",
+      "thinking_tokens": 0,
+      "failed": [
+        {
+          "id": "field_alias_add",
+          "passed": false,
+          "production_valid": true,
+          "semantic_match": false,
+          "reasons": [
+            "field value omits expected terms"
+          ],
+          "manual_review_note": "",
+          "seconds": 6.89,
+          "thought_tokens": null
+        },
+        {
+          "id": "field_datetime_ambiguous",
+          "passed": false,
+          "production_valid": true,
+          "semantic_match": false,
+          "reasons": [
+            "expected clarification"
+          ],
+          "manual_review_note": "",
+          "seconds": 7.906,
+          "thought_tokens": null
+        },
+        {
+          "id": "field_wrong_scope",
+          "passed": false,
+          "production_valid": false,
+          "semantic_match": false,
+          "reasons": [
+            "clarification also changes the field"
+          ],
+          "manual_review_note": "",
+          "seconds": 7.766,
+          "thought_tokens": null
+        },
+        {
+          "id": "plan_two_stops",
+          "passed": false,
+          "production_valid": true,
+          "semantic_match": false,
+          "reasons": [
+            "edit 0: place differs from expectation"
+          ],
+          "manual_review_note": "",
+          "seconds": 14.781,
+          "thought_tokens": null
+        },
+        {
+          "id": "plan_reorder_reference",
+          "passed": false,
+          "production_valid": false,
+          "semantic_match": false,
+          "reasons": [
+            "edit 0: invalid parameters for move_stop"
+          ],
+          "manual_review_note": "",
+          "seconds": 12.375,
+          "thought_tokens": null
+        },
+        {
+          "id": "plan_ambiguous_reference",
+          "passed": false,
+          "production_valid": true,
+          "semantic_match": false,
+          "reasons": [
+            "expected clarification"
+          ],
+          "manual_review_note": "",
+          "seconds": 11.781,
+          "thought_tokens": null
+        },
+        {
+          "id": "plan_mode_reference",
+          "passed": false,
+          "production_valid": false,
+          "semantic_match": false,
+          "reasons": [
+            "edit 0: invalid parameters for set_mode"
+          ],
+          "manual_review_note": "",
+          "seconds": 12.125,
+          "thought_tokens": null
+        },
+        {
+          "id": "plan_insert_saved_alias",
+          "passed": false,
+          "production_valid": true,
+          "semantic_match": false,
+          "reasons": [
+            "edit 0: target differs from expectation"
+          ],
+          "manual_review_note": "",
+          "seconds": 12.406,
+          "thought_tokens": null
+        },
+        {
+          "id": "plan_pending_correction",
+          "passed": false,
+          "production_valid": true,
+          "semantic_match": false,
+          "reasons": [
+            "edit 0: minutes differs from expectation"
+          ],
+          "manual_review_note": "",
+          "seconds": 12.672,
+          "thought_tokens": null
+        },
+        {
+          "id": "plan_ambiguous_time",
+          "passed": false,
+          "production_valid": false,
+          "semantic_match": false,
+          "reasons": [
+            "edit 0: invalid parameters for set_departure"
+          ],
+          "manual_review_note": "",
+          "seconds": 13.562,
+          "thought_tokens": null
+        }
+      ]
+    },
+    {
+      "label": "E4B-clarified256-development",
+      "cases": 20,
+      "strict_pass": 19,
+      "production_valid": 20,
+      "native_errors": 0,
+      "min_seconds": 16.407,
+      "median_seconds": 26.75,
+      "max_seconds": 44.796,
+      "peak_rss_bytes": 3421835264,
+      "system_text_sha256": {
+        "field": [
+          "b52cf44c0316cdd4e35e4ece0980ac35e94b7ae89cd7f9cdfccf33effd346c29"
+        ],
+        "plan": [
+          "ddaa4daf488abea0c9bb39596abbea90ba853f38590793b955b9a6b02a9cc6f8"
+        ]
+      },
+      "case_file_sha256": "e3179145ac9a1a05316eaf57e5299d2712e6120cd7540522641edc120ecfe5ff",
+      "thinking_tokens": 256,
+      "failed": [
+        {
+          "id": "plan_pending_correction",
+          "passed": false,
+          "production_valid": true,
+          "semantic_match": false,
+          "reasons": [
+            "edit 0: minutes differs from expectation"
+          ],
+          "manual_review_note": "",
+          "seconds": 41.703,
+          "thought_tokens": 256
+        }
+      ]
+    },
+    {
+      "label": "E4B-clarified512-preservation-probe",
+      "cases": 1,
+      "strict_pass": 0,
+      "production_valid": 1,
+      "native_errors": 0,
+      "min_seconds": 46.5,
+      "median_seconds": 46.5,
+      "max_seconds": 46.5,
+      "peak_rss_bytes": 3342495744,
+      "system_text_sha256": {
+        "plan": [
+          "ddaa4daf488abea0c9bb39596abbea90ba853f38590793b955b9a6b02a9cc6f8"
+        ]
+      },
+      "case_file_sha256": "e3179145ac9a1a05316eaf57e5299d2712e6120cd7540522641edc120ecfe5ff",
+      "thinking_tokens": 512,
+      "failed": [
+        {
+          "id": "plan_pending_correction",
+          "passed": false,
+          "production_valid": true,
+          "semantic_match": false,
+          "reasons": [
+            "edit 0: minutes differs from expectation"
+          ],
+          "manual_review_note": "",
+          "seconds": 46.5,
+          "thought_tokens": 298
+        }
+      ]
+    },
+    {
+      "label": "E4B-no-grammar",
+      "cases": 2,
+      "strict_pass": 1,
+      "production_valid": 1,
+      "native_errors": 0,
+      "min_seconds": 3.39,
+      "median_seconds": 7.406000000000001,
+      "max_seconds": 11.422,
+      "peak_rss_bytes": 3113709568,
+      "system_text_sha256": {
+        "field": [
+          "78061849ec72e997de178a88ae741c7f85960ff8d704576675f980582751d495"
+        ],
+        "plan": [
+          "9adb9524f56d5ceb61195da54c871dc9bcab4abf37f4c529d4658475c69ff86f"
+        ]
+      },
+      "case_file_sha256": "e3179145ac9a1a05316eaf57e5299d2712e6120cd7540522641edc120ecfe5ff",
+      "thinking_tokens": 0,
+      "failed": [
+        {
+          "id": "plan_two_stops",
+          "passed": false,
+          "production_valid": false,
+          "semantic_match": false,
+          "reasons": [
+            "edit 0: unrecognized keys"
+          ],
+          "manual_review_note": "",
+          "seconds": 11.422,
+          "thought_tokens": null
+        }
+      ]
+    },
+    {
+      "label": "E4B-preservation-contract256-probe",
+      "cases": 1,
+      "strict_pass": 0,
+      "production_valid": 1,
+      "native_errors": 0,
+      "min_seconds": 43.516,
+      "median_seconds": 43.516,
+      "max_seconds": 43.516,
+      "peak_rss_bytes": 3341225984,
+      "system_text_sha256": {
+        "plan": [
+          "5a1a1541173f4f451ad55ca46da47c17929ca05d04f93385fd586cab23a96e6a"
+        ]
+      },
+      "case_file_sha256": "e3179145ac9a1a05316eaf57e5299d2712e6120cd7540522641edc120ecfe5ff",
+      "thinking_tokens": 256,
+      "failed": [
+        {
+          "id": "plan_pending_correction",
+          "passed": false,
+          "production_valid": true,
+          "semantic_match": false,
+          "reasons": [
+            "edit 0: minutes differs from expectation"
+          ],
+          "manual_review_note": "",
+          "seconds": 43.516,
+          "thought_tokens": 256
+        }
+      ]
+    },
+    {
+      "label": "E4B-smoke",
+      "cases": 2,
+      "strict_pass": 1,
+      "production_valid": 2,
+      "native_errors": 0,
+      "min_seconds": 8.531,
+      "median_seconds": 12.273499999999999,
+      "max_seconds": 16.016,
+      "peak_rss_bytes": 3573948416,
+      "system_text_sha256": {
+        "field": [
+          "78061849ec72e997de178a88ae741c7f85960ff8d704576675f980582751d495"
+        ],
+        "plan": [
+          "9adb9524f56d5ceb61195da54c871dc9bcab4abf37f4c529d4658475c69ff86f"
+        ]
+      },
+      "case_file_sha256": "e3179145ac9a1a05316eaf57e5299d2712e6120cd7540522641edc120ecfe5ff",
+      "thinking_tokens": 0,
+      "failed": [
+        {
+          "id": "plan_two_stops",
+          "passed": false,
+          "production_valid": true,
+          "semantic_match": false,
+          "reasons": [
+            "edit 0: place differs from expectation"
+          ],
+          "manual_review_note": "",
+          "seconds": 16.016,
+          "thought_tokens": null
+        }
+      ]
+    },
+    {
+      "label": "E4B-think256",
+      "cases": 2,
+      "strict_pass": 2,
+      "production_valid": 2,
+      "native_errors": 0,
+      "min_seconds": 21.078,
+      "median_seconds": 32.6875,
+      "max_seconds": 44.297,
+      "peak_rss_bytes": 3345182720,
+      "system_text_sha256": {
+        "field": [
+          "78061849ec72e997de178a88ae741c7f85960ff8d704576675f980582751d495"
+        ],
+        "plan": [
+          "9adb9524f56d5ceb61195da54c871dc9bcab4abf37f4c529d4658475c69ff86f"
+        ]
+      },
+      "case_file_sha256": "e3179145ac9a1a05316eaf57e5299d2712e6120cd7540522641edc120ecfe5ff",
+      "thinking_tokens": 256,
+      "failed": []
+    },
+    {
+      "label": "E4B-thinking256-development",
+      "cases": 20,
+      "strict_pass": 17,
+      "production_valid": 20,
+      "native_errors": 0,
+      "min_seconds": 13.375,
+      "median_seconds": 28.164,
+      "max_seconds": 44.407,
+      "peak_rss_bytes": 3425497088,
+      "system_text_sha256": {
+        "field": [
+          "78061849ec72e997de178a88ae741c7f85960ff8d704576675f980582751d495"
+        ],
+        "plan": [
+          "9adb9524f56d5ceb61195da54c871dc9bcab4abf37f4c529d4658475c69ff86f"
+        ]
+      },
+      "case_file_sha256": "e3179145ac9a1a05316eaf57e5299d2712e6120cd7540522641edc120ecfe5ff",
+      "thinking_tokens": 256,
+      "failed": [
+        {
+          "id": "field_wrong_scope",
+          "passed": false,
+          "production_valid": true,
+          "semantic_match": false,
+          "reasons": [
+            "expected clarification"
+          ],
+          "manual_review_note": "",
+          "seconds": 14.359,
+          "thought_tokens": null
+        },
+        {
+          "id": "plan_insert_saved_alias",
+          "passed": false,
+          "production_valid": true,
+          "semantic_match": false,
+          "reasons": [
+            "unexpected number of plan edits"
+          ],
+          "manual_review_note": "",
+          "seconds": 44.297,
+          "thought_tokens": null
+        },
+        {
+          "id": "plan_pending_correction",
+          "passed": false,
+          "production_valid": true,
+          "semantic_match": false,
+          "reasons": [
+            "edit 0: minutes differs from expectation"
+          ],
+          "manual_review_note": "",
+          "seconds": 41.547,
+          "thought_tokens": null
+        }
+      ]
+    }
+  ]
+}

@@ -48,6 +48,7 @@ class VoiceService : Service() {
     private var loading = false
     private var destroyed = false
     private var timeout: Job? = null
+    private var preparationTimeout: Job? = null
     private var transition: Job? = null
     private var speechFallback: Job? = null
     private var tone: ToneGenerator? = null
@@ -71,6 +72,12 @@ class VoiceService : Service() {
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null || intent.action == OFF) { completeDictation(interrupted = true); stopSelf(); return START_NOT_STICKY }
+        if (!LocalLanguageModel.interpretationEnabled && intent.action != DICTATE && intent.action != FIELD_DICTATE) {
+            completeDictation(interrupted = true)
+            handsFree = false
+            stopSelf()
+            return START_NOT_STICKY
+        }
         if (isDictating()) completeDictation(interrupted = true, stop = false)
         dictationId = if (intent.action == DICTATE) intent.getLongExtra(EXTRA_PLANNER_REQUEST_ID, -1L) else null
         fieldId = if (intent.action == FIELD_DICTATE) intent.getLongExtra(EXTRA_FIELD_REQUEST_ID, -1L) else null
@@ -114,12 +121,27 @@ class VoiceService : Service() {
         }
         VoiceState.mutable.value = VoiceView(enabled = true, status = "Preparing offline voice…")
         if (model == null) {
+            preparationTimeout?.cancel()
+            preparationTimeout = scope.launch {
+                delay(60_000)
+                if (!destroyed && model == null) fail("Voice preparation took too long. Your entry is kept; try again.")
+            }
             if (!loading) {
                 loading = true
-                StorageService.unpack(this, "model-en-us", "mirage-voice-model", { m ->
+                try {
+                    StorageService.unpack(this, "model-en-us", "mirage-voice-model", { m ->
+                        loading = false
+                        preparationTimeout?.cancel()
+                        if (destroyed) m.close() else { model = m; startListening(command = !handsFree) }
+                    }, { _ ->
+                        loading = false
+                        preparationTimeout?.cancel()
+                        if (!destroyed) fail("Offline voice model unavailable. Your entry is kept; try again.")
+                    })
+                } catch (_: Exception) {
                     loading = false
-                    if (destroyed) m.close() else { model = m; startListening(command = !handsFree) }
-                }, { _ -> if (!destroyed) fail("Offline voice model unavailable. Your entry is kept; try again.") })
+                    fail("Offline voice model unavailable. Your entry is kept; try again.")
+                }
             }
         } else startListening(command = intent.action == LISTEN || !handsFree)
         return START_NOT_STICKY
@@ -131,6 +153,7 @@ class VoiceService : Service() {
     }
     private fun startListening(command: Boolean) {
         if (destroyed) return
+        if (!canListen()) { stopSelf(); return }
         timeout?.cancel(); transition?.cancel(); speechFallback?.cancel(); tts?.stop(); releaseRecorder()
         val m = model ?: return
         try {
@@ -158,6 +181,9 @@ class VoiceService : Service() {
                             publishDictation(dictationWords.segment(text))
                             return
                         }
+                        // Old service intents and delayed callbacks must not execute trip commands
+                        // in the dictation-only build, even if its language model is present.
+                        if (!LocalLanguageModel.interpretationEnabled) { stopSelf(); return }
                         timeout?.cancel(); releaseRecorder()
                         VoiceState.mutable.value = VoiceView(true, false, "Working…", text)
                         Conversation.submit(text, spoken = true)
@@ -173,20 +199,27 @@ class VoiceService : Service() {
             if (command) {
                 VoiceState.mutable.value = VoiceView(true, false, "Ready for your instruction…")
                 transition = scope.launch {
-                    tone?.startTone(ToneGenerator.TONE_DTMF_1, 100); delay(130)
-                    tone?.startTone(ToneGenerator.TONE_DTMF_3, 120); delay(150)
-                    if (gen != generation || destroyed) return@launch
-                    VoiceState.mutable.value = VoiceView(true, true, "Listening…")
-                    service.startListening(listener)
-                    timeout = scope.launch { delay(if (isDictating()) 90000 else 15000); endCommandWindow() }
+                    try {
+                        tone?.startTone(ToneGenerator.TONE_DTMF_1, 100); delay(130)
+                        tone?.startTone(ToneGenerator.TONE_DTMF_3, 120); delay(150)
+                        if (gen != generation || destroyed) return@launch
+                        if (!canListen()) { stopSelf(); return@launch }
+                        check(service.startListening(listener))
+                        VoiceState.mutable.value = VoiceView(true, true, "Listening…")
+                        timeout = scope.launch { delay(if (isDictating()) 90000 else 15000); endCommandWindow() }
+                    } catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { fail("Microphone unavailable. Your captured words are kept; try again.") }
                 }
             } else {
                 VoiceState.mutable.value = VoiceView(true, false, "Say Hello Mirage")
-                service.startListening(listener)
+                check(service.startListening(listener))
             }
         } catch (_: Exception) { fail("Could not start listening. Your entry is kept; try again.") }
     }
     private fun isDictating() = dictationId != null || fieldId != null
+    private fun canListen(): Boolean = if (isDictating()) {
+        dictationId?.let(PlannerSpeech::isActive) ?: fieldId?.let(FieldSpeech::isActive) ?: false
+    } else LocalLanguageModel.interpretationEnabled
     private fun publishDictation(text: String) {
         dictationId?.let { PlannerSpeech.partial(it, text) }
         fieldId?.let { FieldSpeech.partial(it, text) }
@@ -201,11 +234,11 @@ class VoiceService : Service() {
         }
         dictationId?.let { if (interrupted) PlannerSpeech.interrupt(it, text) else PlannerSpeech.finish(it, text) }
         fieldId?.let { if (interrupted) FieldSpeech.interrupt(it, text) else FieldSpeech.finish(it, text) }
-        timeout?.cancel(); transition?.cancel(); releaseRecorder()
+        preparationTimeout?.cancel(); timeout?.cancel(); transition?.cancel(); releaseRecorder()
         if (stop) stopSelf()
     }
     private fun speak(text: String) {
-        if (destroyed || isDictating()) return
+        if (destroyed || isDictating() || !LocalLanguageModel.interpretationEnabled) return
         timeout?.cancel(); speechFallback?.cancel(); releaseRecorder()
         VoiceState.mutable.value = VoiceState.mutable.value.copy(listening = false, status = text)
         if (ttsReady) {
@@ -216,15 +249,18 @@ class VoiceService : Service() {
     }
     private fun finishSpeech() {
         if (destroyed || isDictating()) return
+        if (!LocalLanguageModel.interpretationEnabled) { stopSelf(); return }
         timeout?.cancel(); speechFallback?.cancel()
         if (handsFree) startListening(Conversation.needsReply()) else stopSelf()
     }
     private fun endCommandWindow() {
         if (destroyed) return
         if (isDictating()) { completeDictation(); return }
+        if (!LocalLanguageModel.interpretationEnabled) { stopSelf(); return }
         if (handsFree) startListening(false) else stopSelf()
     }
     private fun fail(message: String) {
+        preparationTimeout?.cancel()
         if (isDictating()) completeDictation(interrupted = true) else Conversation.notice(message)
         VoiceState.mutable.value = VoiceView(status = message)
         stopSelf()

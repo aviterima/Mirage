@@ -18,6 +18,7 @@ import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
+import org.junit.experimental.categories.Category
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PlannerVoiceSessionTest {
@@ -88,6 +89,7 @@ class PlannerVoiceSessionTest {
         assertEquals(real, vm.tripStart()); assertTrue(vm.startFromReal)
     }
 
+    @Category(ExperimentalLanguageModelTests::class)
     @Test fun newItineraryCancelsLateTypeaheadAndVoiceResolution() = runTest {
         val result = CompletableDeferred<List<PlaceHit>>()
         val vm = MirageViewModel { _, _, _ -> withContext(NonCancellable) { result.await() } }.apply {
@@ -124,6 +126,7 @@ class PlannerVoiceSessionTest {
         PlaybackSource.paused = false
     }
 
+    @Category(ExperimentalLanguageModelTests::class)
     @Test fun resetRemovesConversationHistoryChoicesAndPriorConfirmations() = runTest {
         val vm = MirageViewModel().apply { attachStore(InMemoryScenarioStore().apply { save(listOf(home)) }) }
         SmartVoice.bindPlanner(vm)
@@ -139,6 +142,7 @@ class PlannerVoiceSessionTest {
         assertTrue(vm.stops.isEmpty()); assertNull(vm.dest); assertNull(PlaybackSource.current)
     }
 
+    @Category(ExperimentalLanguageModelTests::class)
     @Test fun plannerVoiceAppliesSavedPlaceToChosenStartAndRouteDestination() = runTest {
         val vm = MirageViewModel().apply {
             configureApi(ApiConfig.NONE); attachStore(InMemoryScenarioStore().apply { save(listOf(home)) })
@@ -161,6 +165,7 @@ class PlannerVoiceSessionTest {
         assertNull(PlaybackSource.current)
     }
 
+    @Category(ExperimentalLanguageModelTests::class)
     @Test fun plannerSnapPreparesDestinationAndItineraryAppendsWithoutStarting() = runTest {
         val vm = MirageViewModel { _, _, _ -> listOf(office) }.apply {
             configureApi(ApiConfig(null, "fixture", "session-test")); useMyLocation(real); choosePlanMode(PlanMode.SNAP)
@@ -195,6 +200,7 @@ class PlannerVoiceSessionTest {
         assertFalse(SmartVoice.needsReply())
     }
 
+    @Category(ExperimentalLanguageModelTests::class)
     @Test fun changingFieldFeedbackCancelsAnUnconfirmedChoice() = runTest {
         val vm = MirageViewModel { _, _, _ -> listOf(office, office.copy(name = "Other office")) }.apply {
             configureApi(ApiConfig(null, "fixture", "session-test")); useMyLocation(real)
@@ -209,6 +215,7 @@ class PlannerVoiceSessionTest {
         assertEquals(real, vm.start); assertNull(vm.dest); assertNull(PlaybackSource.current)
     }
 
+    @Category(ExperimentalLanguageModelTests::class)
     @Test fun spokenChoiceThenConfirmationKeepsThePendingFieldAndAppliesItsSelectedPlace() = runTest {
         val other = office.copy(name = "Other office", latLng = LatLng(34.0, -118.0))
         val vm = MirageViewModel { _, _, _ -> listOf(office, other) }.apply {
@@ -226,6 +233,7 @@ class PlannerVoiceSessionTest {
         assertNull(PlaybackSource.current); assertFalse(MockState.status.value.running)
     }
 
+    @Category(ExperimentalLanguageModelTests::class)
     @Test fun staleConfirmationCannotMoveThePendingResultIntoAnotherField() = runTest {
         val vm = MirageViewModel { _, _, _ -> listOf(office) }.apply {
             configureApi(ApiConfig(null, "fixture", "session-test")); useMyLocation(real)

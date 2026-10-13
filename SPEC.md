@@ -1,8 +1,12 @@
-# Mirage 0.18.0 candidate — contextual input
+# Mirage 0.18.0 — offline dictation and manual planning
+
+The user selected [offline dictation with editable fields and manual itinerary controls](docs/OFFLINE_DICTATION_0.18.0.md). Microphones use bundled recognition; ordinary typed and dictated place searches share results. The actual itinerary is the preview. Save, Start, Clear entry and Start new remain explicit separate controls. Advanced interpretation and hands-free conversational trip commands are disabled in normal builds, including when a model file already exists. No hosted model is enabled. This implementation is awaiting verification.
+
+# Earlier 0.18.0 contextual interpretation specification — experimental only
 
 The [candidate specification](docs/CONTEXTUAL_VOICE_0.18.0.md) extends shared typed/spoken input to all app-owned fields and proposes complete plans for explicit review, correction, atomic Apply and Undo. Interruptions preserve unfinished words; Start new clears planning context durably. Exact credentials bypass interpretation and draft persistence. Saving and starting remain separate actions.
 
-Before the new runtime integration, build and UI verification passed: 259 JVM tests and 53 of 55 Android tests passed; only the two native language-quality checks failed. [Those Qwen tests failed the required language quality](docs/MODEL_EVALUATION_0.18.0.md), so broad free-form interpretation is not accepted and the candidate is not released. The user approved a [newer on-device model update](docs/GEMMA_LOCAL_UPDATE_0.18.0.md) on October 13; it requires fresh quality and integration checks. Hosted processing remains disabled. The latest verified specification is 0.17.0 below.
+Broad free-form interpretation is not accepted and the candidate is not released. Both the [earlier Qwen evaluation](docs/MODEL_EVALUATION_0.18.0.md) and the approved [Gemma update](docs/GEMMA_LOCAL_UPDATE_0.18.0.md) failed required language checks. Gemma passed 11/16 fresh cases; its first complete build passed 269 JVM tests, lint and signing, but Android acceptance crashed during native inference. Follow-up integration checks are pending. Hosted processing remains disabled. The latest verified specification is 0.17.0 below.
 
 # Mirage 0.17.0 — voice in the planner
 

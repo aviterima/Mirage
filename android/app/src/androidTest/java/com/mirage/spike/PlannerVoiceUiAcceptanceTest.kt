@@ -40,6 +40,7 @@ class PlannerVoiceUiAcceptanceTest {
         "Irvine, CA, USA (fixture)", "fixture-inline-western-digital")
     private val queries = mutableListOf<String>()
     private var starts = 0
+    private var interpreterCalls = 0
     private var plannerVisible by mutableStateOf(true)
     private fun place(id: String, name: String, point: LatLng) = SavedScenario(
         id, name, "SNAP", 1L, false, null, "", point, name,
@@ -55,11 +56,13 @@ class PlannerVoiceUiAcceptanceTest {
         MockState.reset(); LiveSession.clear(); PlaybackSource.clearQueue()
         PlaybackSource.current = null; PlaybackSource.paused = false
         PlannerSpeech.cancel(); Conversation.resetPlanningSession()
-        queries.clear(); starts = 0
+        queries.clear(); starts = 0; interpreterCalls = 0
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             val factory = object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T = MirageViewModel(planInterpret = { text, _ ->
+                    interpreterCalls++
+                    check(LocalLanguageModel.interpretationEnabled) { "Offline planning must never invoke interpretation" }
                     when {
                         text == "Plan the afternoon" -> PlanInterpretation(listOf(
                             PlanEdit("set_start", place = "saved:inline-home"),
@@ -86,6 +89,7 @@ class PlannerVoiceUiAcceptanceTest {
         context.getSharedPreferences("mirage_recovery", Context.MODE_PRIVATE).edit().clear().commit()
         MockState.reset(); LiveSession.clear(); PlaybackSource.clearQueue()
         PlaybackSource.current = null; PlaybackSource.paused = false
+        if (!LocalLanguageModel.interpretationEnabled) assertEquals("Offline UI reached interpretation", 0, interpreterCalls)
     }
 
     private fun launchPlanner(largeText: Boolean = false) {
@@ -138,6 +142,63 @@ class PlannerVoiceUiAcceptanceTest {
         device.executeShellCommand("screencap -p /sdcard/Download/mirage-acceptance/$name.png")
     }
 
+    @Test fun offlineHomeSearchEnterSaveAndStartNewStayExplicit() {
+        assertFalse(LocalLanguageModel.interpretationEnabled)
+        launchPlanner()
+        compose.onNodeWithText("Itinerary").performClick()
+        dictate(Field.START, "Office")
+        compose.onNodeWithTag("plannerSavedSuggestion-inline-office").performScrollTo().performClick()
+        dictate(Field.END, "Home")
+        compose.onNodeWithTag("plannerDestinationInput").performScrollTo().performImeAction()
+        compose.onNodeWithTag("plannerSavedSuggestion-inline-home").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("plannerReviewApply").assertDoesNotExist()
+        compose.runOnIdle {
+            assertTrue(vm.stops.isEmpty()); assertEquals(office.dest, vm.start)
+            assertEquals(0, interpreterCalls); assertIdle()
+        }
+        compose.onNodeWithTag("plannerSavedSuggestion-inline-home").performClick()
+        compose.runOnIdle { assertEquals(listOf("Home"), vm.stops.map { it.name }); assertIdle() }
+        dictate(Field.END, "unfinished search")
+        compose.onNodeWithTag("plannerClearEnd").performScrollTo().performClick()
+        compose.runOnIdle {
+            assertEquals(listOf("Home"), vm.stops.map { it.name })
+            assertTrue(vm.suggestions.isEmpty()); assertFalse(PlannerSpeech.state.value.active); assertIdle()
+        }
+        device.pressBack()
+        compose.onNodeWithText("Save").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("savedPlanName").performTextReplacement("Offline Saturday")
+        compose.onNodeWithText("Save").performClick()
+        compose.waitUntil(5_000) { PrefsScenarioStore(context).load().any { it.name == "Offline Saturday" } }
+        val saved = PrefsScenarioStore(context).load().single { it.name == "Offline Saturday" }
+        assertEquals("ITINERARY", saved.kind)
+        assertEquals(office.dest, saved.start); assertEquals(listOf("Home"), saved.stops.map { it.name })
+        // Dismiss the library, which remains open after saving, using its normal close action.
+        compose.onNodeWithText("Done").performScrollTo().performClick()
+        compose.onNodeWithTag("plannerDestinationInput").assertExists()
+        var lateRequest = 0L
+        compose.runOnIdle {
+            lateRequest = PlannerSpeech.begin(Field.END)
+            PlannerSpeech.partial(lateRequest, "words from the old itinerary")
+            assertIdle()
+        }
+        compose.onNodeWithTag("plannerNewItinerary").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("plannerNewCancel").performClick()
+        compose.runOnIdle { assertEquals(listOf("Home"), vm.stops.map { it.name }); assertIdle() }
+        compose.onNodeWithTag("plannerNewItinerary").performClick()
+        compose.onNodeWithTag("plannerNewConfirm").performClick()
+        compose.runOnIdle {
+            PlannerSpeech.finish(lateRequest, "late words from the old itinerary")
+            assertTrue(vm.stops.isEmpty()); assertNull(vm.dest); assertFalse(vm.canSaveScenario)
+            assertNull(PlannerSpeech.state.value.target); assertFalse(PlannerSpeech.state.value.active)
+            assertTrue(TripRecovery.draft()?.stops.orEmpty().isEmpty())
+            assertEquals(setOf("Home", "Office", "Offline Saturday"), PrefsScenarioStore(context).load().map { it.name }.toSet())
+            assertEquals(0, interpreterCalls); assertIdle()
+        }
+        assertEquals("", compose.onNodeWithTag("plannerDestinationInput").fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
+        screenshot("offline-home-save-start-new")
+    }
+
+    @ExperimentalLanguageModel
     @Test fun microphoneShowsMissingModelSetupAndReadyModelListensWithoutDownloading() {
         var ready by mutableStateOf(false)
         var listened = 0
@@ -198,6 +259,7 @@ class PlannerVoiceUiAcceptanceTest {
         compose.onNodeWithTag("plannerReviewApply").performScrollTo().assertIsDisplayed()
     }
 
+    @ExperimentalLanguageModel
     @Test fun sequentialVoiceInstructionsAppendStopsAndShowTheLatestAddition() {
         launchPlanner()
         compose.onNodeWithText("Itinerary").performClick()
@@ -217,6 +279,7 @@ class PlannerVoiceUiAcceptanceTest {
         compose.runOnIdle { assertEquals(listOf("Home", "Office"), vm.stops.map { it.name }); assertIdle() }
     }
 
+    @ExperimentalLanguageModel
     @Test fun clearingInputKeepsStopsAndNewItineraryClearsPendingVoiceAndRecovery() {
         launchPlanner()
         compose.onNodeWithText("Itinerary").performClick()
@@ -278,6 +341,7 @@ class PlannerVoiceUiAcceptanceTest {
         device.pressBack()
     }
 
+    @ExperimentalLanguageModel
     @Test fun wholePlanReviewAcceptsCorrectionAndUndoRestoresEveryDetail() {
         launchPlanner()
         val before = vm.capturePlanner()
@@ -368,6 +432,7 @@ class PlannerVoiceUiAcceptanceTest {
         compose.runOnIdle { assertNull(vm.dest); assertTrue(vm.stops.isEmpty()); assertIdle() }
     }
 
+    @ExperimentalLanguageModel
     @Test fun typingSaveInstructionCharacterByCharacterPreservesBothRouteEndpoints() {
         launchPlanner()
         compose.runOnIdle {

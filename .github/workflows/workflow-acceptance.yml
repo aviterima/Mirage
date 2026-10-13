@@ -3,6 +3,11 @@ on:
   push:
     branches: ["codex/contextual-voice-input-20261012", "codex/inline-voice-planner-20261012", "codex/place-city-labels-20261012", "codex/interaction-audit-20261011", "codex/planner-saved-places-20261011", "codex/saved-destinations-indoor-arrival-20261006", "codex/acceptance-50-20260925", "codex/acceptance-continuation-0.11.3", "codex/continuation-release-0.11.3", "codex/live-itinerary-voice-0.12.0"]
   workflow_dispatch:
+    inputs:
+      experimental_model:
+        description: "Run the separate blocked language-model experiment (never package an installer)"
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
@@ -29,6 +34,7 @@ jobs:
     env:
       MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
       MIRAGE_API_BASE: ${{ vars.MIRAGE_API_BASE }}
+      MIRAGE_EXPERIMENTAL_MODEL: ${{ inputs.experimental_model && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -54,7 +60,7 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon testDebugUnitTest assembleDebug assembleDebugAndroidTest
+          ./gradlew --no-daemon -PexperimentalLanguageModel="$MIRAGE_EXPERIMENTAL_MODEL" testDebugUnitTest assembleDebug assembleDebugAndroidTest
       - name: Download installed-version baseline for in-place upgrade check
         uses: actions/download-artifact@v4
         with:
@@ -80,7 +86,7 @@ jobs:
           heap-size: 512M
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -cores 4 -partition-size 8192
           disable-animations: true
-          script: bash .github/scripts/check-upgrade.sh && bash .github/scripts/prepare-language-model.sh && bash .github/scripts/run-workflow-acceptance.sh
+          script: bash .github/scripts/check-upgrade.sh && if [ "$MIRAGE_EXPERIMENTAL_MODEL" = "true" ]; then bash .github/scripts/prepare-language-model.sh; fi && bash .github/scripts/run-workflow-acceptance.sh
       - name: Print structured test results
         if: always()
         run: |
@@ -111,41 +117,41 @@ jobs:
           if-no-files-found: warn
 
       - name: Package the tested APK unchanged
-        if: success()
+        if: success() && inputs.experimental_model != true
         run: |
           mkdir -p tested-parts
           sha256sum android/app/build/outputs/apk/debug/app-debug.apk | tee tested-parts/SHA256.txt
           split -b 24M -d android/app/build/outputs/apk/debug/app-debug.apk tested-parts/Mirage-0.18.0.apk.part-
       - name: Upload tested APK part 0
-        if: success()
+        if: success() && inputs.experimental_model != true
         uses: actions/upload-artifact@v4
         with:
           name: mirage-tested-apk-part-00
           path: tested-parts/Mirage-0.18.0.apk.part-00
           if-no-files-found: warn
       - name: Upload tested APK part 1
-        if: success()
+        if: success() && inputs.experimental_model != true
         uses: actions/upload-artifact@v4
         with:
           name: mirage-tested-apk-part-01
           path: tested-parts/Mirage-0.18.0.apk.part-01
           if-no-files-found: warn
       - name: Upload tested APK part 2
-        if: success()
+        if: success() && inputs.experimental_model != true
         uses: actions/upload-artifact@v4
         with:
           name: mirage-tested-apk-part-02
           path: tested-parts/Mirage-0.18.0.apk.part-02
           if-no-files-found: warn
       - name: Upload tested APK part 3
-        if: success()
+        if: success() && inputs.experimental_model != true
         uses: actions/upload-artifact@v4
         with:
           name: mirage-tested-apk-part-03
           path: tested-parts/Mirage-0.18.0.apk.part-03
           if-no-files-found: warn
       - name: Upload tested APK part 4
-        if: success()
+        if: success() && inputs.experimental_model != true
         uses: actions/upload-artifact@v4
         with:
           name: mirage-tested-apk-part-04
@@ -163,7 +169,7 @@ jobs:
             acceptance-evidence/upgrade.txt
 
       - name: Upload tested APK part 5
-        if: success()
+        if: success() && inputs.experimental_model != true
         uses: actions/upload-artifact@v4
         with:
           name: mirage-tested-apk-part-05
@@ -171,7 +177,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Upload tested APK part 6
-        if: success()
+        if: success() && inputs.experimental_model != true
         uses: actions/upload-artifact@v4
         with:
           name: mirage-tested-apk-part-06
@@ -179,7 +185,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Upload tested APK part 7
-        if: success()
+        if: success() && inputs.experimental_model != true
         uses: actions/upload-artifact@v4
         with:
           name: mirage-tested-apk-part-07

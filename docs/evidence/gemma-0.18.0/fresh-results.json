@@ -1,0 +1,363 @@
+{
+  "summary": {
+    "label": "E4B-final256-heldout",
+    "cases": 16,
+    "strict_pass": 11,
+    "production_valid": 13,
+    "native_errors": 1,
+    "min_seconds": 6.266,
+    "median_seconds": 25.054499999999997,
+    "max_seconds": 43.157,
+    "peak_rss_bytes": 3429715968,
+    "system_text_sha256": {
+      "field": [
+        "b52cf44c0316cdd4e35e4ece0980ac35e94b7ae89cd7f9cdfccf33effd346c29"
+      ],
+      "plan": [
+        "5a1a1541173f4f451ad55ca46da47c17929ca05d04f93385fd586cab23a96e6a"
+      ]
+    },
+    "case_file_sha256": "79626e930a0ad7641db4a877d6ebeb2432889ea4b9274cdd0765f8e9a71b45b6",
+    "thinking_tokens": 256,
+    "failed": [
+      {
+        "id": "gemma_holdout_datetime_missing_meridiem",
+        "passed": false,
+        "production_valid": true,
+        "semantic_match": false,
+        "reasons": [
+          "expected clarification"
+        ],
+        "manual_review_note": "Question must seek morning/evening (AM/PM); do not infer AM from the host clock or merely echo the instruction.",
+        "seconds": 35.015,
+        "thought_tokens": 223
+      },
+      {
+        "id": "gemma_holdout_field_wrong_scope",
+        "passed": false,
+        "production_valid": false,
+        "reasons": [
+          "litert_lm_conversation_send_message failed"
+        ],
+        "seconds": 6.266,
+        "thought_tokens": null
+      },
+      {
+        "id": "gemma_holdout_pending_replacement_preserves",
+        "passed": false,
+        "production_valid": false,
+        "semantic_match": false,
+        "reasons": [
+          "edit 0: invalid parameters for replace_stop"
+        ],
+        "manual_review_note": "One replacement with preserved stay and travel mode; no additional set_mode or set_stay edit is needed.",
+        "seconds": 43.157,
+        "thought_tokens": 256
+      },
+      {
+        "id": "gemma_holdout_route_destination_mode",
+        "passed": false,
+        "production_valid": false,
+        "semantic_match": false,
+        "reasons": [
+          "edit 0: invalid parameters for set_mode"
+        ],
+        "manual_review_note": "",
+        "seconds": 25.078,
+        "thought_tokens": 114
+      },
+      {
+        "id": "gemma_holdout_departure_current_date_preserved",
+        "passed": false,
+        "production_valid": true,
+        "semantic_match": false,
+        "reasons": [
+          "edit 0: value differs from expectation"
+        ],
+        "manual_review_note": "",
+        "seconds": 38.031,
+        "thought_tokens": 207
+      }
+    ]
+  },
+  "results": [
+    {
+      "id": "gemma_holdout_stay_subtract",
+      "schema": "field",
+      "seconds": 17.687,
+      "passed": true,
+      "production_valid": true,
+      "semantic_match": true,
+      "reasons": [],
+      "final_output": {
+        "value": "50",
+        "question": ""
+      }
+    },
+    {
+      "id": "gemma_holdout_stay_final_fraction",
+      "schema": "field",
+      "seconds": 23.532,
+      "passed": true,
+      "production_valid": true,
+      "semantic_match": true,
+      "reasons": [],
+      "final_output": {
+        "value": "105",
+        "question": ""
+      }
+    },
+    {
+      "id": "gemma_holdout_name_middle_edit",
+      "schema": "field",
+      "seconds": 17.203,
+      "passed": true,
+      "production_valid": true,
+      "semantic_match": true,
+      "reasons": [],
+      "final_output": {
+        "value": "Autumn mountain drive",
+        "question": ""
+      }
+    },
+    {
+      "id": "gemma_holdout_distance_correction",
+      "schema": "field",
+      "seconds": 19.469,
+      "passed": true,
+      "production_valid": true,
+      "semantic_match": true,
+      "reasons": [],
+      "final_output": {
+        "value": "3.75",
+        "question": ""
+      }
+    },
+    {
+      "id": "gemma_holdout_city_correction",
+      "schema": "field",
+      "seconds": 19.093,
+      "passed": true,
+      "production_valid": true,
+      "semantic_match": true,
+      "reasons": [],
+      "final_output": {
+        "value": "science center in Mesa",
+        "question": ""
+      }
+    },
+    {
+      "id": "gemma_holdout_datetime_current_date_preserved",
+      "schema": "field",
+      "seconds": 34.657,
+      "passed": true,
+      "production_valid": true,
+      "semantic_match": true,
+      "reasons": [],
+      "final_output": {
+        "value": "2026-10-22T07:20",
+        "question": ""
+      }
+    },
+    {
+      "id": "gemma_holdout_datetime_missing_meridiem",
+      "schema": "field",
+      "seconds": 35.015,
+      "passed": false,
+      "production_valid": true,
+      "semantic_match": false,
+      "reasons": [
+        "expected clarification"
+      ],
+      "final_output": {
+        "value": "2026-10-17T09:45",
+        "question": ""
+      }
+    },
+    {
+      "id": "gemma_holdout_field_wrong_scope",
+      "schema": "field",
+      "seconds": 6.266,
+      "passed": false,
+      "production_valid": false,
+      "semantic_match": false,
+      "reasons": [
+        "Native constrained-decoding assertion; no final response"
+      ],
+      "error_class": "NativeConstraintAssertion_ff_tokens"
+    },
+    {
+      "id": "gemma_holdout_saved_sequence",
+      "schema": "plan",
+      "seconds": 42.937,
+      "passed": true,
+      "production_valid": true,
+      "semantic_match": true,
+      "reasons": [],
+      "final_output": {
+        "edits": [
+          {
+            "op": "add_stop",
+            "target": "",
+            "place": "saved:studio-9",
+            "minutes": 55,
+            "value": ""
+          },
+          {
+            "op": "add_stop",
+            "target": "",
+            "place": "saved:pool-6",
+            "minutes": 70,
+            "value": ""
+          }
+        ],
+        "question": ""
+      }
+    },
+    {
+      "id": "gemma_holdout_pending_replacement_preserves",
+      "schema": "plan",
+      "seconds": 43.157,
+      "passed": false,
+      "production_valid": false,
+      "semantic_match": false,
+      "reasons": [
+        "edit 0: invalid parameters for replace_stop"
+      ],
+      "final_output": {
+        "edits": [
+          {
+            "op": "replace_stop",
+            "target": "stop:2",
+            "place": "saved:id=aquarium-8",
+            "minutes": 65,
+            "value": "BIKE"
+          }
+        ],
+        "question": ""
+      }
+    },
+    {
+      "id": "gemma_holdout_last_mentioned_duration",
+      "schema": "plan",
+      "seconds": 27.093,
+      "passed": true,
+      "production_valid": true,
+      "semantic_match": true,
+      "reasons": [],
+      "final_output": {
+        "edits": [
+          {
+            "op": "set_stay",
+            "target": "stop:1",
+            "place": "",
+            "minutes": 22,
+            "value": ""
+          }
+        ],
+        "question": ""
+      }
+    },
+    {
+      "id": "gemma_holdout_ambiguous_museum",
+      "schema": "plan",
+      "seconds": 20.719,
+      "passed": true,
+      "production_valid": true,
+      "semantic_match": true,
+      "reasons": [],
+      "final_output": {
+        "edits": [],
+        "question": "Which museum should the stay duration be changed for: Transport Museum or Glass Museum?"
+      }
+    },
+    {
+      "id": "gemma_holdout_remove_named_middle",
+      "schema": "plan",
+      "seconds": 25.031,
+      "passed": true,
+      "production_valid": true,
+      "semantic_match": true,
+      "reasons": [],
+      "final_output": {
+        "edits": [
+          {
+            "op": "remove_stop",
+            "target": "stop:2",
+            "place": "",
+            "minutes": -1,
+            "value": ""
+          }
+        ],
+        "question": ""
+      }
+    },
+    {
+      "id": "gemma_holdout_reorder_to_middle",
+      "schema": "plan",
+      "seconds": 40.891,
+      "passed": true,
+      "production_valid": true,
+      "semantic_match": true,
+      "reasons": [],
+      "final_output": {
+        "edits": [
+          {
+            "op": "move_stop",
+            "target": "stop:4",
+            "place": "",
+            "minutes": -1,
+            "value": "2"
+          }
+        ],
+        "question": ""
+      }
+    },
+    {
+      "id": "gemma_holdout_route_destination_mode",
+      "schema": "plan",
+      "seconds": 25.078,
+      "passed": false,
+      "production_valid": false,
+      "semantic_match": false,
+      "reasons": [
+        "edit 0: invalid parameters for set_mode"
+      ],
+      "final_output": {
+        "edits": [
+          {
+            "op": "set_mode",
+            "target": "destination",
+            "place": "Studio",
+            "minutes": -1,
+            "value": "BIKE"
+          }
+        ],
+        "question": ""
+      }
+    },
+    {
+      "id": "gemma_holdout_departure_current_date_preserved",
+      "schema": "plan",
+      "seconds": 38.031,
+      "passed": false,
+      "production_valid": true,
+      "semantic_match": false,
+      "reasons": [
+        "edit 0: value differs from expectation"
+      ],
+      "final_output": {
+        "edits": [
+          {
+            "op": "set_departure",
+            "target": "",
+            "place": "",
+            "minutes": -1,
+            "value": "2026-10-24T16:20"
+          }
+        ],
+        "question": ""
+      }
+    }
+  ]
+}

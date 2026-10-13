@@ -17,6 +17,10 @@ val mapsApiKey: String = run {
     props.getProperty("MAPS_API_KEY") ?: System.getenv("MAPS_API_KEY") ?: ""
 }
 
+// A deliberate developer-only experiment. Normal APKs use bundled dictation/manual editing.
+val experimentalLanguageModel = providers.gradleProperty("experimentalLanguageModel")
+    .map { it == "true" }.getOrElse(false)
+
 android {
     namespace = "com.mirage.spike"
     compileSdk = 34
@@ -31,6 +35,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
         buildConfigField("String", "MAPS_API_KEY", "\"$mapsApiKey\"")
+        buildConfigField("boolean", "EXPERIMENTAL_LANGUAGE_MODEL", experimentalLanguageModel.toString())
         // Optional: Mirage's own API gateway (holds the Google key server-side, meters credits).
         buildConfigField("String", "MIRAGE_API_BASE", "\"${System.getenv("MIRAGE_API_BASE") ?: ""}\"")
     }
@@ -59,6 +64,15 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+        unitTests.all {
+            it.useJUnit {
+                if (!experimentalLanguageModel) {
+                    excludeCategories("com.mirage.spike.ExperimentalLanguageModelTests")
+                } else {
+                    includeCategories("com.mirage.spike.ExperimentalLanguageModelTests")
+                }
+            }
+        }
     }
 
     compileOptions {
