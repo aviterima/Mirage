@@ -30,10 +30,44 @@ char ::= [^"\\\x00-\x1F] | "\\" ["\\/bfnrt] | "\\u" [0-9a-fA-F]{4}
 ws ::= [ \t\n]{0,4}
 )GBNF";
 
-static std::string infer(const std::string & path, const std::string & prompt) {
+static const char * fieldGrammar = R"GBNF(
+root ::= success | clarification
+success ::= "{" ws "\"value\"" ws ":" ws value "," ws "\"question\"" ws ":" ws "\"\"" ws "}"
+clarification ::= "{" ws "\"value\"" ws ":" ws "\"\"" "," ws "\"question\"" ws ":" ws question ws "}"
+value ::= "\"" char{0,512} "\""
+question ::= "\"" char{1,400} "\""
+char ::= [^"\\\x00-\x1F] | "\\" ["\\/bfnrt] | "\\u" [0-9a-fA-F]{4}
+ws ::= [ \t\n]{0,4}
+)GBNF";
+
+static const char * planGrammar = R"GBNF(
+root ::= success | clarification
+success ::= "{" ws "\"edits\"" ws ":" ws "[" ws edit ("," ws edit){0,11} ws "]" "," ws "\"question\"" ws ":" ws "\"\"" ws "}"
+clarification ::= "{" ws "\"edits\"" ws ":" ws "[]" "," ws "\"question\"" ws ":" ws question ws "}"
+edit ::= "{" ws "\"op\"" ws ":" ws op "," ws "\"target\"" ws ":" ws target "," ws "\"place\"" ws ":" ws place "," ws "\"minutes\"" ws ":" ws number "," ws "\"value\"" ws ":" ws value ws "}"
+op ::= "\"set_start\"" | "\"set_destination\"" | "\"add_stop\"" | "\"replace_stop\"" | "\"remove_stop\"" | "\"move_stop\"" | "\"set_stay\"" | "\"set_mode\"" | "\"set_departure\"" | "\"clear_departure\""
+target ::= "\"\"" | "\"start\"" | "\"destination\"" | "\"end\"" | "\"stop:" position "\""
+position ::= [1-9] [0-9]? | "100"
+number ::= "-1" | [0-9]{1,4}
+place ::= "\"" char{0,240} "\""
+value ::= "\"" char{0,160} "\""
+question ::= "\"" char{1,400} "\""
+char ::= [^"\\\x00-\x1F] | "\\" ["\\/bfnrt] | "\\u" [0-9a-fA-F]{4}
+ws ::= [ \t\n]{0,4}
+)GBNF";
+
+// Legacy commands retain their original budget. Larger proposals are still bounded and cancellable.
+static std::string infer(const std::string & path, const std::string & prompt, const std::string & schema = "legacy") {
+    const bool legacy = schema == "legacy";
+    if (!legacy && schema != "field" && schema != "plan") throw std::runtime_error("Unknown interpretation schema");
+    const char * selectedGrammar = legacy ? grammar : (schema == "field" ? fieldGrammar : planGrammar);
+    const int contextTokens = legacy ? 2048 : 8192;
+    const int outputTokens = legacy ? 220 : (schema == "field" ? 500 : 1200);
+    const int promptTokens = legacy ? 1750 : contextTokens - outputTokens - 64;
+    const int timeoutSeconds = legacy ? 45 : 90;
     std::lock_guard<std::mutex> lock(gate);
     cancelled = false;
-    deadline = std::chrono::steady_clock::now() + std::chrono::seconds(45);
+    deadline = std::chrono::steady_clock::now() + std::chrono::seconds(timeoutSeconds);
     if (!model || modelPath != path) {
         if (model) llama_model_free(model);
         llama_backend_init();
@@ -43,10 +77,10 @@ static std::string infer(const std::string & path, const std::string & prompt) {
     }
     auto vocab = llama_model_get_vocab(model);
     int count = -llama_tokenize(vocab, prompt.data(), prompt.size(), nullptr, 0, true, true);
-    if (count <= 0 || count > 1750) throw std::runtime_error("Instruction context is too long; use a shorter request");
+    if (count <= 0 || count > promptTokens) throw std::runtime_error("Instruction context is too long; shorten it before reviewing. Nothing has been applied");
     std::vector<llama_token> tokens(count);
     llama_tokenize(vocab, prompt.data(), prompt.size(), tokens.data(), count, true, true);
-    auto cp = llama_context_default_params(); cp.n_ctx = 2048; cp.n_batch = 512; cp.n_ubatch = 256;
+    auto cp = llama_context_default_params(); cp.n_ctx = contextTokens; cp.n_batch = 512; cp.n_ubatch = 256;
     const int threads = std::min(4u, std::max(1u, std::thread::hardware_concurrency()));
     cp.n_threads = threads; cp.n_threads_batch = threads; cp.abort_callback = abortInference;
     std::unique_ptr<llama_context, decltype(&llama_free)> ctx(llama_init_from_model(model, cp), llama_free);
@@ -56,12 +90,12 @@ static std::string infer(const std::string & path, const std::string & prompt) {
             throw std::runtime_error("Offline understanding timed out or was cancelled");
     }
     std::unique_ptr<llama_sampler, decltype(&llama_sampler_free)> sampler(llama_sampler_chain_init(llama_sampler_chain_default_params()), llama_sampler_free);
-    auto g = llama_sampler_init_grammar(vocab, grammar, "root");
+    auto g = llama_sampler_init_grammar(vocab, selectedGrammar, "root");
     if (!g) throw std::runtime_error("Cannot initialize command grammar");
     llama_sampler_chain_add(sampler.get(), g);
     llama_sampler_chain_add(sampler.get(), llama_sampler_init_greedy());
     std::string out;
-    for (int i = 0; i < 220; ++i) {
+    for (int i = 0; i < outputTokens; ++i) {
         if (abortInference(nullptr)) throw std::runtime_error("Offline understanding timed out or was cancelled");
         auto token = llama_sampler_sample(sampler.get(), ctx.get(), -1);
         if (llama_vocab_is_eog(vocab, token)) return out;
@@ -69,15 +103,15 @@ static std::string infer(const std::string & path, const std::string & prompt) {
         if (n < 0) throw std::runtime_error("Invalid language-model output");
         out.append(piece,n);
         if (llama_decode(ctx.get(), llama_batch_get_one(&token,1)) != 0) throw std::runtime_error(cancelled.load() ? "Offline understanding cancelled" :
-                (std::chrono::steady_clock::now() > deadline ? "Offline understanding timed out after 45 seconds" : "Offline understanding decode failed"));
+                (std::chrono::steady_clock::now() > deadline ? "Offline understanding timed out" : "Offline understanding decode failed"));
     }
-    throw std::runtime_error("Instruction is too complex; try one change at a time");
+    throw std::runtime_error(legacy ? "Instruction is too complex; try one change at a time" : "The proposal is too long. Split it into two reviews; nothing has been applied");
 }
 #ifdef MIRAGE_CLI
 int main(int argc, char **argv) {
-    if (argc != 3) return 2;
+    if (argc != 3 && argc != 4) return 2;
     std::ifstream f(argv[2]); std::string p((std::istreambuf_iterator<char>(f)),{});
-    try { std::cout << infer(argv[1],p) << std::endl; } catch (const std::exception &e) { std::cerr << e.what(); return 1; }
+    try { std::cout << infer(argv[1],p,argc == 4 ? argv[3] : "legacy") << std::endl; } catch (const std::exception &e) { std::cerr << e.what(); return 1; }
     return 0;
 }
 #else
@@ -88,6 +122,13 @@ extern "C" JNIEXPORT jstring JNICALL Java_com_mirage_spike_LocalLanguageModel_ge
     catch (const std::exception &e) { env->ThrowNew(env->FindClass("java/lang/IllegalStateException"),e.what()); return nullptr; }
 }
 extern "C" JNIEXPORT void JNICALL Java_com_mirage_spike_LocalLanguageModel_cancelNative(JNIEnv *,jobject) { cancelled=true; }
+extern "C" JNIEXPORT jstring JNICALL Java_com_mirage_spike_LocalLanguageModel_generateStructured(JNIEnv *env,jobject,jstring path,jstring prompt,jstring schema) {
+    const char *p=env->GetStringUTFChars(path,nullptr); std::string file(p); env->ReleaseStringUTFChars(path,p);
+    const char *q=env->GetStringUTFChars(prompt,nullptr); std::string input(q); env->ReleaseStringUTFChars(prompt,q);
+    const char *s=env->GetStringUTFChars(schema,nullptr); std::string kind(s); env->ReleaseStringUTFChars(schema,s);
+    try { return env->NewStringUTF(infer(file,input,kind).c_str()); }
+    catch (const std::exception &e) { env->ThrowNew(env->FindClass("java/lang/IllegalStateException"),e.what()); return nullptr; }
+}
 extern "C" JNIEXPORT void JNICALL Java_com_mirage_spike_LocalLanguageModel_releaseNative(JNIEnv *,jobject) {
     std::lock_guard<std::mutex> lock(gate); if (model) llama_model_free(model); model=nullptr;
 }

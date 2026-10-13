@@ -10,15 +10,18 @@ data class PlannerSpeechView(
     val transcript: String = "",
     val complete: Boolean = false,
     val active: Boolean = false,
+    val interrupted: Boolean = false,
+    val finishRequested: Boolean = false,
+    val prefix: String = "",
 )
 
 object PlannerSpeech {
     private val mutable = MutableStateFlow(PlannerSpeechView())
     val state = mutable.asStateFlow()
 
-    @Synchronized fun begin(field: Field): Long {
+    @Synchronized fun begin(field: Field, prefix: String = ""): Long {
         val id = mutable.value.requestId + 1
-        mutable.value = PlannerSpeechView(requestId = id, target = field, active = true)
+        mutable.value = PlannerSpeechView(requestId = id, target = field, active = true, prefix = prefix)
         return id
     }
     @Synchronized fun partial(id: Long, text: String) {
@@ -28,6 +31,15 @@ object PlannerSpeech {
     @Synchronized fun finish(id: Long, text: String) {
         val current = mutable.value
         if (current.requestId == id && current.active) mutable.value = current.copy(transcript = text, complete = true, active = false)
+    }
+    @Synchronized fun requestFinish(id: Long) {
+        val current = mutable.value
+        if (current.requestId == id && current.active) mutable.value = current.copy(finishRequested = true)
+    }
+    @Synchronized fun interrupt(id: Long, text: String = mutable.value.transcript) {
+        val current = mutable.value
+        if (current.requestId == id && current.active) mutable.value = current.copy(
+            transcript = text.ifBlank { current.transcript }, complete = true, active = false, interrupted = true)
     }
     @Synchronized fun consume(id: Long) {
         if (mutable.value.requestId == id) mutable.value = PlannerSpeechView(requestId = id)

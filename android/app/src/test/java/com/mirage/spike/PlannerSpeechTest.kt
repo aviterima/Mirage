@@ -49,4 +49,27 @@ class PlannerSpeechTest {
         assertFalse(isPlannerReply("yesterday"))
         assertFalse(isPlannerReplyPrefix("Western"))
     }
+
+    @Test fun finishRequestKeepsListeningUntilServiceReturnsCapturedWords() {
+        val id = PlannerSpeech.begin(Field.END, "Visit Home")
+        PlannerSpeech.partial(id, "then Office")
+        PlannerSpeech.requestFinish(id)
+        assertTrue(PlannerSpeech.state.value.active)
+        assertTrue(PlannerSpeech.state.value.finishRequested)
+        PlannerSpeech.finish(id, "then Office for thirty minutes")
+        assertEquals("Visit Home", PlannerSpeech.state.value.prefix)
+        assertEquals("then Office for thirty minutes", PlannerSpeech.state.value.transcript)
+        assertTrue(PlannerSpeech.state.value.complete)
+        assertFalse(PlannerSpeech.state.value.active)
+    }
+
+    @Test fun interruptionPreservesPartialAndRejectsLateServiceCompletion() {
+        val id = PlannerSpeech.begin(Field.START)
+        PlannerSpeech.partial(id, "from Home actually")
+        PlannerSpeech.interrupt(id)
+        PlannerSpeech.finish(id, "late words")
+        assertEquals("from Home actually", PlannerSpeech.state.value.transcript)
+        assertTrue(PlannerSpeech.state.value.interrupted)
+        assertTrue(PlannerSpeech.state.value.complete)
+    }
 }

@@ -38,6 +38,42 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 
+/** The pending plan occupies the normal preview slot, so there is only one itinerary list. */
+@Composable
+internal fun PlannerCandidatePreview(candidate: PlanCandidate) {
+    Column(Modifier.fillMaxWidth().testTag("plannerPreview").padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Review your plan", style = MaterialTheme.typography.titleSmall)
+        candidate.origin?.let { Text("From ${it.label}", style = MaterialTheme.typography.bodySmall) }
+        Text(candidate.departureMillis?.let { "Departure ${tripTime(it)}" } ?: "Depart when started", style = MaterialTheme.typography.bodySmall)
+        candidate.preview.forEachIndexed { index, stop ->
+            Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small) {
+                Column(Modifier.fillMaxWidth().padding(8.dp).testTag("plannerReviewStop$index")) {
+                    Text("${index + 1}. ${stop.label}", style = MaterialTheme.typography.bodyMedium)
+                    Text("${stop.mode.name.lowercase().replaceFirstChar { it.uppercase() }} · ${stop.stayMinutes} min stay", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun PlannerReviewFeedback(controller: PlannerReviewController, onApplied: () -> Unit) {
+    val view by controller.state.collectAsState()
+    if (view.status.isBlank() && view.question.isBlank() && view.candidate == null && !view.busy) return
+    Column(Modifier.fillMaxWidth().padding(8.dp).testTag("plannerReviewFeedback"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(if (view.busy) "Interpreting…" else view.status, style = MaterialTheme.typography.bodySmall)
+        if (view.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if (view.question.isNotBlank()) Text(view.question, Modifier.testTag("plannerReviewQuestion"), style = MaterialTheme.typography.bodyMedium)
+        if (view.choices.isNotEmpty()) SuggestionList(view.choices, false, null, "this part of the plan",
+            choiceTagPrefix = "plannerReviewChoice", onPick = controller::choose)
+        if (view.candidate != null || view.busy || view.question.isNotBlank()) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (view.canConfirm) Button(onClick = { if (controller.confirm()) onApplied() },
+                modifier = Modifier.testTag("plannerReviewApply")) { Text("Apply changes") }
+            TextButton(onClick = controller::reset, modifier = Modifier.testTag("plannerReviewCancel")) { Text("Discard review") }
+        }
+    }
+}
+
 /** Readiness gate only: the planner owns permissions, dictation targets, and editable words. */
 @Composable
 fun PlannerMicrophone(
@@ -97,7 +133,7 @@ internal fun PlannerMicrophone(
     ) {
         Icon(
             imageVector = if (listening) Icons.Filled.Stop else Icons.Filled.Mic,
-            contentDescription = if (listening) "Cancel listening" else contentDescription
+            contentDescription = if (listening) "Finish listening" else contentDescription
         )
     }
     if (showSetup) VoiceSetupSheet(
@@ -151,7 +187,7 @@ internal fun VoiceSetupSheet(
             Text("Voice setup", style = MaterialTheme.typography.titleLarge)
             Text(
                 if (voiceReady) "Voice is ready. Speak into the selected entry, then review or edit the words."
-                else "Download voice once to speak into your itinerary. You can edit the words before applying them.",
+                else "Download voice once to speak into any entry. You can edit and review the words before applying them.",
                 style = MaterialTheme.typography.bodyMedium
             )
             Text(modelStatus, Modifier.testTag("voiceSetupStatus"), style = MaterialTheme.typography.bodySmall)

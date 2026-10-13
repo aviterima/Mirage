@@ -30,9 +30,11 @@ object LocalLanguageModel {
     @Volatile var ready = false
         private set
     private external fun generate(path: String, prompt: String): String
+    private external fun generateStructured(path: String, prompt: String, schema: String): String
     private external fun cancelNative()
     private external fun releaseNative()
     fun configure(context: Context) {
+        NaturalLanguageInput.configure(context)
         if (file != null) return
         file = File(context.filesDir, FILE)
         // Only a fully verified download is renamed to the final filename.
@@ -72,13 +74,19 @@ object LocalLanguageModel {
     }
     fun cancelDownload() { downloading?.cancel(); downloadCall?.cancel() }
     fun cancel() { if (loaded) cancelNative() }
-    suspend fun interpret(prompt: String): String = gate.withLock {
+    suspend fun interpret(prompt: String): String = infer(prompt, null)
+    internal suspend fun interpretStructured(prompt: String, schema: String): String {
+        require(schema == "field" || schema == "plan")
+        return infer(prompt, schema)
+    }
+    private suspend fun infer(prompt: String, schema: String?): String = gate.withLock {
         check(ready) { "Download advanced voice in Talk to Mirage first" }
         unload?.cancel()
         try {
             withContext(Dispatchers.IO) {
                 if (!loaded) { System.loadLibrary("mirage_voice"); loaded = true }
-                generate(file!!.absolutePath,prompt)
+                if (schema == null) generate(file!!.absolutePath,prompt)
+                else generateStructured(file!!.absolutePath, prompt, schema)
             }
         } finally {
             unload = scope.launch { delay(60_000); gate.withLock { if (loaded) releaseNative() } }

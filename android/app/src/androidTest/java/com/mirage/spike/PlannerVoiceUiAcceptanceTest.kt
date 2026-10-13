@@ -57,7 +57,18 @@ class PlannerVoiceUiAcceptanceTest {
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             val factory = object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
-                override fun <T : ViewModel> create(modelClass: Class<T>): T = MirageViewModel { _, query, _ ->
+                override fun <T : ViewModel> create(modelClass: Class<T>): T = MirageViewModel(planInterpret = { text, _ ->
+                    when {
+                        text == "Plan the afternoon" -> PlanInterpretation(listOf(
+                            PlanEdit("set_start", place = "saved:inline-home"),
+                            PlanEdit("add_stop", place = "saved:inline-office", minutes = 30),
+                            PlanEdit("add_stop", place = "Western Digital", minutes = 60),
+                            PlanEdit("set_departure", value = "2026-10-20T13:00")))
+                        text == "Make the first stay forty five minutes instead" -> PlanInterpretation(listOf(PlanEdit("set_stay", "stop:1", minutes = 45)))
+                        text.startsWith("add ") -> PlanInterpretation(listOf(PlanEdit("add_stop", place = "saved:inline-${text.removePrefix("add ").lowercase()}")))
+                        else -> PlanInterpretation(emptyList(), "Which part should change?")
+                    }
+                }) { _, query, _ ->
                     queries += query
                     if (query.contains("Western", true)) listOf(remote) else emptyList()
                 } as T
@@ -181,8 +192,8 @@ class PlannerVoiceUiAcceptanceTest {
     private fun previewAddition(name: String) {
         dictate(Field.END, "add $name")
         compose.onNodeWithTag("plannerInputSubmit").performScrollTo().performClick()
-        compose.waitUntil(5_000) { SmartVoice.needsReply() }
-        compose.onNodeWithTag("plannerVoiceConfirm").performScrollTo().assertIsDisplayed()
+        compose.waitUntil(5_000) { vm.planning.state.value.canConfirm }
+        compose.onNodeWithTag("plannerReviewApply").performScrollTo().assertIsDisplayed()
     }
 
     @Test fun sequentialVoiceInstructionsAppendStopsAndShowTheLatestAddition() {
@@ -190,12 +201,11 @@ class PlannerVoiceUiAcceptanceTest {
         compose.onNodeWithText("Itinerary").performClick()
         previewAddition("Home")
         compose.runOnIdle { assertTrue(vm.stops.isEmpty()); assertIdle() }
-        dictate(Field.END, "yes")
-        compose.onNodeWithTag("plannerInputSubmit").performScrollTo().performClick()
+        compose.onNodeWithTag("plannerReviewApply").performScrollTo().performClick()
         compose.waitUntil(5_000) { vm.stops.size == 1 }
         previewAddition("Office")
         compose.runOnIdle { assertEquals(listOf("Home"), vm.stops.map { it.name }); assertIdle() }
-        compose.onNodeWithTag("plannerVoiceConfirm").performClick()
+        compose.onNodeWithTag("plannerReviewApply").performScrollTo().performClick()
         compose.waitUntil(5_000) { vm.stops.size == 2 }
         compose.onNodeWithTag("plannerPreview").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("plannerNewestStop-1").performScrollTo().assertIsDisplayed()
@@ -243,9 +253,9 @@ class PlannerVoiceUiAcceptanceTest {
             assertNull(vm.draftSavedName); assertFalse(vm.draftUndoAvailable)
             assertFalse(SmartVoice.needsReply()); assertTrue(Conversation.state.value.lines.isEmpty())
             assertFalse(PlannerSpeech.state.value.active); assertNull(PlannerSpeech.state.value.target)
-            assertNull(TripRecovery.draft())
+            assertTrue(TripRecovery.draft()?.stops.orEmpty().isEmpty())
             assertFalse(TripRecovery.saveDraftIfCurrent(previousDraft, previousGeneration))
-            assertNull(TripRecovery.draft())
+            assertTrue(TripRecovery.draft()?.stops.orEmpty().isEmpty())
             assertEquals(setOf("Home", "Office"), PrefsScenarioStore(context).load().map { it.name }.toSet())
             assertIdle()
         }
@@ -262,6 +272,52 @@ class PlannerVoiceUiAcceptanceTest {
         screenshot("planner-voice-large-text-keyboard")
         compose.runOnIdle { assertEquals(listOf("Home", "Office"), vm.stops.map { it.name }); assertIdle() }
         device.pressBack()
+    }
+
+    @Test fun wholePlanReviewAcceptsCorrectionAndUndoRestoresEveryDetail() {
+        launchPlanner()
+        val before = vm.capturePlanner()
+        dictate(Field.END, "Plan the afternoon")
+        compose.onNodeWithTag("plannerInputSubmit").performScrollTo().performClick()
+        compose.waitUntil(5_000) { vm.planning.state.value.canConfirm }
+        compose.onNodeWithText("2. Western Digital (Irvine)").performScrollTo().assertIsDisplayed()
+        compose.runOnIdle {
+            assertTrue(vm.stops.isEmpty()); assertNull(vm.departureMillis); assertIdle()
+        }
+        compose.onNodeWithTag("plannerDestinationInput").performScrollTo().performClick()
+            .performTextReplacement("Make the first stay forty five minutes instead")
+        device.pressBack()
+        compose.onNodeWithTag("plannerInputSubmit").performScrollTo().performClick()
+        compose.waitUntil(5_000) { vm.planning.state.value.canConfirm && vm.planning.state.value.candidate?.preview?.firstOrNull()?.stayMinutes == 45 }
+        compose.onNodeWithTag("plannerReviewApply").performScrollTo().performClick()
+        compose.runOnIdle {
+            assertEquals(home.dest, vm.start)
+            assertEquals(listOf("Office", remote.name), vm.stops.map { it.name })
+            assertEquals(listOf(45, 60), vm.stops.map { it.dwellMinutes })
+            assertNotNull(vm.departureMillis); assertIdle()
+        }
+        screenshot("planner-contextual-whole-plan")
+        compose.onNodeWithText("Undo", useUnmergedTree = true).performScrollTo().performClick()
+        compose.runOnIdle {
+            assertEquals(before.scenario, vm.capturePlanner().scenario)
+            assertFalse(vm.draftUndoAvailable); assertIdle()
+        }
+    }
+
+    @Test fun interruptedSpeechKeepsEditableWordsAndDoesNotChangePlan() {
+        launchPlanner()
+        compose.runOnIdle {
+            val request = PlannerSpeech.begin(Field.END)
+            PlannerSpeech.partial(request, "Plan an afternoon starting at Home")
+        }
+        compose.onNodeWithTag("plannerDestinationInput").assertTextContains("Plan an afternoon starting at Home")
+        compose.runOnIdle { PlannerSpeech.interrupt(PlannerSpeech.state.value.requestId) }
+        compose.waitUntil(5_000) { PlannerSpeech.state.value.target == null }
+        compose.onNodeWithTag("plannerDestinationInput").assertTextContains("Plan an afternoon starting at Home")
+        compose.runOnIdle {
+            assertTrue(vm.stops.isEmpty()); assertNull(vm.dest); assertIdle()
+            assertEquals("Plan an afternoon starting at Home", readPlannerEntry("end", ""))
+        }
     }
 
     @Test fun typingSaveInstructionCharacterByCharacterPreservesBothRouteEndpoints() {

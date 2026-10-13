@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -28,14 +29,18 @@ internal fun SavedPlansDialog(vm: MirageViewModel, active: Boolean = false, onDi
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val live by LiveSession.state.collectAsState()
-    var query by remember { mutableStateOf("") }
-    var kind by remember { mutableStateOf("All") }
-    var favorites by remember { mutableStateOf(false) }
-    var selected by remember { mutableStateOf<String?>(null) }
-    var name by remember { mutableStateOf(if (!active && vm.planMode == PlanMode.SNAP) vm.destName else "") }
+    val saveKey = if(active) "live.library.save.${LiveSession.epoch}" else
+        "planner.library.save.${vm.planMode}.${vm.draftGeneration}.${vm.dest.hashCode()}.${vm.stops.hashCode()}"
+    var query by rememberSaveable { mutableStateOf("") }
+    var kind by rememberSaveable { mutableStateOf("All") }
+    var favorites by rememberSaveable { mutableStateOf(false) }
+    var selected by rememberSaveable { mutableStateOf<String?>(null) }
+    var name by rememberSaveable(saveKey) { mutableStateOf(if (!active && vm.planMode == PlanMode.SNAP) vm.destName else "") }
     var message by remember { mutableStateOf("") }
-    var edit by remember { mutableStateOf<Pair<SavedScenario,String>?>(null) }
-    var editText by remember { mutableStateOf("") }
+    var editId by rememberSaveable { mutableStateOf<String?>(null) }
+    var editAction by rememberSaveable { mutableStateOf("") }
+    val edit = vm.savedScenarios.firstOrNull { it.id == editId }?.let { it to editAction }
+    var editText by rememberSaveable { mutableStateOf("") }
     var incoming by remember { mutableStateOf<List<SavedScenario>?>(null) }
     var exportText by remember { mutableStateOf("") }
     var connector by remember { mutableStateOf<SavedScenario?>(null) }
@@ -66,18 +71,19 @@ internal fun SavedPlansDialog(vm: MirageViewModel, active: Boolean = false, onDi
                 TextButton(onClick={ import.launch(arrayOf("application/json","text/plain","application/octet-stream")) }) { Text("Import backup") }
             }
             Row {
-                OutlinedTextField(name,{name=it},label={Text("Name")},placeholder={Text("Name, e.g. Lunch run")},modifier=Modifier.weight(1f).testTag("savedPlanName"),singleLine=true)
+                VoiceTextField(name,{name=it},saveKey,"Name",kind="name",context="Name this saved place, route or itinerary. Saving is a separate action.",
+                    placeholder={Text("Name, e.g. Lunch run")},modifier=Modifier.weight(1f).testTag("savedPlanName"),singleLine=true)
                 TextButton(onClick={
                     val saved=if(active) vm.saveActiveScenario(name) else vm.saveScenario(name)
                     message=if(saved) "Saved $name" else vm.error ?: "Could not save"
-                    if(saved) name=""
+                    if(saved) {discardVoiceField(context,saveKey);name=""}
                 },enabled=name.isNotBlank() && if(active) LiveSession.plan!=null else vm.canSaveScenario) { Text("Save") }
             }
             if(!active && vm.draftSavedName!=null) TextButton(onClick={message=if(vm.saveScenario(vm.draftSavedName!!,true))"Changes saved" else vm.error.orEmpty()}) {Text("Save changes to ${vm.draftSavedName}")}
             if(active && live.savedId != null) TextButton(onClick={
                 message=if(vm.saveActiveScenario(LiveSession.state.value.savedName,true)) "Changes saved" else vm.error ?: "Could not save"
             }) { Text("Save changes") }
-            OutlinedTextField(query,{query=it},label={Text("Search saved names or addresses")},singleLine=true,modifier=Modifier.fillMaxWidth())
+            VoiceTextField(query,{query=it},"library.filter","Search saved names or addresses",context="Filter the saved library by name, alias or address; do not change a saved item.",singleLine=true,modifier=Modifier.fillMaxWidth())
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
                 listOf("All","Places","Routes","Itineraries").forEach { label -> TextButton(onClick={kind=label}) { Text(if(kind==label) "• $label" else label) } }
             }
@@ -103,7 +109,7 @@ internal fun SavedPlansDialog(vm: MirageViewModel, active: Boolean = false, onDi
                                 IconButton(onClick={menu=true}) { Icon(Icons.Default.MoreVert,"Options for ${item.name}") }
                                 DropdownMenu(menu,{menu=false}) {
                                     DropdownMenuItem(text={Text(if(item.favorite) "Remove favorite" else "Add favorite")},onClick={menu=false;vm.favoriteScenario(item.id)})
-                                    listOf("Rename","Duplicate","Voice aliases").forEach { action -> DropdownMenuItem(text={Text(action)},onClick={menu=false;edit=item to action;editText=if(action=="Voice aliases") item.aliases.joinToString(", ") else if(action=="Duplicate") item.name+" copy" else item.name}) }
+                                    listOf("Rename","Duplicate","Voice aliases").forEach { action -> DropdownMenuItem(text={Text(action)},onClick={menu=false;editId=item.id;editAction=action;editText=if(action=="Voice aliases") item.aliases.joinToString(", ") else if(action=="Duplicate") item.name+" copy" else item.name}) }
                                     DropdownMenuItem(text={Text("Share this item")},onClick={
                                         menu=false
                                         scope.launch {
@@ -139,10 +145,14 @@ internal fun SavedPlansDialog(vm: MirageViewModel, active: Boolean = false, onDi
             TextButton(onClick=onDismiss,modifier=Modifier.fillMaxWidth()) {Text("Done")}
         }
     }
-    edit?.let { (item,action) -> AlertDialog(onDismissRequest={edit=null},title={Text(action)},text={Column {
-        OutlinedTextField(editText,{editText=it},label={Text(if(action=="Voice aliases") "Comma-separated names" else "Name")})
+    edit?.let { (item,action) ->
+        val editKey="library.item.${item.id}.${action.replace(' ', '_')}"
+        val cancel={discardVoiceField(context,editKey);editId=null}
+        AlertDialog(onDismissRequest=cancel,title={Text(action)},text={Column {
+        VoiceTextField(editText,{editText=it},editKey,if(action=="Voice aliases") "Comma-separated names" else "Name",
+            kind=if(action=="Voice aliases") "aliases" else "name",context="${action} for saved item ${item.name}. Only propose the editable field value; Save applies the change.")
         vm.error?.let { Text(it) }
-    }},confirmButton={TextButton(onClick={val ok=if(action=="Voice aliases")vm.setAliases(item.id,editText) else vm.renameScenario(item.id,editText,action=="Duplicate");if(ok)edit=null}){Text("Save")}},dismissButton={TextButton(onClick={edit=null}){Text("Cancel")}}) }
+    }},confirmButton={TextButton(onClick={val ok=if(action=="Voice aliases")vm.setAliases(item.id,editText) else vm.renameScenario(item.id,editText,action=="Duplicate");if(ok){discardVoiceField(context,editKey);editId=null}}){Text("Save")}},dismissButton={TextButton(onClick=cancel){Text("Cancel")}}) }
     incoming?.let { items -> AlertDialog(onDismissRequest={incoming=null},title={Text("Import ${items.size} saved items?")},text={Column(Modifier.heightIn(max=320.dp).verticalScroll(rememberScrollState())) { Text("Existing items stay unchanged. Matching names receive a numbered suffix; exact matching records are skipped. No credentials are imported.");items.forEach { item -> Text("${item.name} · ${if(item.kind=="ITINERARY") "${item.stops.size} stops" else item.destName}",Modifier.padding(vertical=4.dp)) } }},confirmButton={TextButton(onClick={if(vm.importScenarios(items)){incoming=null;message=vm.notice.orEmpty()}}){Text("Import")}},dismissButton={TextButton(onClick={incoming=null}){Text("Cancel")}}) }
     connector?.let { item -> AlertDialog(onDismissRequest={connector=null},title={Text("Connect these routes?")},text={Text("Add a connecting leg to ${item.startName}? Review its mode and timing before starting.")},confirmButton={TextButton(onClick={if(vm.appendSavedRoute(item,true)){connector=null;onLoaded(item)}}){Text("Add connecting leg")}},dismissButton={TextButton(onClick={connector=null}){Text("Cancel")}}) }
 }

@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -131,7 +132,9 @@ fun ChatPanel(onDismiss: () -> Unit) {
     val voice by VoiceState.state.collectAsState(context = kotlinx.coroutines.Dispatchers.Main.immediate)
     val language by LocalLanguageModel.state.collectAsState(context = kotlinx.coroutines.Dispatchers.Main.immediate)
     val context = LocalContext.current
-    var text by remember { mutableStateOf("") }
+    val fieldKey = "live.talk.${LiveSession.epoch}"
+    var text by rememberSaveable(fieldKey) { mutableStateOf("") }
+    var showVoiceSetup by rememberSaveable { mutableStateOf(false) }
     val keyboard=androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val focus=androidx.compose.ui.platform.LocalFocusManager.current
     var requestedAction by remember { mutableStateOf(VoiceService.LISTEN) }
@@ -150,29 +153,14 @@ fun ChatPanel(onDismiss: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().imePadding().padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Talk to Mirage", style = MaterialTheme.typography.titleLarge)
-            Text(language, style = MaterialTheme.typography.bodySmall)
-            if (!LocalLanguageModel.ready) {
-                Row {
-                    TextButton(onClick = { LocalLanguageModel.download() }) { Text("Download advanced voice · 610 MB") }
-                    if (language.startsWith("Downloading")) TextButton(onClick = { LocalLanguageModel.cancelDownload() }) { Text("Cancel download") }
-                }
-                Text("One-time download, preferably on Wi-Fi. Afterwards, language understanding runs offline.", style = MaterialTheme.typography.bodySmall)
-            }
-            Text(voice.status, color = if (voice.listening) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+            if (voice.enabled) Text(voice.status, color = if (voice.listening) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
             Row {
                 TextButton(onClick = {
-                    SmartVoice.cancel(); Conversation.cancelPending()
-                    if(voice.listening || chat.busy) context.stopService(Intent(context,VoiceService::class.java)) else requestVoice(VoiceService.LISTEN)
-                }) { Text(if(voice.listening || chat.busy) "Cancel listening / request" else "🎙 Speak now") }
-                TextButton(onClick = {
-                    if (voice.enabled) context.stopService(Intent(context, VoiceService::class.java)) else requestVoice(VoiceService.ENABLE)
+                    if (voice.enabled) context.stopService(Intent(context, VoiceService::class.java))
+                    else if (!LocalLanguageModel.ready) showVoiceSetup = true else requestVoice(VoiceService.ENABLE)
                 }) { Text(if (voice.enabled) "Microphone off" else "Enable Hello Mirage") }
             }
             Text(when { voice.listening -> "Listening"; chat.busy -> "Understanding your request…"; Conversation.needsReply() -> "Review the proposed change"; else -> "Ready" },style=MaterialTheme.typography.titleSmall)
-            if (voice.transcript.isNotBlank()) {
-                Text("Heard: ${voice.transcript}")
-                TextButton(onClick={SmartVoice.cancel();Conversation.cancelPending();text=voice.transcript}) {Text("Correct these words")}
-            }
             val scroll = rememberScrollState()
             LaunchedEffect(chat.lines.size, chat.choices.size) { scroll.animateScrollTo(scroll.maxValue) }
             Column(Modifier.fillMaxWidth().heightIn(min = 100.dp, max = 300.dp).verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -192,12 +180,17 @@ fun ChatPanel(onDismiss: () -> Unit) {
             }
             if (chat.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = text, onValueChange = { text = it }, placeholder = { Text("Tell Mirage what to do…") }, modifier = Modifier.weight(1f), maxLines = 3)
-                Button(onClick = { keyboard?.hide();focus.clearFocus();Conversation.submit(text); text = "" }, enabled = text.isNotBlank()) { Text("Send") }
+                VoiceTextField(value = text, onValueChange = { text = it }, fieldKey = fieldKey, labelText = "Live trip instruction", kind = "text",
+                    context = "An instruction for the current simulated trip. Clarify only the editable words; Send is the separate action that submits it.",
+                    placeholder = { Text("Tell Mirage what to do…") }, modifier = Modifier.weight(1f), maxLines = 3)
+                Button(onClick = { keyboard?.hide();focus.clearFocus();discardVoiceField(context,fieldKey);Conversation.submit(text); text = "" }, enabled = text.isNotBlank()) { Text("Send") }
             }
             Text("Voice is processed on this phone. Place search and routing use your Maps connection. Hands-free stays enabled until you turn the microphone off.", style = MaterialTheme.typography.bodySmall)
         }
     }
+    if (showVoiceSetup) VoiceSetupSheet(onDismiss = { showVoiceSetup = false }, onUseMicrophone = {
+        showVoiceSetup = false; requestVoice(VoiceService.ENABLE)
+    })
 }
 
 /** Map-first live summary; editing and diagnostics live behind Details. */

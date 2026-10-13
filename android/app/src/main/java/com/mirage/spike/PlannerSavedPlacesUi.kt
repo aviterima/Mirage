@@ -8,6 +8,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -27,15 +29,19 @@ internal fun PlannerSavedPlacesSheet(
     onPick: (SavedScenario) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var query by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val fieldKey = "planner.savedPlaces.$target"
+    var query by rememberSaveable(target) { mutableStateOf("") }
+    val dismiss = { discardVoiceField(context, fieldKey); onDismiss() }
     val matches = savedItemSearch(places, query, "SNAP").filter { it.dest != null }
-    ModalBottomSheet(onDismissRequest = onDismiss,
+    ModalBottomSheet(onDismissRequest = dismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().imePadding().navigationBarsPadding().padding(16.dp)
             .testTag("plannerSavedPlaces"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Saved places", style = MaterialTheme.typography.titleLarge)
             Text("Choose $target", style = MaterialTheme.typography.bodyMedium)
-            OutlinedTextField(query, { query = it }, label = { Text("Search names, aliases or addresses") },
+            VoiceTextField(query, { query = it }, fieldKey, "Search names, aliases or addresses", kind = "text",
+                context = "Filter saved places for $target. Return only the search words; do not change the trip.",
                 singleLine = true, modifier = Modifier.fillMaxWidth().testTag("plannerSavedPlaceSearch"))
             if (matches.isEmpty()) {
                 Text(if (places.none { it.kind == "SNAP" && it.dest != null })
@@ -45,10 +51,10 @@ internal fun PlannerSavedPlacesSheet(
             LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false),
                 verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 items(matches, key = { it.id }) { place ->
-                    SavedPlannerPlaceRow(place, Modifier.testTag("plannerSavedPlace-${place.id}")) { onPick(place) }
+                    SavedPlannerPlaceRow(place, Modifier.testTag("plannerSavedPlace-${place.id}")) { discardVoiceField(context, fieldKey); onPick(place) }
                 }
             }
-            TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
+            TextButton(onClick = dismiss, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
         }
     }
 }

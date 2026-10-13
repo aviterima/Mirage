@@ -20,10 +20,10 @@ object TripRecovery {
     @Volatile private var suppressedEpoch=-1L
     @Volatile var failure: String?=null
         private set
-    @Volatile var draftGeneration: Long = 0L
-        private set
+    val draftGeneration: Long get() = InputDraftStore.draftGeneration
     fun configure(context: Context) {
         if(prefs!=null) return
+        InputDraftStore.configure(context)
         prefs=context.applicationContext.getSharedPreferences("mirage_recovery",Context.MODE_PRIVATE)
         observer=scope.launch {
             launch { LiveSession.state.map { Triple(it.stops,it.index,it.activity) }.distinctUntilChanged().collect { checkpoint() } }
@@ -48,18 +48,27 @@ object TripRecovery {
         RecoveredTrip(SavedScenario.fromJson(json.getJSONObject("scenario")),LatLng(json.getDouble("lat"),json.getDouble("lng")),
             json.getInt("index"),ActivityKind.valueOf(json.getString("activity")),json.getInt("stay"),json.optString("savedId").takeIf {it.isNotBlank() && it!="null"},json.optDouble("timeScale",1.0).coerceIn(1.0,100.0),json.optDouble("speedOffset",0.0).coerceIn(-10.0,15.0),json.optDouble("routeProgress",Double.NaN).takeIf {it.isFinite() && it in 0.0..1.0})
     }.getOrNull()
-    fun draft(): SavedScenario? = prefs?.getString("draft",null)?.let {runCatching{SavedScenario.fromJson(JSONObject(it))}.getOrNull()}
+    fun draft(): SavedScenario? = InputDraftStore.readRecovery("draft")?.let {runCatching{SavedScenario.fromJson(JSONObject(it))}.getOrNull()}
+    fun plannerSnapshot(): PlannerSnapshot? = InputDraftStore.readRecovery("plannerSnapshot")?.let {
+        runCatching { PlannerSnapshot.fromJson(JSONObject(it)).takeIf { snapshot -> snapshot.draftGeneration == draftGeneration } }.getOrNull()
+    }
+    @Synchronized fun savePlannerIfCurrent(snapshot: PlannerSnapshot, generation: Long): Boolean {
+        if (generation != draftGeneration || snapshot.draftGeneration != generation) return false
+        val saved = InputDraftStore.saveRecovery(mapOf("plannerSnapshot" to snapshot.toJson().toString(),
+            "draft" to snapshot.scenario.toJson().toString()), generation)
+        failure = if (saved) null else "Could not preserve the latest planner draft"
+        return saved
+    }
     fun saveDraft(item: SavedScenario) { saveDraftIfCurrent(item, draftGeneration) }
     /** A delayed autosave captured before Clear must never recreate the previous draft. */
     @Synchronized fun saveDraftIfCurrent(item: SavedScenario, generation: Long): Boolean {
         if (generation != draftGeneration) return false
-        val saved = prefs?.edit()?.putString("draft", item.toJson().toString())?.commit() == true
+        val saved = InputDraftStore.saveRecovery(mapOf("draft" to item.toJson().toString()), generation)
         failure = if (saved) null else "Could not preserve the latest draft"
         return saved
     }
     @Synchronized fun clearDraft(): Boolean {
-        draftGeneration++
-        val cleared = prefs?.edit()?.remove("draft")?.commit() ?: true
+        val cleared = InputDraftStore.resetPlannerRecovery()
         failure = if (cleared) null else "Could not clear the saved draft. Try New itinerary again."
         return cleared
     }

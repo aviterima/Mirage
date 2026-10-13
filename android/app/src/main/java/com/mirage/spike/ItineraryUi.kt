@@ -5,8 +5,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontWeight
 import com.mirage.spike.engine.*
@@ -15,8 +17,10 @@ import com.mirage.spike.engine.*
 @Composable
 fun MyItinerarySheet(vm: MirageViewModel, onDismiss: () -> Unit, onAdd: () -> Unit, onReplace: (String)->Unit = {}) {
     val session by LiveSession.state.collectAsState(context = kotlinx.coroutines.Dispatchers.Main.immediate)
-    var saveNew by remember { mutableStateOf(false) }
-    var name by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val nameKey = "live.itinerary.${LiveSession.epoch}.name"
+    var saveNew by rememberSaveable { mutableStateOf(false) }
+    var name by rememberSaveable { mutableStateOf("") }
     var message by remember { mutableStateOf("") }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().heightIn(max = 620.dp).navigationBarsPadding().padding(horizontal = 16.dp),
@@ -78,13 +82,14 @@ fun MyItinerarySheet(vm: MirageViewModel, onDismiss: () -> Unit, onAdd: () -> Un
             TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Back to map") }
         }
     }
-    if (saveNew) AlertDialog(onDismissRequest = { saveNew = false }, title = { Text("Save itinerary") }, text = {
+    if (saveNew) AlertDialog(onDismissRequest = { discardVoiceField(context, nameKey); saveNew = false }, title = { Text("Save itinerary") }, text = {
         Column {
-            OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Itinerary name") }, singleLine = true, modifier = Modifier.testTag("itineraryName"))
+            VoiceTextField(value = name, onValueChange = { name = it }, fieldKey = nameKey, labelText = "Itinerary name", kind = "name",
+                context = "Name the itinerary being saved; saving is a separate action.", singleLine = true, modifier = Modifier.testTag("itineraryName"))
             if (vm.error != null) Text(vm.error!!, color = MaterialTheme.colorScheme.error)
         }
     }, confirmButton = { Button(onClick = {
-        if (vm.saveActiveScenario(name)) { saveNew = false; message = "Saved $name" }
+        if (vm.saveActiveScenario(name)) { discardVoiceField(context, nameKey); saveNew = false; message = "Saved $name" }
     }, enabled = name.isNotBlank(), modifier = Modifier.testTag("confirmSaveItinerary")) { Text("Save") } },
-        dismissButton = { TextButton(onClick = { saveNew = false }) { Text("Cancel") } })
+        dismissButton = { TextButton(onClick = { discardVoiceField(context, nameKey); saveNew = false }) { Text("Cancel") } })
 }

@@ -9,9 +9,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -47,17 +49,21 @@ fun ContinuationPreviewBar(planner: ContinuationPlanner, onConfirm: () -> Unit) 
 fun ContinuationSheet(planner: ContinuationPlanner, saved: List<SavedScenario>, onConfirm: () -> Unit, onStop: () -> Unit, onHike: () -> Unit = {}) {
     val d = planner.state ?: return
     if (!d.editorOpen) return
+    val context = LocalContext.current
     val keyboard = LocalSoftwareKeyboardController.current
-    var filter by remember(d.source) { mutableStateOf("") }
+    val queryKey = "live.continuation.${d.epoch}.${d.replaceId ?: "addition"}.query"
+    val filterKey = "live.continuation.${d.epoch}.${d.source}.filter"
+    fun discardInputs() { discardVoiceField(context, queryKey); discardVoiceField(context, filterKey) }
+    var filter by rememberSaveable(d.source) { mutableStateOf("") }
     var savedMessage by remember(d.stops) { mutableStateOf("") }
-    ModalBottomSheet(onDismissRequest = { if (d.stops.isEmpty()) planner.cancel() else planner.edit(false) },
+    ModalBottomSheet(onDismissRequest = { if (d.stops.isEmpty()) { discardInputs(); planner.cancel() } else planner.edit(false) },
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().heightIn(max = 590.dp).imePadding().navigationBarsPadding()
             .verticalScroll(rememberScrollState()).padding(horizontal = 18.dp).testTag("continuationEditor"),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text(if(d.replaceId!=null) "Replace upcoming stop" else "Add stop", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                TextButton(onClick = planner::cancel) { Text("Cancel") }
+                TextButton(onClick = { discardInputs(); planner.cancel() }) { Text("Cancel") }
             }
             // All sources stay visible: no sideways scrolling to discover saved content.
             DestinationSource.entries.chunked(2).forEach { sources ->
@@ -81,14 +87,15 @@ fun ContinuationSheet(planner: ContinuationPlanner, saved: List<SavedScenario>, 
             }
             if (d.stops.isEmpty()) {
                 if (d.source == DestinationSource.SEARCH) {
-                    OutlinedTextField(value = d.query, onValueChange = { planner.query(it) },
-                        label = { Text("Place, address and city") }, singleLine = true,
+                    VoiceTextField(value = d.query, onValueChange = { planner.query(it) }, fieldKey = queryKey,
+                        labelText = "Place, address and city", kind = "place", singleLine = true,
+                        context = "Find a destination for the current simulated trip. A result must be selected and confirmed separately.",
                         modifier = Modifier.fillMaxWidth().testTag("continuationQuery"),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(onSearch = { keyboard?.hide(); planner.query(d.query, true) }))
                     if (d.searching) LinearProgressIndicator(Modifier.fillMaxWidth())
                     d.hits.forEach { hit ->
-                        Column(Modifier.fillMaxWidth().clickable { keyboard?.hide(); planner.pick(hit) }.padding(vertical = 8.dp)) {
+                        Column(Modifier.fillMaxWidth().clickable { keyboard?.hide(); discardInputs(); planner.pick(hit) }.padding(vertical = 8.dp)) {
                             Text(hit.name, fontWeight = FontWeight.SemiBold)
                             Text(hit.address.ifBlank { "${hit.latLng.lat}, ${hit.latLng.lng}" }, style = MaterialTheme.typography.bodySmall)
                             runCatching { planner.origin(d) }.getOrNull()?.let {
@@ -98,7 +105,8 @@ fun ContinuationSheet(planner: ContinuationPlanner, saved: List<SavedScenario>, 
                         HorizontalDivider()
                     }
                 } else {
-                    OutlinedTextField(value = filter, onValueChange = { filter = it }, label = { Text("Find a saved item") },
+                    VoiceTextField(value = filter, onValueChange = { filter = it }, fieldKey = filterKey, labelText = "Find a saved item",
+                        context = "Filter saved ${d.source.label.lowercase()}; do not execute a trip instruction.",
                         modifier = Modifier.fillMaxWidth(), singleLine = true)
                     val items = com.mirage.spike.store.savedItemSearch(saved,filter,d.source.name)
                     Text("Favorites first, then recently used",style=MaterialTheme.typography.bodySmall)
@@ -112,10 +120,10 @@ fun ContinuationSheet(planner: ContinuationPlanner, saved: List<SavedScenario>, 
                                 else -> item.destAddress.ifBlank { item.destName }
                             }, style = MaterialTheme.typography.bodySmall)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = { keyboard?.hide(); planner.saved(item) }, modifier = Modifier.testTag("continueSaved-${item.id}")) {
+                                Button(onClick = { keyboard?.hide(); discardInputs(); planner.saved(item) }, modifier = Modifier.testTag("continueSaved-${item.id}")) {
                                     Text(when(d.source) { DestinationSource.ITINERARY -> "Use itinerary"; DestinationSource.ROUTE -> "Use route"; else -> "Add place" })
                                 }
-                                if (d.source == DestinationSource.ROUTE) TextButton(onClick = { keyboard?.hide(); planner.saved(item, true) }) { Text("Destination only") }
+                                if (d.source == DestinationSource.ROUTE) TextButton(onClick = { keyboard?.hide(); discardInputs(); planner.saved(item, true) }) { Text("Destination only") }
                             }
                         }
                         HorizontalDivider()
@@ -186,7 +194,7 @@ fun ContinuationSheet(planner: ContinuationPlanner, saved: List<SavedScenario>, 
             }
             if (d.stops.isNotEmpty()) {
                 OutlinedButton(onClick = { keyboard?.hide(); planner.edit(false) }, modifier = Modifier.fillMaxWidth()) { Text("Review on map") }
-                Button(onClick = { keyboard?.hide(); onConfirm() }, enabled = d.ready && !d.previewBusy,
+                Button(onClick = { keyboard?.hide(); discardInputs(); onConfirm() }, enabled = d.ready && !d.previewBusy,
                     modifier = Modifier.fillMaxWidth().testTag("confirmContinuation")) { Text(if(d.replaceId!=null) "Replace upcoming stop" else actionLabel(d)) }
             }
             TextButton(onClick = onStop, modifier = Modifier.fillMaxWidth()) { Text("Stop simulation") }

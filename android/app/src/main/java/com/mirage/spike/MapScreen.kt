@@ -224,6 +224,7 @@ fun MapScreen(
     var showUpcoming by remember { mutableStateOf(false) }
     var orderProposal by remember { mutableStateOf<List<ItineraryStop>?>(null) }
     var showPlannerSettings by remember { mutableStateOf(false) }
+    var showDeparture by rememberSaveable { mutableStateOf(false) }
     var showAdvanced by remember { mutableStateOf(false) }
     var showLiveDetails by remember { mutableStateOf(false) }
     var follow by remember { mutableStateOf(true) }
@@ -244,6 +245,10 @@ fun MapScreen(
     val speech by PlannerSpeech.state.collectAsState()
     val voice by VoiceState.state.collectAsState()
     val plannerChat by Conversation.state.collectAsState()
+    val planReview by vm.planning.state.collectAsState()
+    val plannerEntryPrefixes = remember { mutableMapOf<Field, String>() }
+    val plannerEntryBaselines = remember { mutableMapOf<Field, String>() }
+    val plannerLifecycle = androidx.compose.ui.platform.LocalLifecycleOwner.current.lifecycle
     var requestedSpeech by remember { mutableStateOf<Long?>(null) }
     val launchDictation: (Long) -> Unit = { id ->
         if (PlannerSpeech.isActive(id)) runCatching {
@@ -262,23 +267,47 @@ fun MapScreen(
         context.stopService(Intent(context, VoiceService::class.java))
         Unit
     }
+    val finishDictation = { PlannerSpeech.requestFinish(PlannerSpeech.state.value.requestId) }
+    androidx.compose.runtime.DisposableEffect(plannerLifecycle, context, vm) {
+        fun preserveEditing() {
+            val current = PlannerSpeech.state.value
+            if (current.active && current.target != null) {
+                val words = listOf(current.prefix, current.transcript).filter { it.isNotBlank() }.joinToString(" ")
+                if (words.isNotBlank()) savePlannerEntry(if (current.target == Field.START) "start" else "end",
+                    plannerEntryBaselines[current.target].orEmpty(), words)
+                PlannerSpeech.interrupt(current.requestId)
+                context.stopService(Intent(context, VoiceService::class.java))
+            }
+            val snapshot = vm.capturePlanner()
+            TripRecovery.savePlannerIfCurrent(snapshot, snapshot.draftGeneration)
+        }
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) preserveEditing()
+        }
+        plannerLifecycle.addObserver(observer)
+        onDispose { plannerLifecycle.removeObserver(observer); preserveEditing() }
+    }
     val beginDictation: (Field) -> Unit = { field ->
         keyboard?.hide(); focus.clearFocus()
-        if (vm.activeField != field || !Conversation.needsReply()) Conversation.clearPlannerFeedback()
         vm.clearSuggestions(); vm.activeField = field
-        val id = PlannerSpeech.begin(field)
+        val id = PlannerSpeech.begin(field, plannerEntryPrefixes[field].orEmpty())
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) launchDictation(id)
         else { requestedSpeech = id; microphonePermission.launch(Manifest.permission.RECORD_AUDIO) }
     }
     val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     // Saved plans and the user's own key live on the device.
     val keyStore = remember { PrefsKeyStore(context) }
-    val recovery = remember { TripRecovery.configure(context); TripRecovery.live() }
+    val initialPlanner = remember { TripRecovery.configure(context); TripRecovery.plannerSnapshot() }
+    val recovery = remember {
+        if (!status.running && !vm.canSaveScenario) initialPlanner?.let(vm::restorePlanner)
+        vm.planning.restorePending()
+        TripRecovery.live()
+    }
     var recoveredDraft by remember { mutableStateOf(TripRecovery.draft()) }
-    var showRecovery by remember { mutableStateOf(!status.running && !vm.canSaveScenario && (recovery != null || recoveredDraft != null)) }
+    var showRecovery by remember { mutableStateOf(!status.running && (recovery != null || (!vm.canSaveScenario && initialPlanner == null && recoveredDraft != null))) }
     LaunchedEffect(Unit) {
-        androidx.compose.runtime.snapshotFlow { vm.draftGeneration to vm.draftSnapshot() }.debounce(400).collect { (generation, draft) ->
-            if (draft != null) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { TripRecovery.saveDraftIfCurrent(draft, generation) }
+        androidx.compose.runtime.snapshotFlow { vm.capturePlanner() }.debounce(200).collect { draft ->
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { TripRecovery.savePlannerIfCurrent(draft, draft.draftGeneration) }
         }
     }
     LaunchedEffect(Unit) {
@@ -496,8 +525,16 @@ fun MapScreen(
             else -> vm.startName
         }
         val endLabel = vm.dest?.let { vm.destName } ?: ""
-        var startQuery by rememberSaveable { mutableStateOf("") }
-        var endQuery by rememberSaveable { mutableStateOf("") }
+        var startQuery by rememberSaveable { mutableStateOf(readPlannerEntry("start", startLabel)) }
+        var endQuery by rememberSaveable { mutableStateOf(readPlannerEntry("end", endLabel)) }
+        var inputStatus by rememberSaveable { mutableStateOf("") }
+        var previousStartLabel by remember { mutableStateOf(startLabel) }
+        var previousEndLabel by remember { mutableStateOf(endLabel) }
+        androidx.compose.runtime.SideEffect {
+            plannerEntryBaselines[Field.START] = startLabel; plannerEntryBaselines[Field.END] = endLabel
+            plannerEntryPrefixes[Field.START] = startQuery.takeUnless { it == startLabel || (planReview.candidate != null && it == planReview.input) }.orEmpty().trim()
+            plannerEntryPrefixes[Field.END] = endQuery.takeUnless { it == endLabel || (planReview.candidate != null && it == planReview.input) }.orEmpty().trim()
+        }
         var startFocused by remember { mutableStateOf(false) }
         var endFocused by remember { mutableStateOf(false) }
         var snapMenu by remember { mutableStateOf<Field?>(null) }
@@ -511,24 +548,35 @@ fun MapScreen(
         }
         // The boxes always show the chosen place: a pick, a map tap or a snap wins over
         // whatever was being typed.
-        LaunchedEffect(startLabel) { if (startLabel.isNotBlank()) startQuery = startLabel }
-        LaunchedEffect(endLabel) { if (endLabel.isNotBlank()) endQuery = endLabel }
+        LaunchedEffect(startLabel) {
+            if (startLabel != previousStartLabel) startQuery = startLabel
+            previousStartLabel = startLabel
+        }
+        LaunchedEffect(endLabel) {
+            if (endLabel != previousEndLabel) endQuery = endLabel
+            previousEndLabel = endLabel
+        }
+        LaunchedEffect(startQuery, endQuery, startLabel, endLabel, vm.draftGeneration) {
+            savePlannerEntry("start", startLabel, startQuery)
+            savePlannerEntry("end", endLabel, endQuery)
+        }
         val syncBoxes = {
             startQuery = startLabel
             endQuery = endLabel
         }
         val done = { keyboard?.hide(); focus.clearFocus() }
         val editEntry: (Field, String) -> Unit = { field, value ->
+            inputStatus = ""
             if (speech.active) cancelDictation()
-            val replying = vm.activeField == field && Conversation.needsReply() && isPlannerReplyPrefix(value)
-            if (!replying) Conversation.clearPlannerFeedback()
+            val replying = Conversation.needsReply() && isPlannerReplyPrefix(value)
             if (field == Field.START) startQuery = value else endQuery = value
             if (replying || isPlannerInstruction(value)) {
                 vm.activeField = field; vm.clearSuggestions()
             } else vm.editLocationQuery(field, value, camera.position.target.toE(), preserveSelection = true)
         }
         val clearEntry: (Field) -> Unit = { field ->
-            cancelDictation(); Conversation.clearPlannerFeedback()
+            cancelDictation(); Conversation.clearPlannerFeedback(); vm.planning.reset()
+            inputStatus = ""
             if (field == Field.START) startQuery = "" else endQuery = ""
             vm.editLocationQuery(field, "", camera.position.target.toE())
         }
@@ -542,10 +590,17 @@ fun MapScreen(
         }
         LaunchedEffect(speech.requestId, speech.transcript, speech.complete) {
             val field = speech.target
-            if (field != null && speech.complete) {
-                val words = speech.transcript.trim()
+            if (field != null && speech.transcript.isNotBlank()) {
+                val words = listOf(speech.prefix, speech.transcript.trim()).filter { it.isNotBlank() }.joinToString(" ")
+                if (speech.complete) {
+                    PlannerSpeech.consume(speech.requestId)
+                    editEntry(field, words)
+                    inputStatus = if (speech.interrupted) "Recording interrupted. Your words are kept for review." else "Ready for review. Edit the words if needed."
+                } else {
+                    if (field == Field.START) startQuery = words else endQuery = words
+                }
+            } else if (speech.complete) {
                 PlannerSpeech.consume(speech.requestId)
-                if (words.isNotBlank()) editEntry(field, words)
             }
         }
         val openSavedPlaces: (Field) -> Unit = { field ->
@@ -567,12 +622,13 @@ fun MapScreen(
                 place.dest?.let { goTo(it) }
             }
         }
-        val onEnter: (Field, String) -> Unit = { field, q ->
-            done()
-            cancelDictation(); vm.activeField = field
-            if (q.isNotBlank()) {
-                if (isPlannerInstruction(q) || (Conversation.needsReply() && isPlannerReply(q))) { vm.clearSuggestions(); Conversation.submitPlanner(q, field, vm.planMode) }
-                else vm.search(q) { p -> syncBoxes(); goTo(p) }
+        val reviewEntry: (Field, String) -> Unit = { field, q ->
+            done(); vm.activeField = field; vm.clearSuggestions()
+            if (Conversation.needsReply() || Regex("(?i)^\\s*(?:please\\s+)?save\\b").containsMatchIn(q)) {
+                Conversation.submitPlanner(q, field, vm.planMode)
+            } else {
+                Conversation.clearPlannerFeedback()
+                vm.planning.propose(q, field)
             }
         }
         val snapReal: (Field) -> Unit = { field ->
@@ -681,7 +737,7 @@ fun MapScreen(
                             LocationBox(
                                 value = startQuery,
                                 onValueChange = { editEntry(Field.START, it) },
-                                placeholder = "Start · search, long-press the map, or ⌖",
+                                placeholder = "Starting place or instruction",
                                 dot = GREEN,
                                 onFocus = { f ->
                                     startFocused = f
@@ -690,12 +746,12 @@ fun MapScreen(
                                         if (vm.activeField != Field.START) Conversation.clearPlannerFeedback()
                                         vm.activeField = Field.START; vm.clearSuggestions()
                                     }
-                                    else if (startQuery.isBlank()) { startQuery = startLabel; vm.clearSuggestions() }
+                                    else vm.clearSuggestions()
                                 },
-                                onEnter = { onEnter(Field.START, startQuery) },
+                                onEnter = { reviewEntry(Field.START, startQuery) },
                                 trailing = { snapButton(Field.START, true) },
                                 microphone = { PlannerMicrophone(onListen = { beginDictation(Field.START) }, modifier = Modifier.testTag("plannerMicStart"),
-                                    contentDescription = "Speak starting place", listening = speech.active && speech.target == Field.START, onCancel = cancelDictation) },
+                                    contentDescription = "Speak starting place", listening = speech.active && speech.target == Field.START, onCancel = finishDictation) },
                                 onClear = { clearEntry(Field.START) },
                                 clearTag = "plannerClearStart",
                                 label = "Start",
@@ -709,14 +765,16 @@ fun MapScreen(
                             TextButton(onClick={done();vm.hiking.open(vm.hikingLocation()?.point ?: camera.position.target.toE())},modifier=Modifier.testTag("plannerAddTrail")) {Text("+ Add hiking trail")}
                         }
                         // THE CHAIN (Itinerary): every stop, editable in place, with the clock.
-                        if (vm.planMode == PlanMode.ITINERARY && vm.stops.isNotEmpty()) {
+                        if (planReview.candidate != null) {
+                            PlannerCandidatePreview(planReview.candidate!!)
+                        } else if (vm.planMode == PlanMode.ITINERARY && vm.stops.isNotEmpty()) {
                             Column(Modifier.testTag("plannerPreview")) {
                             val stopsNow = vm.stops.toList()
                             val tl = remember(stopsNow, vm.start, status.running, vm.departureMillis) { vm.timeline() }
                             Text("Your itinerary · ${stopsNow.size} stops", style = MaterialTheme.typography.titleSmall)
                             Text("Estimated · ${tl.sumOf{it.legMinutes}} min travel + ${stopsNow.sumOf{it.dwellMinutes}} min stays" + (tl.lastOrNull()?.let { " · finish ${tripTime(it.leaveMillis)}" } ?: ""),style=MaterialTheme.typography.bodySmall)
                             Row {
-                                TextButton(onClick={chooseTripTime(context,vm.departureMillis ?: System.currentTimeMillis()){vm.departureMillis=it}}){Text("Departure")}
+                                TextButton(onClick={showDeparture=true}){Text("Departure")}
                                 TextButton(onClick={runCatching{TripPlanning.suggest(vm.tripStart() ?: stopsNow.first().point,stopsNow)}.onSuccess{orderProposal=it}.onFailure{vm.error=it.message}}){Text("Suggest order")}
                             }
                             Row {
@@ -745,9 +803,9 @@ fun MapScreen(
                             value = endQuery,
                             onValueChange = { editEntry(Field.END, it) },
                             placeholder = when (vm.planMode) {
-                                PlanMode.SNAP -> "Place · search, tap the map, or ⌖"
-                                PlanMode.ROUTE -> "End · search, tap the map, or ⌖"
-                                PlanMode.ITINERARY -> if (vm.stops.isEmpty()) "First stop · search, tap the map, or ⌖" else "Add a stop · search, tap the map, or ⌖"
+                                PlanMode.SNAP -> "Search for a place or describe it"
+                                PlanMode.ROUTE -> "Destination or describe your plan"
+                                PlanMode.ITINERARY -> "Next stop or describe your itinerary"
                             },
                             dot = if (vm.planMode == PlanMode.SNAP) ACCENT else VIOLET,
                             onFocus = { f ->
@@ -757,13 +815,13 @@ fun MapScreen(
                                     if (vm.activeField != Field.END) Conversation.clearPlannerFeedback()
                                     vm.activeField = Field.END; vm.clearSuggestions()
                                 }
-                                else if (endQuery.isBlank()) { endQuery = endLabel; vm.clearSuggestions() }
+                                else vm.clearSuggestions()
                             },
-                            onEnter = { onEnter(Field.END, endQuery) },
+                            onEnter = { reviewEntry(Field.END, endQuery) },
                             trailing = { snapButton(Field.END, false) },
                             microphone = { PlannerMicrophone(onListen = { beginDictation(Field.END) }, modifier = Modifier.testTag("plannerMicEnd"),
                                 contentDescription = if (vm.planMode == PlanMode.ITINERARY) "Speak next stop" else "Speak destination",
-                                listening = speech.active && speech.target == Field.END, onCancel = cancelDictation) },
+                                listening = speech.active && speech.target == Field.END, onCancel = finishDictation) },
                             onClear = { clearEntry(Field.END) },
                             clearTag = "plannerClearEnd",
                             label = when (vm.planMode) {
@@ -780,8 +838,16 @@ fun MapScreen(
                             if (voice.listening) "Listening… ${speech.transcript}" else "Preparing microphone…",
                             Modifier.padding(horizontal = 8.dp).testTag("plannerListening"), style = MaterialTheme.typography.bodySmall)
                         else if (vm.suggestBusy) Text("Searching…", Modifier.padding(horizontal = 8.dp), style = MaterialTheme.typography.bodySmall)
-                        if (isPlannerInstruction(entry) || (Conversation.needsReply() && isPlannerReply(entry))) TextButton(
-                            onClick = { onEnter(vm.activeField, entry) }, modifier = Modifier.testTag("plannerInputSubmit")) { Text("Review instruction") }
+                        else if (inputStatus.isNotBlank()) Text(inputStatus, Modifier.padding(horizontal = 8.dp).testTag("plannerInputStatus"), style = MaterialTheme.typography.bodySmall)
+                        val selectedLabel = if (vm.activeField == Field.START) startLabel else endLabel
+                        if (entry.isNotBlank() && (entry != selectedLabel || planReview.candidate != null || Conversation.needsReply())) TextButton(enabled = !speech.active && !planReview.busy && !plannerChat.busy,
+                            onClick = { reviewEntry(vm.activeField, entry) }, modifier = Modifier.testTag("plannerInputSubmit")) { Text("Review instruction") }
+                        PlannerReviewFeedback(vm.planning, onApplied = {
+                            startQuery = vm.startName; endQuery = vm.dest?.let { vm.destName }.orEmpty()
+                            inputStatus = ""
+                        })
+                        if (vm.draftUndoAvailable && (vm.planMode != PlanMode.ITINERARY || planReview.candidate != null))
+                            TextButton(onClick = vm::undoDraftStops, modifier = Modifier.testTag("plannerUndo")) { Text("Undo last change") }
                         PlannerConversationFeedback(Modifier.padding(top = 4.dp))
                         }
                         if (vm.planMode == PlanMode.ROUTE) {
@@ -875,14 +941,15 @@ fun MapScreen(
                 TripRecovery.failure?.let {Text(it,color=RED)}
                 vm.error?.let { Text(it,color=RED);TextButton(onClick={vm.clearError()}){Text("Dismiss")}}
                 val pendingEntry = (vm.planMode != PlanMode.SNAP && startQuery != startLabel) || endQuery != endLabel
-                if (speech.active || plannerChat.busy || Conversation.needsReply() || pendingEntry) {
+                if (speech.active || planReview.busy || planReview.candidate != null || planReview.question.isNotBlank() || plannerChat.busy || Conversation.needsReply() || pendingEntry) {
                     BigButton("Finish or clear the current entry", enabled = false, icon = null, onClick = {})
                 } else PrimaryAction(vm, false, actions)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     TextButton(onClick = {
                         val name=vm.draftSavedName
                         if(name==null)showSaved=true else if(vm.saveScenario(name,true))vm.notice="Changes saved"
-                    },modifier=Modifier.weight(1f)) { Text(if(vm.draftSavedName==null) "Save" else "Save changes") }
+                    },enabled = !speech.active && !planReview.busy && planReview.candidate == null && planReview.question.isBlank() && !pendingEntry,
+                        modifier=Modifier.weight(1f)) { Text(if(vm.draftSavedName==null) "Save" else "Save changes") }
                     TextButton(onClick = { showPlannerSettings = true },modifier=Modifier.weight(1f)) { Text("Settings") }
                     TextButton(onClick = { done(); showNewItinerary = true }, enabled = !status.running,
                         modifier=Modifier.weight(1f).testTag("plannerNewItinerary")) { Text("Start new") }
@@ -894,9 +961,10 @@ fun MapScreen(
             title = { Text("Start a new itinerary?") },
             text = { Text("Clear this working plan and its instructions? Saved places and saved itineraries will stay in your library.") },
             confirmButton = { TextButton(onClick = {
-                cancelDictation()
                 if (vm.startNewItinerary()) {
+                    cancelDictation()
                     startQuery = vm.startName; endQuery = ""; newestStop = null; orderProposal = null
+                    inputStatus = ""
                     savedPlaceTarget = null; snapMenu = null; plannerPinPick = null; showRecovery = false; recoveredDraft = null
                 }
                 showNewItinerary = false
@@ -938,7 +1006,7 @@ fun MapScreen(
             if((if(target!=null)target.entrance else vm.arrivalEntrance)!=null) TextButton(onClick={vm.setEntrance(null)}) {Text("Remove entrance pin")}
 
             Text(vm.departureMillis?.let {"Departure ${tripTime(it)}"} ?: "Depart when started")
-            TextButton(onClick={chooseTripTime(context,vm.departureMillis ?: System.currentTimeMillis()){vm.departureMillis=it}}){Text("Set departure")}
+            TextButton(onClick={showDeparture=true}){Text("Set departure")}
             if(vm.departureMillis!=null)TextButton(onClick={vm.departureMillis=null}){Text("Depart when started")}
             if(recovery!=null || recoveredDraft!=null) TextButton(onClick={showPlannerSettings=false;showRecovery=true}) {Text("Recover previous trip")}
             if(vm.planMode==PlanMode.ROUTE) Row(verticalAlignment=Alignment.CenterVertically) {
@@ -1044,6 +1112,8 @@ fun MapScreen(
         )
     }
     if (showAudit) AuditDiagnosticsDialog(onDismiss = { showAudit = false })
+    if (showDeparture) VoiceTimeDialog("Departure", "planner.departure", vm.departureMillis,
+        onSet = { vm.departureMillis = it; showDeparture = false }, onDismiss = { showDeparture = false })
     if (showVoiceSetup) VoiceSetupSheet(onDismiss = { showVoiceSetup = false }, onUseMicrophone = {
         showVoiceSetup = false; beginDictation(vm.activeField)
     })
@@ -1089,14 +1159,14 @@ internal fun LocationBox(
             value = value,
             onValueChange = onValueChange,
             placeholder = { Text(placeholder, fontSize = 14.sp) },
-            singleLine = true,
+            singleLine = false, minLines = 1, maxLines = 3,
             textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent,
                 focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
             ),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { onEnter() }),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { onEnter() }),
             trailingIcon = microphone,
             modifier = Modifier.weight(1f).testTag(inputTag).bringIntoViewRequester(bringIntoView).onFocusChanged { focused=it.isFocused;onFocus(it.isFocused) },
         )
@@ -1438,8 +1508,9 @@ private fun SetupDialog(
                         if (hasKey) "Key configured ✓ — tap Test to verify every API" else "No key yet — paste one below, then Save & test",
                         fontSize = 12.sp, color = if (hasKey) GREEN else AMBER,
                     )
-                    OutlinedTextField(
+                    VoiceTextField(
                         value = keyText, onValueChange = { keyText = it.trim() }, singleLine = true,
+                        fieldKey = "setup.mapsKey", labelText = "Your Google Maps API key", kind = "verbatim", persistDraft = false,
                         label = { Text("Your Google Maps API key") }, placeholder = { Text("AIza…") },
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -1578,9 +1649,11 @@ internal fun DwellDialog(stopName: String, minutes: Int, onSet: (Int) -> Unit, o
     var selectedHold by remember(untilLeave) { mutableStateOf(untilLeave) }
     var selectedArrival by remember(arrival) { mutableStateOf(arrival) }
     var text by remember { mutableStateOf(minutes.toString()) }
+    var showArrivalTime by rememberSaveable { mutableStateOf(false) }
+    val fieldKey = "planner.stay.$stopName"
     val value = text.trim().toIntOrNull()
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { discardVoiceField(context, fieldKey); onDismiss() },
         title = { Text("Stay at $stopName") },
         text = {
             Column(Modifier.heightIn(max=450.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1588,11 +1661,11 @@ internal fun DwellDialog(stopName: String, minutes: Int, onSet: (Int) -> Unit, o
                 if(selectedArrival!=null && (onArrival!=null || onPreferences!=null)) ArrivalActivityPicker(selectedArrival!!) { selectedArrival=it }
                 Text("How long to stay before continuing the itinerary (0–1,440 minutes).", fontSize = 12.sp, color = MUTED)
                 if(onDeadline!=null) {
-                    TextButton(onClick={chooseTripTime(context,deadline ?: System.currentTimeMillis()){onDeadline(it)}}){Text(deadline?.let{"Arrive by ${tripTime(it)}"} ?: "Set arrival target")}
+                    TextButton(onClick={showArrivalTime=true}){Text(deadline?.let{"Arrive by ${tripTime(it)}"} ?: "Set arrival target")}
                     if(deadline!=null)TextButton(onClick={onDeadline(null)}){Text("Clear arrival target")}
                 }
-                OutlinedTextField(
-                    value = text, onValueChange = { text = it.filter { c -> c.isDigit() }.take(4) },
+                VoiceTextField(
+                    value = text, onValueChange = { text = it }, fieldKey = fieldKey, labelText = "Minutes", kind = "minutes",
                     label = { Text("Minutes") }, singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth(),
@@ -1604,9 +1677,11 @@ internal fun DwellDialog(stopName: String, minutes: Int, onSet: (Int) -> Unit, o
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { if(onPreferences!=null) value?.let {onPreferences(it,selectedHold,selectedArrival)} else {selectedArrival?.let { onArrival?.invoke(it) }; value?.let(onSet);onHold?.invoke(selectedHold)} }, enabled = value != null && value in 0..1440) { Text("Set") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = { discardVoiceField(context, fieldKey); if(onPreferences!=null) value?.let {onPreferences(it,selectedHold,selectedArrival)} else {selectedArrival?.let { onArrival?.invoke(it) }; value?.let(onSet);onHold?.invoke(selectedHold)} }, enabled = value != null && value in 0..1440) { Text("Set") } },
+        dismissButton = { TextButton(onClick = { discardVoiceField(context, fieldKey); onDismiss() }) { Text("Cancel") } },
     )
+    if (showArrivalTime && onDeadline != null) VoiceTimeDialog("Arrival target", "planner.arrival.$stopName", deadline,
+        onSet = { onDeadline(it); showArrivalTime = false }, onDismiss = { showArrivalTime = false })
 }
 
 // ---- Saved plans ------------------------------------------------------------------------

@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mirage.spike.audit.*
@@ -62,8 +63,10 @@ enum class PlanMode { SNAP, ROUTE, ITINERARY }
 
 /** Drives the map screen: endpoints, routing, average speed, itinerary, and simulation control. */
 class MirageViewModel(
+    val planInterpret: suspend (String, String) -> PlanInterpretation = NaturalLanguageInput::interpretPlan,
     val placeSearch: suspend (ApiConfig, String, LatLng?) -> List<PlaceHit> = { cfg, query, bias -> GooglePlaces(cfg).searchMany(query, bias, 8) },
 ) : ViewModel() {
+    val planning = PlannerReviewController(this, viewModelScope, planInterpret)
     /** A diagnostic snapshot deliberately has no place names, coordinates or input text. */
     fun auditState(field: Field? = activeField) = AuditState(
         planMode = planMode, phase = phase, field = field, stopCount = stops.size,
@@ -414,6 +417,13 @@ class MirageViewModel(
             auditEvent(AuditAction.PLANNER_MODE, AuditOutcome.BLOCKED, AuditDetails(control = AuditControl.REMOVE, reason = AuditReason.NOT_READY))
             return false
         }
+        // The durable tombstone and input reset must succeed before losing any current work.
+        if (!TripRecovery.clearDraft()) {
+            error = TripRecovery.failure
+            auditEvent(AuditAction.PLANNER_MODE, AuditOutcome.BLOCKED, AuditDetails(control = AuditControl.REMOVE, reason = AuditReason.STORAGE))
+            return false
+        }
+        planning.reset()
         Conversation.resetPlanningSession()
         continuation.cancel()
         hiking.close()
@@ -422,7 +432,7 @@ class MirageViewModel(
         invalidateRoute()
         loadedScenario = null
         stops.clear()
-        draftUndo = null; draftUndoAvailable = false; dwellEditIndex = null
+        draftUndo = null; plannerUndo = null; draftUndoAvailable = false; dwellEditIndex = null
         start = lastReal; startName = if (lastReal != null) "My location" else ""
         startAddress = ""; startPlaceId = ""; startFromReal = true
         useSimulatedStart = false; queueAfterCurrent = false
@@ -435,11 +445,9 @@ class MirageViewModel(
         timeScaleState = 1f
         planMode = PlanMode.ITINERARY; activeField = Field.END
         phase = Phase.IDLE; itineraryBusy = false; lastLocalAudit = null
-        val cleared = TripRecovery.clearDraft()
-        draftGeneration = TripRecovery.draftGeneration
-        error = if (cleared) null else TripRecovery.failure
+        error = null
         auditEvent(AuditAction.PLANNER_MODE, AuditOutcome.SUCCEEDED,
-            AuditDetails(control = AuditControl.REMOVE, reason = if (cleared) AuditReason.NONE else AuditReason.STORAGE))
+            AuditDetails(control = AuditControl.REMOVE))
         return true
     }
 
@@ -681,10 +689,22 @@ class MirageViewModel(
     // ---- Itinerary ----------------------------------------------------------------
 
     private var draftUndo: List<ItineraryStop>? = null
+    private data class PlannerUndo(val before: PlannerSnapshot, val after: PlannerSnapshot)
+    private var plannerUndo: PlannerUndo? = null
     var draftUndoAvailable by mutableStateOf(false)
         private set
-    private fun rememberDraftEdit() { draftUndo=stops.toList(); draftUndoAvailable=true }
+    private fun rememberDraftEdit() { plannerUndo=null; draftUndo=stops.toList(); draftUndoAvailable=true }
     fun undoDraftStops() {
+        plannerUndo?.let { change ->
+            if (!matchesPlannerSnapshot(change.after) || MockState.status.value.let { it.running || it.starting }) {
+                error = "The plan changed after that instruction. Undo would replace newer edits."
+                return
+            }
+            restorePlannerState(change.before, restorePreparedRoute = true)
+            plannerUndo = null; draftUndo = null; draftUndoAvailable = false
+            auditEvent(AuditAction.STOP_EDIT, AuditOutcome.SUCCEEDED, AuditDetails(control = AuditControl.UNDO))
+            return
+        }
         val before=draftUndo ?: return
         stops.clear(); stops.addAll(before); draftUndo=null; draftUndoAvailable=false
         dwellEditIndex=null; invalidateRoute()
@@ -782,8 +802,7 @@ class MirageViewModel(
     // ---- Saved plans (Snap / Route / Itinerary by name) --------------------------
 
     val draftSavedName: String? get() = loadedScenario?.takeIf{sc->savedScenarios.any{it.id==sc.id}}?.name
-    var draftGeneration by mutableStateOf(TripRecovery.draftGeneration)
-        private set
+    val draftGeneration: Long get() = TripRecovery.draftGeneration
     var departureMillis by mutableStateOf<Long?>(null)
     fun applyStopOrder(order: List<ItineraryStop>) {
         if(order.size!=stops.size || order.groupingBy{it}.eachCount()!=stops.groupingBy{it}.eachCount()) return
@@ -813,8 +832,83 @@ class MirageViewModel(
 
     fun draftSnapshot(): SavedScenario? {
         if (!canSaveScenario) return null
-        return SavedScenario(loadedScenario?.id ?: "draft",loadedScenario?.name ?: "Recovered draft",planMode.name,0L,startFromReal && !useSimulatedStart && !queueAfterCurrent,start,startName,dest,destName,
+        return capturePlanner().scenario
+    }
+
+    /** Unlike saved scenarios, an editing snapshot includes an empty plan and its origin policy. */
+    fun capturePlanner(): PlannerSnapshot {
+        val scenario = SavedScenario(loadedScenario?.id ?: "draft",loadedScenario?.name ?: "Recovered draft",planMode.name,0L,startFromReal && !useSimulatedStart && !queueAfterCurrent,start,startName,dest,destName,
             mode,modeSpeeds.toMap(),realism,transitPref,stops.map{it.toSavedStop()},destAddress,destPlaceId,frozenRoute=if(replayExactRoute)lastRoute else null,departureMillis=departureMillis,arrivalActivity=arrivalActivity,entrance=arrivalEntrance,stayUntilLeave=stayUntilLeave,defaultStayMinutes=defaultStayMinutes)
+        return PlannerSnapshot(scenario, draftGeneration, loadedScenario, startFromReal, useSimulatedStart,
+            queueAfterCurrent, startAddress, startPlaceId, activeField, timeScaleState, overLimitState, signal,
+            lastRoute, flightOrigin, isFlight, routePts.toList(), routeDistanceM, replayExactRoute)
+    }
+
+    /** Resolve/review elsewhere, then commit every change as one guarded undoable operation. */
+    fun applyPlannerProposal(before: PlannerSnapshot, after: PlannerSnapshot): Boolean {
+        if (MockState.status.value.let { it.running || it.starting } || before.draftGeneration != draftGeneration ||
+            after.draftGeneration != draftGeneration || !matchesPlannerSnapshot(before)) {
+            error = "The plan changed. Review the instruction again before applying it."
+            return false
+        }
+        if (!validPlannerSnapshot(after) || after.loadedScenario != before.loadedScenario ||
+            after.scenario.id != before.scenario.id || after.scenario.name != before.scenario.name) {
+            error = "The proposed changes contain invalid settings or a different saved identity."
+            return false
+        }
+        restorePlannerState(after.copy(activeField = activeField), restorePreparedRoute = false)
+        plannerUndo = PlannerUndo(before, capturePlanner())
+        draftUndo = null; draftUndoAvailable = true
+        auditEvent(AuditAction.STOP_EDIT, AuditOutcome.SUCCEEDED, AuditDetails(control = AuditControl.EDIT))
+        return true
+    }
+
+    fun matchesPlannerSnapshot(snapshot: PlannerSnapshot): Boolean =
+        capturePlanner().copy(activeField = snapshot.activeField) == snapshot
+
+    /** Recovery restores editing only: no search, route request, library write or playback. */
+    fun restorePlanner(snapshot: PlannerSnapshot): Boolean {
+        if (MockState.status.value.let { it.running || it.starting } || snapshot.draftGeneration != draftGeneration ||
+            !validPlannerSnapshot(snapshot)) return false
+        restorePlannerState(snapshot, restorePreparedRoute = true)
+        plannerUndo = null; draftUndo = null; draftUndoAvailable = false
+        return true
+    }
+
+    private fun validPlannerSnapshot(snapshot: PlannerSnapshot): Boolean {
+        fun point(p: LatLng?) = p == null || (p.lat.isFinite() && p.lng.isFinite() && p.lat in -90.0..90.0 && p.lng in -180.0..180.0)
+        val sc = snapshot.scenario
+        return sc.kind in PlanMode.entries.map { it.name } && point(sc.start) && point(sc.dest) && point(sc.entrance) &&
+            sc.defaultStayMinutes in 0..1440 && sc.speeds.values.all { it.isFinite() && it > 0 } &&
+            sc.stops.all { point(LatLng(it.lat,it.lng)) && point(it.entrance) && it.dwellMinutes in 0..1440 && it.avgMph.isFinite() && it.avgMph > 0 } &&
+            snapshot.timeScale.isFinite() && snapshot.timeScale in 1f..100f && snapshot.speedOverLimit.isFinite() &&
+            point(snapshot.flightOrigin) && snapshot.routePoints.all(::point) && snapshot.routeDistanceM.isFinite() && snapshot.routeDistanceM >= 0 &&
+            snapshot.signal.accuracyM.isFinite() && snapshot.signal.accuracyM > 0 && snapshot.signal.jitterM.isFinite() && snapshot.signal.jitterM >= 0
+    }
+
+    private fun restorePlannerState(snapshot: PlannerSnapshot, restorePreparedRoute: Boolean) {
+        clearSuggestions(); autoStartAfterRoute = null; routeJob?.cancel(); routeJob = null
+        val sc = snapshot.scenario
+        Snapshot.withMutableSnapshot {
+            invalidateRoute()
+            loadedScenario = snapshot.loadedScenario
+            planMode = PlanMode.valueOf(sc.kind); activeField = snapshot.activeField
+            start = sc.start; startName = sc.startName; startAddress = snapshot.startAddress; startPlaceId = snapshot.startPlaceId
+            startFromReal = snapshot.startFromReal; useSimulatedStart = snapshot.useSimulatedStart; queueAfterCurrent = snapshot.queueAfterCurrent
+            dest = sc.dest; destName = sc.destName; destAddress = sc.destAddress; destPlaceId = sc.destPlaceId
+            stops.clear(); stops.addAll(sc.stops.map { it.toStop() })
+            departureMillis = sc.departureMillis; mode = sc.travelMode; modeSpeeds.clear(); modeSpeeds.putAll(sc.speeds)
+            realism = sc.realism; transitPref = sc.transitPref
+            arrivalActivity = sc.arrivalActivity; arrivalEntrance = sc.entrance
+            stayUntilLeave = sc.stayUntilLeave; defaultStayMinutes = sc.defaultStayMinutes
+            timeScaleState = snapshot.timeScale; overLimitState = snapshot.speedOverLimit; signal = snapshot.signal
+            if (restorePreparedRoute) {
+                lastRoute = snapshot.preparedRoute; flightOrigin = snapshot.flightOrigin; isFlight = snapshot.isFlight
+                routePts = snapshot.routePoints; routeDistanceM = snapshot.routeDistanceM; replayExactRoute = snapshot.replayExactRoute
+            }
+            phase = if (canStart) Phase.READY else Phase.IDLE
+            dwellEditIndex = null; itineraryBusy = false; error = null
+        }
     }
     fun recoverLive(record: RecoveredTrip, onStart: () -> Unit) {
         if(MockState.status.value.running) { error="Stop the current simulation before recovering another"; return }
