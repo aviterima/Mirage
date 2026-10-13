@@ -130,7 +130,6 @@ fun AdvancedDialog(status: MockStatus, onDismiss: () -> Unit) {
 fun ChatPanel(onDismiss: () -> Unit) {
     val chat by Conversation.state.collectAsState(context = kotlinx.coroutines.Dispatchers.Main.immediate)
     val voice by VoiceState.state.collectAsState(context = kotlinx.coroutines.Dispatchers.Main.immediate)
-    val language by LocalLanguageModel.state.collectAsState(context = kotlinx.coroutines.Dispatchers.Main.immediate)
     val context = LocalContext.current
     val fieldKey = "live.talk.${LiveSession.epoch}"
     var text by rememberSaveable(fieldKey) { mutableStateOf("") }
@@ -183,7 +182,7 @@ fun ChatPanel(onDismiss: () -> Unit) {
                 VoiceTextField(value = text, onValueChange = { text = it }, fieldKey = fieldKey, labelText = "Live trip instruction", kind = "text",
                     context = "An instruction for the current simulated trip. Clarify only the editable words; Send is the separate action that submits it.",
                     placeholder = { Text("Tell Mirage what to do…") }, modifier = Modifier.weight(1f), maxLines = 3)
-                Button(onClick = { keyboard?.hide();focus.clearFocus();discardVoiceField(context,fieldKey);Conversation.submit(text); text = "" }, enabled = text.isNotBlank()) { Text("Send") }
+                Button(onClick = { keyboard?.hide();focus.clearFocus();discardVoiceField(context,fieldKey);Conversation.submit(text); text = "" }, enabled = text.isNotBlank() && !voiceFieldBusy(fieldKey)) { Text("Send") }
             }
             Text("Voice is processed on this phone. Place search and routing use your Maps connection. Hands-free stays enabled until you turn the microphone off.", style = MaterialTheme.typography.bodySmall)
         }

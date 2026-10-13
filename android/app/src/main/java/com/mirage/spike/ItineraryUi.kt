@@ -76,7 +76,7 @@ fun MyItinerarySheet(vm: MirageViewModel, onDismiss: () -> Unit, onAdd: () -> Un
                     onPreferences={minutes,untilLeave,arrival ->
                         if(LiveSession.plan?.setStopPreferences(id,minutes,untilLeave,arrival)!=true) message="The trip advanced; review the current stop"
                         stayId=null
-                    },deadline=entry.stop.arriveByMillis,onDeadline=if(isCurrent)null else {time -> LiveSession.plan?.setDeadline(id,time);Unit})
+                    },deadline=entry.stop.arriveByMillis,onDeadline=if(isCurrent)null else {time -> LiveSession.plan?.setDeadline(id,time);Unit},inputKey="live.stay.${entry.id}")
                 }
             }
             TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Back to map") }
@@ -90,6 +90,6 @@ fun MyItinerarySheet(vm: MirageViewModel, onDismiss: () -> Unit, onAdd: () -> Un
         }
     }, confirmButton = { Button(onClick = {
         if (vm.saveActiveScenario(name)) { discardVoiceField(context, nameKey); saveNew = false; message = "Saved $name" }
-    }, enabled = name.isNotBlank(), modifier = Modifier.testTag("confirmSaveItinerary")) { Text("Save") } },
+    }, enabled = name.isNotBlank() && !voiceFieldBusy(nameKey), modifier = Modifier.testTag("confirmSaveItinerary")) { Text("Save") } },
         dismissButton = { TextButton(onClick = { discardVoiceField(context, nameKey); saveNew = false }) { Text("Cancel") } })
 }

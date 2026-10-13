@@ -51,7 +51,7 @@ object SmartVoice {
     fun cancel() {
         if (auditOperation != null) audit(AuditOutcome.CANCELLED, AuditControl.CLOSE)
         auditOperation = null
-        generation++; job?.cancel(); job=null; LocalLanguageModel.cancel()
+        generation++; job?.cancel(); job=null
         if (pendingDraft != null && vm?.continuation?.state === pendingDraft) vm?.continuation?.cancel()
         pending=null; pendingDraft=null; hits=emptyList();planningRequest=false;planningSnapshot=null;planningSaved=null;planningHit=null;planningTarget=null
         Conversation.smartChoices(emptyList()); Conversation.smartBusy(false)

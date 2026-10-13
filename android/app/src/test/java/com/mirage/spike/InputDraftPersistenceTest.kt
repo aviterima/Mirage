@@ -72,6 +72,43 @@ class InputDraftPersistenceTest {
         assertNull(InputDraftStore.read("planner.end"))
     }
 
+    @Test fun removingOneFieldPreservesOtherOpenFieldFlushAcrossRestart() {
+        val ticket = InputDraftStore.generation
+        assertTrue(InputDraftStore.write("planner.start","Home"))
+        assertTrue(InputDraftStore.write("planner.end","Office then"))
+        assertTrue(InputDraftStore.removeIfCurrent("planner.start",ticket))
+        assertTrue(InputDraftStore.saveIfCurrent("planner.end","Office then Cafe",ticket))
+        assertFalse(InputDraftStore.saveIfCurrent("planner.start","late Home",ticket))
+        InputDraftStore.useStorageForTest(disk)
+        assertTrue(InputDraftStore.saveIfCurrent("planner.end","Office then Cafe at noon",ticket))
+        assertFalse(InputDraftStore.removeIfCurrent("planner.start",ticket))
+        assertEquals("Office then Cafe at noon",InputDraftStore.read("planner.end"))
+        assertTrue(InputDraftStore.removeIfCurrent("planner.end",ticket))
+        assertFalse(InputDraftStore.saveIfCurrent("planner.end","late callback",ticket))
+    }
+
+    @Test fun newPlanRejectsOldPlannerTicketsButKeepsUnrelatedOwnerFlush() {
+        val ticket = InputDraftStore.generation
+        assertTrue(InputDraftStore.write("saved.item.name","Changed"))
+        assertTrue(TripRecovery.clearDraft())
+        assertFalse(InputDraftStore.saveIfCurrent("planner.end","old plan",ticket))
+        assertFalse(InputDraftStore.removeIfCurrent("planner.end",ticket))
+        assertTrue(InputDraftStore.saveIfCurrent("saved.item.name","Changed after interruption",ticket))
+        InputDraftStore.useStorageForTest(disk)
+        assertFalse(InputDraftStore.saveIfCurrent("planner.end","old plan after restart",ticket))
+        assertTrue(InputDraftStore.saveIfCurrent("saved.item.name","Unrelated field recovered",ticket))
+    }
+
+    @Test fun failedKeyRemovalKeepsOtherTicketsAndItsOriginalInput() {
+        val ticket = InputDraftStore.generation
+        assertTrue(InputDraftStore.write("planner.start","Home"))
+        disk.fail=true
+        assertFalse(InputDraftStore.remove("planner.start")); assertEquals(ticket,InputDraftStore.generation)
+        disk.fail=false
+        assertTrue(InputDraftStore.saveIfCurrent("planner.end","Office",ticket))
+        assertEquals("Home",InputDraftStore.read("planner.start"))
+    }
+
     @Test fun credentialsAndOversizedInputAreNotPersisted() {
         InputDraftStore.useStorageForTest(disk, listOf("fixture-private-key-123"))
         assertFalse(InputDraftStore.write("planner.end", "use fixture-private-key-123"))

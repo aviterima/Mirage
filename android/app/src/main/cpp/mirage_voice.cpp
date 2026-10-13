@@ -1,5 +1,6 @@
 #include "llama.h"
 #include <atomic>
+#include <cstdint>
 #include <algorithm>
 #include <thread>
 #include <chrono>
@@ -16,10 +17,12 @@
 
 static std::mutex gate;
 static std::atomic<bool> cancelled{false};
+static std::atomic<uint64_t> requestGeneration{0};
+static std::atomic<uint64_t> activeRequest{0};
 static llama_model * model = nullptr;
 static std::string modelPath;
 static auto deadline = std::chrono::steady_clock::now();
-static bool abortInference(void *) { return cancelled.load() || std::chrono::steady_clock::now() > deadline; }
+static bool abortInference(void *) { return cancelled.load() || activeRequest.load() != requestGeneration.load() || std::chrono::steady_clock::now() > deadline; }
 static const char * grammar = R"GBNF(
 root ::= "{" ws "\"action\"" ws ":" ws action "," ws "\"target\"" ws ":" ws string "," ws "\"placement\"" ws ":" ws placement "," ws "\"minutes\"" ws ":" ws number "," ws "\"position\"" ws ":" ws number ws "}"
 action ::= "\"add_saved\"" | "\"add_place\"" | "\"save_new\"" | "\"save_changes\"" | "\"move\"" | "\"remove\"" | "\"stay\"" | "\"extend\"" | "\"status\"" | "\"pause\"" | "\"resume\"" | "\"clarify\""
@@ -57,7 +60,7 @@ ws ::= [ \t\n]{0,4}
 )GBNF";
 
 // Legacy commands retain their original budget. Larger proposals are still bounded and cancellable.
-static std::string infer(const std::string & path, const std::string & prompt, const std::string & schema = "legacy") {
+static std::string infer(const std::string & path, const std::string & prompt, const std::string & schema = "legacy", uint64_t request = 0) {
     const bool legacy = schema == "legacy";
     if (!legacy && schema != "field" && schema != "plan") throw std::runtime_error("Unknown interpretation schema");
     const char * selectedGrammar = legacy ? grammar : (schema == "field" ? fieldGrammar : planGrammar);
@@ -66,8 +69,10 @@ static std::string infer(const std::string & path, const std::string & prompt, c
     const int promptTokens = legacy ? 1750 : contextTokens - outputTokens - 64;
     const int timeoutSeconds = legacy ? 45 : 90;
     std::lock_guard<std::mutex> lock(gate);
-    cancelled = false;
+    if (request == 0) { cancelled = false; request = ++requestGeneration; } // Standalone CLI only.
+    activeRequest = request;
     deadline = std::chrono::steady_clock::now() + std::chrono::seconds(timeoutSeconds);
+    if (abortInference(nullptr)) throw std::runtime_error("Offline understanding cancelled");
     if (!model || modelPath != path) {
         if (model) llama_model_free(model);
         llama_backend_init();
@@ -115,18 +120,21 @@ int main(int argc, char **argv) {
     return 0;
 }
 #else
-extern "C" JNIEXPORT jstring JNICALL Java_com_mirage_spike_LocalLanguageModel_generate(JNIEnv *env,jobject,jstring path,jstring prompt) {
+extern "C" JNIEXPORT jlong JNICALL Java_com_mirage_spike_LocalLanguageModel_newNativeRequest(JNIEnv *,jobject) {
+    cancelled = false; return static_cast<jlong>(++requestGeneration);
+}
+extern "C" JNIEXPORT jstring JNICALL Java_com_mirage_spike_LocalLanguageModel_generate(JNIEnv *env,jobject,jstring path,jstring prompt,jlong request) {
     const char *p=env->GetStringUTFChars(path,nullptr); std::string file(p); env->ReleaseStringUTFChars(path,p);
     const char *q=env->GetStringUTFChars(prompt,nullptr); std::string input(q); env->ReleaseStringUTFChars(prompt,q);
-    try { return env->NewStringUTF(infer(file,input).c_str()); }
+    try { return env->NewStringUTF(infer(file,input,"legacy",static_cast<uint64_t>(request)).c_str()); }
     catch (const std::exception &e) { env->ThrowNew(env->FindClass("java/lang/IllegalStateException"),e.what()); return nullptr; }
 }
-extern "C" JNIEXPORT void JNICALL Java_com_mirage_spike_LocalLanguageModel_cancelNative(JNIEnv *,jobject) { cancelled=true; }
-extern "C" JNIEXPORT jstring JNICALL Java_com_mirage_spike_LocalLanguageModel_generateStructured(JNIEnv *env,jobject,jstring path,jstring prompt,jstring schema) {
+extern "C" JNIEXPORT void JNICALL Java_com_mirage_spike_LocalLanguageModel_cancelNative(JNIEnv *,jobject) { cancelled=true; ++requestGeneration; }
+extern "C" JNIEXPORT jstring JNICALL Java_com_mirage_spike_LocalLanguageModel_generateStructured(JNIEnv *env,jobject,jstring path,jstring prompt,jstring schema,jlong request) {
     const char *p=env->GetStringUTFChars(path,nullptr); std::string file(p); env->ReleaseStringUTFChars(path,p);
     const char *q=env->GetStringUTFChars(prompt,nullptr); std::string input(q); env->ReleaseStringUTFChars(prompt,q);
     const char *s=env->GetStringUTFChars(schema,nullptr); std::string kind(s); env->ReleaseStringUTFChars(schema,s);
-    try { return env->NewStringUTF(infer(file,input,kind).c_str()); }
+    try { return env->NewStringUTF(infer(file,input,kind,static_cast<uint64_t>(request)).c_str()); }
     catch (const std::exception &e) { env->ThrowNew(env->FindClass("java/lang/IllegalStateException"),e.what()); return nullptr; }
 }
 extern "C" JNIEXPORT void JNICALL Java_com_mirage_spike_LocalLanguageModel_releaseNative(JNIEnv *,jobject) {

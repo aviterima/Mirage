@@ -29,8 +29,9 @@ object LocalLanguageModel {
     @Volatile private var loaded = false
     @Volatile var ready = false
         private set
-    private external fun generate(path: String, prompt: String): String
-    private external fun generateStructured(path: String, prompt: String, schema: String): String
+    private external fun newNativeRequest(): Long
+    private external fun generate(path: String, prompt: String, request: Long): String
+    private external fun generateStructured(path: String, prompt: String, schema: String, request: Long): String
     private external fun cancelNative()
     private external fun releaseNative()
     fun configure(context: Context) {
@@ -73,7 +74,6 @@ object LocalLanguageModel {
         }
     }
     fun cancelDownload() { downloading?.cancel(); downloadCall?.cancel() }
-    fun cancel() { if (loaded) cancelNative() }
     suspend fun interpret(prompt: String): String = infer(prompt, null)
     internal suspend fun interpretStructured(prompt: String, schema: String): String {
         require(schema == "field" || schema == "plan")
@@ -83,10 +83,23 @@ object LocalLanguageModel {
         check(ready) { "Download advanced voice in Talk to Mirage first" }
         unload?.cancel()
         try {
-            withContext(Dispatchers.IO) {
+            val request = withContext(Dispatchers.IO) {
                 if (!loaded) { System.loadLibrary("mirage_voice"); loaded = true }
-                if (schema == null) generate(file!!.absolutePath,prompt)
-                else generateStructured(file!!.absolutePath, prompt, schema)
+                newNativeRequest()
+            }
+            // A cancelled queued caller never enters this block or cancels another field's work.
+            // Keep the mutex until the native owner finishes, even when its UI caller disappears.
+            val worker = scope.async {
+                ensureActive()
+                if (schema == null) generate(file!!.absolutePath, prompt, request)
+                else generateStructured(file!!.absolutePath, prompt, schema, request)
+            }
+            try { worker.await() }
+            catch (cancelled: CancellationException) {
+                worker.cancel()
+                cancelNative()
+                withContext(NonCancellable) { worker.join() }
+                throw cancelled
             }
         } finally {
             unload = scope.launch { delay(60_000); gate.withLock { if (loaded) releaseNative() } }

@@ -27,7 +27,10 @@ object NaturalLanguageInput {
         if (planInstructions.isBlank()) planInstructions = context.assets.open("natural-plan-prompt.txt").bufferedReader().use { it.readText() }
     }
 
-    suspend fun interpretField(text: String, label: String, kind: String, currentValue: String, context: String = ""): FieldInterpretation {
+    suspend fun interpretField(text: String, label: String, kind: String, currentValue: String, context: String = ""): FieldInterpretation =
+        interpretFieldAt(text, label, kind, currentValue, context, ZonedDateTime.now())
+
+    internal suspend fun interpretFieldAt(text: String, label: String, kind: String, currentValue: String, context: String, localNow: ZonedDateTime): FieldInterpretation {
         require(kind in kinds) { "This field does not support interpretation." }
         // Credentials and other exact input must never be inserted into a model prompt.
         if (kind == "verbatim") return FieldInterpretation(text)
@@ -35,7 +38,7 @@ object NaturalLanguageInput {
         require(label.length <= 160 && currentValue.length <= MAX_TEXT_CHARS) { "The field context is too long. Shorten it before reviewing." }
         check(fieldInstructions.isNotBlank()) { "Open voice setup before reviewing an instruction." }
         val data = "Field: ${JSONObject.quote(label)}\nValue format: ${fieldFormat(kind)}\nCurrent value: ${JSONObject.quote(currentValue)}\n" +
-            "Local now: ${ZonedDateTime.now().format(DateTimeFormatter.ISO_ZONED_DATE_TIME)}\nContext: $context\nInstruction: ${JSONObject.quote(text)}"
+            "Local now: ${localNow.format(DateTimeFormatter.ISO_ZONED_DATE_TIME)}\nContext: $context\nInstruction: ${JSONObject.quote(text)}"
         return parseField(LocalLanguageModel.interpretStructured(prompt(fieldInstructions, data), "field"), kind)
     }
 

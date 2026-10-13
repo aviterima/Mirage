@@ -7,6 +7,7 @@ import org.json.JSONObject
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
+import java.time.ZonedDateTime
 
 /** Actual downloaded model + production prompt/parser. These are language-quality gates, not stubs. */
 class NaturalLanguageModelAcceptanceTest {
@@ -26,25 +27,30 @@ class NaturalLanguageModelAcceptanceTest {
             val began = android.os.SystemClock.elapsedRealtime()
             val passed = try {
                 if (schema == "field") {
-                    val result = NaturalLanguageInput.interpretField(case.getString("text"), case.getString("label"), case.getString("kind"),
-                        case.getString("current"), case.optString("context"))
-                    if (case.optBoolean("question")) result.question.isNotBlank() && result.value.isEmpty()
+                    val result = NaturalLanguageInput.interpretFieldAt(case.getString("text"), case.getString("label"), case.getString("kind"),
+                        case.getString("current"), case.optString("context"), ZonedDateTime.parse("2026-10-12T09:00:00-07:00[America/Phoenix]"))
+                    if (case.optBoolean("question")) meaningfulQuestion(result.question, case) && result.value.isEmpty()
                     else result.question.isBlank() && if (case.has("value")) result.value.equals(case.getString("value"), true)
                     else containsTerms(result.value, case.getJSONArray("valueTerms"))
                 } else {
                     val result = NaturalLanguageInput.interpretPlan(case.getString("text"), case.getString("context"))
-                    if (case.optBoolean("question")) result.question.isNotBlank() && result.edits.isEmpty()
+                    if (case.optBoolean("question")) meaningfulQuestion(result.question, case) && result.edits.isEmpty()
                     else result.question.isBlank() && matchesEdits(result.edits, case.getJSONArray("edits"))
                 }
             } catch (_: Exception) { false }
             if (!passed) failures += id
             // Synthetic case IDs and timing only; never log an actual user's field or transcript.
             android.util.Log.i("MirageModelTest", "case=$id passed=$passed elapsed_ms=${android.os.SystemClock.elapsedRealtime()-began}")
+            // A failed case already blocks this engine. Passing requires the complete corpus.
+            if (!passed) break
         }
         assertTrue("Native language-quality failures: ${failures.joinToString()}", failures.isEmpty())
     }
 
     private fun containsTerms(value: String, terms: JSONArray): Boolean = (0 until terms.length()).all { value.contains(terms.getString(it), true) }
+
+    private fun meaningfulQuestion(question: String, case: JSONObject): Boolean = question.isNotBlank() &&
+        !question.trim().trimEnd('.', '?', '!').equals(case.getString("text").trim().trimEnd('.', '?', '!'), true)
 
     private fun matchesEdits(actual: List<PlanEdit>, expected: JSONArray): Boolean {
         if (actual.size != expected.length()) return false

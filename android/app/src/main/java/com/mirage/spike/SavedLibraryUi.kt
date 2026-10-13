@@ -77,7 +77,7 @@ internal fun SavedPlansDialog(vm: MirageViewModel, active: Boolean = false, onDi
                     val saved=if(active) vm.saveActiveScenario(name) else vm.saveScenario(name)
                     message=if(saved) "Saved $name" else vm.error ?: "Could not save"
                     if(saved) {discardVoiceField(context,saveKey);name=""}
-                },enabled=name.isNotBlank() && if(active) LiveSession.plan!=null else vm.canSaveScenario) { Text("Save") }
+                },enabled=name.isNotBlank() && !voiceFieldBusy(saveKey) && (if(active) LiveSession.plan!=null else vm.canSaveScenario)) { Text("Save") }
             }
             if(!active && vm.draftSavedName!=null) TextButton(onClick={message=if(vm.saveScenario(vm.draftSavedName!!,true))"Changes saved" else vm.error.orEmpty()}) {Text("Save changes to ${vm.draftSavedName}")}
             if(active && live.savedId != null) TextButton(onClick={
@@ -103,7 +103,7 @@ internal fun SavedPlansDialog(vm: MirageViewModel, active: Boolean = false, onDi
                                 Text((if(item.favorite) "★ " else "")+item.name,style=MaterialTheme.typography.titleMedium)
                                 Text(if(item.kind=="ITINERARY") "${item.stops.size} stops · ${item.stops.sumOf{it.dwellMinutes}} min staying" else item.startName+" → "+item.destName,style=MaterialTheme.typography.bodySmall)
                             }
-                            TextButton(onClick={if(active) onAddLive(item, false) else {vm.loadScenario(item);onLoaded(item)}},modifier=Modifier.semantics{contentDescription=if(active) "Add ${item.name} to current trip" else "Load ${item.name}"}) { Text(if(active) "Add to trip" else "Open") }
+                            TextButton(onClick={if(active) onAddLive(item, false) else if(vm.loadScenario(item)) onLoaded(item)},modifier=Modifier.semantics{contentDescription=if(active) "Add ${item.name} to current trip" else "Load ${item.name}"}) { Text(if(active) "Add to trip" else "Open") }
                             var menu by remember(item.id) {mutableStateOf(false)}
                             Box {
                                 IconButton(onClick={menu=true}) { Icon(Icons.Default.MoreVert,"Options for ${item.name}") }
@@ -152,7 +152,7 @@ internal fun SavedPlansDialog(vm: MirageViewModel, active: Boolean = false, onDi
         VoiceTextField(editText,{editText=it},editKey,if(action=="Voice aliases") "Comma-separated names" else "Name",
             kind=if(action=="Voice aliases") "aliases" else "name",context="${action} for saved item ${item.name}. Only propose the editable field value; Save applies the change.")
         vm.error?.let { Text(it) }
-    }},confirmButton={TextButton(onClick={val ok=if(action=="Voice aliases")vm.setAliases(item.id,editText) else vm.renameScenario(item.id,editText,action=="Duplicate");if(ok){discardVoiceField(context,editKey);editId=null}}){Text("Save")}},dismissButton={TextButton(onClick=cancel){Text("Cancel")}}) }
+    }},confirmButton={TextButton(onClick={val ok=if(action=="Voice aliases")vm.setAliases(item.id,editText) else vm.renameScenario(item.id,editText,action=="Duplicate");if(ok){discardVoiceField(context,editKey);editId=null}},enabled=!voiceFieldBusy(editKey)){Text("Save")}},dismissButton={TextButton(onClick=cancel){Text("Cancel")}}) }
     incoming?.let { items -> AlertDialog(onDismissRequest={incoming=null},title={Text("Import ${items.size} saved items?")},text={Column(Modifier.heightIn(max=320.dp).verticalScroll(rememberScrollState())) { Text("Existing items stay unchanged. Matching names receive a numbered suffix; exact matching records are skipped. No credentials are imported.");items.forEach { item -> Text("${item.name} · ${if(item.kind=="ITINERARY") "${item.stops.size} stops" else item.destName}",Modifier.padding(vertical=4.dp)) } }},confirmButton={TextButton(onClick={if(vm.importScenarios(items)){incoming=null;message=vm.notice.orEmpty()}}){Text("Import")}},dismissButton={TextButton(onClick={incoming=null}){Text("Cancel")}}) }
     connector?.let { item -> AlertDialog(onDismissRequest={connector=null},title={Text("Connect these routes?")},text={Text("Add a connecting leg to ${item.startName}? Review its mode and timing before starting.")},confirmButton={TextButton(onClick={if(vm.appendSavedRoute(item,true)){connector=null;onLoaded(item)}}){Text("Add connecting leg")}},dismissButton={TextButton(onClick={connector=null}){Text("Cancel")}}) }
 }

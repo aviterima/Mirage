@@ -1,3 +1,9 @@
+# Mirage 0.18.0 candidate — contextual input
+
+The [candidate specification](docs/CONTEXTUAL_VOICE_0.18.0.md) extends shared typed/spoken input to all app-owned fields and proposes complete plans for explicit review, correction, atomic Apply and Undo. Interruptions preserve unfinished words; Start new clears planning context durably. Exact credentials bypass interpretation and draft persistence. Saving and starting remain separate actions.
+
+The implementation is under validation. [Actual local-model tests failed the required language quality](docs/MODEL_EVALUATION_0.18.0.md); broad free-form interpretation is not accepted. No hosted processing or alternate default model is approved by this candidate. The latest verified specification is 0.17.0 below.
+
 # Mirage 0.17.0 — voice in the planner
 
 The [current specification](docs/INLINE_VOICE_PLANNER_0.17.0.md) integrates microphone dictation with ordinary planner fields, shared search/results and itinerary preview, plus an explicit new-itinerary reset. Save and Start remain separate; voice planning never invokes automatic playback. Earlier voice and data-retention rules continue where not superseded.

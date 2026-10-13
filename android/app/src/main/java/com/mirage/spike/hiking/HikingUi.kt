@@ -20,6 +20,7 @@ import com.google.maps.android.compose.*
 import com.mirage.spike.engine.LatLng
 import com.mirage.spike.VoiceTextField
 import com.mirage.spike.discardVoiceField
+import com.mirage.spike.voiceFieldBusy
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -40,12 +41,12 @@ fun HikingSheet(planner: HikingPlanner, origin: () -> LatLng?, active: Boolean, 
             Text("Search within 31 miles of ${d.areaName}",style=MaterialTheme.typography.bodySmall)
             VoiceTextField(d.areaQuery,planner::areaQuery,"$keyPrefix.area","Different city or park (optional)",kind="place",
                 context="City or park to search for hiking trails. Find area is a separate action.",modifier=Modifier.fillMaxWidth().testTag("hikeArea"),singleLine=true,enabled=!d.busy)
-            TextButton(onClick=planner::findArea,enabled=!d.busy && d.areaQuery.isNotBlank()){Text("Find area")}
+            TextButton(onClick=planner::findArea,enabled=!d.busy && d.areaQuery.isNotBlank() && !voiceFieldBusy("$keyPrefix.area")){Text("Find area")}
             if(d.areas.isNotEmpty())Text("Choose the city or park to search:")
             d.areas.forEach {a->OutlinedButton(onClick={planner.chooseArea(a)},modifier=Modifier.fillMaxWidth()) {Text("${a.name} · ${a.address}")}}
             VoiceTextField(d.query,planner::query,"$keyPrefix.query","Trail name (optional)",kind="place",
                 context="Name of a hiking trail; leave empty to browse trails.",placeholder={Text("e.g. Echo Canyon Trail")},singleLine=true,modifier=Modifier.fillMaxWidth().testTag("hikeQuery"),enabled=!d.busy)
-            Button(onClick=planner::search,enabled=!d.busy,modifier=Modifier.testTag("searchTrails")){Text(if(d.query.isBlank()) "Browse hiking trails" else "Find hiking trails")}
+            Button(onClick=planner::search,enabled=!d.busy && !voiceFieldBusy("$keyPrefix.query") && !voiceFieldBusy("$keyPrefix.area"),modifier=Modifier.testTag("searchTrails")){Text(if(d.query.isBlank()) "Browse hiking trails" else "Find hiking trails")}
             Text("Leave the trail name blank to browse. Showing up to 20 mapped trails or sections; use a name or a nearby park to refine results.",style=MaterialTheme.typography.bodySmall)
             if(currentLocation==null)Text("Current location unavailable. Enable Location to see distances.",style=MaterialTheme.typography.bodySmall)
             if(d.busy)LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -83,7 +84,7 @@ fun HikingSheet(planner: HikingPlanner, origin: () -> LatLng?, active: Boolean, 
                 TextButton(onClick=planner::wholeTrail,enabled=!d.busy){Text(if(trail.loop) "Use full loop" else "Use full out-and-back")}
                 VoiceTextField(d.parkingMinutes,planner::parkingMinutes,"$keyPrefix.parkingMinutes.${trail.id}","Minutes parked before hiking",kind="minutes",
                     context="Whole minutes from 0 to 60 spent parked before hiking.",keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),singleLine=true,enabled=!d.busy,modifier=Modifier.fillMaxWidth().testTag("hikeParkingMinutes"))
-                if(d.trip==null)Button(onClick={planner.prepare(origin())},enabled=!d.busy && d.selectedParking!=null,modifier=Modifier.fillMaxWidth().testTag("prepareHike")){Text("Preview drive and hike")}
+                if(d.trip==null)Button(onClick={planner.prepare(origin())},enabled=!d.busy && d.selectedParking!=null && !voiceFieldBusy("$keyPrefix.miles.${trail.id}") && !voiceFieldBusy("$keyPrefix.parkingMinutes.${trail.id}"),modifier=Modifier.fillMaxWidth().testTag("prepareHike")){Text("Preview drive and hike")}
                 d.trip?.let {trip->
                     Card(Modifier.fillMaxWidth().testTag("hikeSummary")) {Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                         Text("Your hiking trip",fontWeight=FontWeight.Bold)

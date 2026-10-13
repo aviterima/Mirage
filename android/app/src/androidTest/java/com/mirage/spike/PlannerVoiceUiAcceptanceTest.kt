@@ -8,6 +8,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
@@ -39,6 +40,7 @@ class PlannerVoiceUiAcceptanceTest {
         "Irvine, CA, USA (fixture)", "fixture-inline-western-digital")
     private val queries = mutableListOf<String>()
     private var starts = 0
+    private var plannerVisible by mutableStateOf(true)
     private fun place(id: String, name: String, point: LatLng) = SavedScenario(
         id, name, "SNAP", 1L, false, null, "", point, name,
         TravelMode.DRIVE, emptyMap(), Realism.REALISTIC, null, emptyList())
@@ -93,7 +95,7 @@ class PlannerVoiceUiAcceptanceTest {
                 LocalDensity provides Density(density.density, if (largeText) 1.3f else density.fontScale)) {
                 MirageTheme {
                     Surface(Modifier.fillMaxSize()) {
-                        MapScreen(onStartService = { starts++ }, onStopService = {},
+                        if (plannerVisible) MapScreen(onStartService = { starts++ }, onStopService = {},
                             onOpenDevSettings = {}, onRequestBattery = {}, onRequestPermissions = {},
                             setupChecks = { SetupChecks(false, false, true) }, hasLocPerm = false)
                     }
@@ -202,6 +204,8 @@ class PlannerVoiceUiAcceptanceTest {
         previewAddition("Home")
         compose.runOnIdle { assertTrue(vm.stops.isEmpty()); assertIdle() }
         compose.onNodeWithTag("plannerReviewApply").performScrollTo().performClick()
+        assertEquals("", compose.onNodeWithTag("plannerDestinationInput").fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
+        compose.onNodeWithText("Start itinerary").assertIsEnabled()
         compose.waitUntil(5_000) { vm.stops.size == 1 }
         previewAddition("Office")
         compose.runOnIdle { assertEquals(listOf("Home"), vm.stops.map { it.name }); assertIdle() }
@@ -284,9 +288,13 @@ class PlannerVoiceUiAcceptanceTest {
         compose.runOnIdle {
             assertTrue(vm.stops.isEmpty()); assertNull(vm.departureMillis); assertIdle()
         }
+        compose.onNodeWithTag("plannerDestinationInput").performScrollTo().performClick().performTextReplacement("")
+        device.pressBack()
+        compose.onNodeWithTag("plannerReviewApply").performScrollTo().assertIsNotEnabled()
         compose.onNodeWithTag("plannerDestinationInput").performScrollTo().performClick()
             .performTextReplacement("Make the first stay forty five minutes instead")
         device.pressBack()
+        compose.onNodeWithTag("plannerReviewApply").performScrollTo().assertIsNotEnabled()
         compose.onNodeWithTag("plannerInputSubmit").performScrollTo().performClick()
         compose.waitUntil(5_000) { vm.planning.state.value.canConfirm && vm.planning.state.value.candidate?.preview?.firstOrNull()?.stayMinutes == 45 }
         compose.onNodeWithTag("plannerReviewApply").performScrollTo().performClick()
@@ -299,7 +307,7 @@ class PlannerVoiceUiAcceptanceTest {
         screenshot("planner-contextual-whole-plan")
         compose.onNodeWithText("Undo", useUnmergedTree = true).performScrollTo().performClick()
         compose.runOnIdle {
-            assertEquals(before.scenario, vm.capturePlanner().scenario)
+            assertEquals(before, vm.capturePlanner().copy(activeField = before.activeField))
             assertFalse(vm.draftUndoAvailable); assertIdle()
         }
     }
@@ -318,6 +326,46 @@ class PlannerVoiceUiAcceptanceTest {
             assertTrue(vm.stops.isEmpty()); assertNull(vm.dest); assertIdle()
             assertEquals("Plan an afternoon starting at Home", readPlannerEntry("end", ""))
         }
+    }
+
+    @Test fun loadingSameEndpointsDropsOldWordsAndLateSpeech() {
+        launchPlanner()
+        compose.runOnIdle { vm.pickSavedPlace(home, Field.START); vm.pickSavedPlace(office, Field.END) }
+        compose.onNodeWithTag("plannerDestinationInput").performScrollTo().performClick()
+            .performTextReplacement("Stay at Office for twenty minutes")
+        device.pressBack()
+        compose.runOnIdle {
+            val request = PlannerSpeech.begin(Field.END)
+            PlannerSpeech.partial(request, "old unfinished instruction")
+            val saved = home.copy(id = "inline-saved-route", name = "Morning route", kind = "ROUTE",
+                start = home.dest, startName = home.name, dest = office.dest, destName = office.name,
+                travelMode = TravelMode.FLY)
+            assertTrue(vm.loadScenario(saved))
+            PlannerSpeech.finish(request, "late old speech")
+        }
+        compose.waitForIdle()
+        assertEquals("Office", compose.onNodeWithTag("plannerDestinationInput").fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
+        compose.runOnIdle {
+            assertFalse(PlannerSpeech.state.value.active); assertNull(PlannerSpeech.state.value.target)
+            assertEquals("Office", readPlannerEntry("end", "Office")); assertIdle()
+        }
+    }
+
+    @Test fun completedSpeechSurvivesClosingPlannerBeforeConsumption() {
+        launchPlanner()
+        compose.runOnIdle {
+            val request = PlannerSpeech.begin(Field.END)
+            PlannerSpeech.finish(request, "Home then the museum tomorrow")
+            plannerVisible = false
+        }
+        compose.onNodeWithTag("plannerDestinationInput").assertDoesNotExist()
+        compose.runOnIdle {
+            assertEquals("Home then the museum tomorrow", readPlannerEntry("end", ""))
+            PlannerSpeech.cancel() // Recognition memory need not survive recreation.
+            plannerVisible = true
+        }
+        compose.onNodeWithTag("plannerDestinationInput").assertTextContains("Home then the museum tomorrow")
+        compose.runOnIdle { assertNull(vm.dest); assertTrue(vm.stops.isEmpty()); assertIdle() }
     }
 
     @Test fun typingSaveInstructionCharacterByCharacterPreservesBothRouteEndpoints() {

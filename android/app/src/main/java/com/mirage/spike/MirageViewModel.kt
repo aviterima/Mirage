@@ -103,7 +103,7 @@ class MirageViewModel(
         else {
             if(planMode==PlanMode.ROUTE && dest!=null) choosePlanMode(PlanMode.ITINERARY)
             if(planMode==PlanMode.ITINERARY && stops.isNotEmpty()) { stops.addAll(trip.stops); invalidateRoute() }
-            else { loadScenario(saved); loadedScenario=null }
+            else { if (!loadScenario(saved)) return; loadedScenario=null }
             notice = "Hike added. Review the itinerary, then tap Start."
         }
     }
@@ -424,6 +424,7 @@ class MirageViewModel(
             return false
         }
         planning.reset()
+        FieldSpeech.cancelPlanner()
         Conversation.resetPlanningSession()
         continuation.cancel()
         hiking.close()
@@ -1203,9 +1204,22 @@ class MirageViewModel(
     }
 
     /** Put a saved plan back on screen. A "real location" start uses today's real position. */
-    fun loadScenario(sc: SavedScenario) {
+    fun loadScenario(sc: SavedScenario): Boolean {
         val operation = AuditTrail.newOperation()
         auditEvent(AuditAction.PLAN_LOAD, AuditOutcome.REQUESTED, operation = operation)
+        // Even the same saved plan starts a new editing session. Invalidate old callbacks
+        // durably before replacing the current plan or updating its library metadata.
+        if (!TripRecovery.clearDraft()) {
+            error = "Could not load the saved plan because the current draft could not be cleared. Try again."
+            auditEvent(AuditAction.PLAN_LOAD, AuditOutcome.BLOCKED,
+                AuditDetails(reason = AuditReason.STORAGE), operation)
+            return false
+        }
+        planning.reset()
+        Conversation.resetPlanningSession()
+        FieldSpeech.cancelPlanner()
+        autoStartAfterRoute = null
+        draftUndo = null; plannerUndo = null; draftUndoAvailable = false; dwellEditIndex = null
         var recentWriteFailed = false
         loadedScenario = sc
         departureMillis=sc.departureMillis
@@ -1245,6 +1259,7 @@ class MirageViewModel(
         if(sc.frozenRoute!=null && mode in setOf(TravelMode.DRIVE,TravelMode.BIKE,TravelMode.WALK)) {
             lastRoute=sc.frozenRoute;routePts=sc.frozenRoute.points;routeDistanceM=sc.frozenRoute.distanceMeters;phase=Phase.READY;replayExactRoute=true
         } else if (planMode == PlanMode.ROUTE && dest != null && tripStart() != null && (mode == TravelMode.FLY || hasKey)) buildRoute()
+        return true
     }
 
     /** Snapshot the draft; subsequent edits use LiveSession and stable stop IDs. */
@@ -1327,8 +1342,9 @@ class MirageViewModel(
             }
             "plan" -> {
                 val sc = savedScenarios.firstOrNull { it.name.equals(args["name"] ?: "", ignoreCase = true) }
-                if (sc == null) "No saved plan named ${args["name"]}" else {
-                    loadScenario(sc)
+                if (sc == null) "No saved plan named ${args["name"]}" else if (!loadScenario(sc)) {
+                    error ?: "Could not load the saved plan."
+                } else {
                     when (planMode) {
                         PlanMode.SNAP -> { dest?.let { PlaybackSource.current = null; PlaybackSource.routePoints = listOf(it); PlaybackSource.label = "Static"; PlaybackSource.endPoint = it; onSnapStarted(); onStartService() }; "Place started: ${sc.name}" }
                         PlanMode.ITINERARY -> { startItinerary(onStartService); "Starting itinerary: ${sc.name}" }

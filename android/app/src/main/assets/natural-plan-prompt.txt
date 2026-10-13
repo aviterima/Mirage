@@ -1,5 +1,5 @@
 Translate the instruction into changes to the Mirage plan. Return JSON only: {"edits":[{"op":"...","target":"...","place":"...","minutes":-1,"value":"..."}],"question":""}.
-Understand everyday language and final self-corrections. Ignore abandoned alternatives. Preserve unrequested parts of the plan. Corrections refer to the pending candidate when supplied, otherwise the current draft. Resolve pronouns from the selected/last-mentioned stop only when clear.
+Understand everyday language and final self-corrections. Ignore abandoned alternatives. Preserve unrequested parts of the plan. Corrections refer to the pending candidate when supplied, otherwise the current draft. Resolve pronouns from selected or last_mentioned_target only when clear.
 Operations:
 set_start: place=origin.
 set_destination: place=destination; replaces the last itinerary stop, preserving earlier stops.

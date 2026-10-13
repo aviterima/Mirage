@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.setValue
+import org.json.JSONObject
 
 internal interface PlannerDraftStorage {
     fun all(): Map<String, *>
@@ -41,9 +42,14 @@ object InputDraftStore {
     private const val PREFIX = "input."
     private const val INPUT_GENERATION = "inputGeneration"
     private const val DRAFT_GENERATION = "draftGeneration"
+    private const val PLANNER_INPUT_GENERATION = "plannerInputGeneration"
+    private const val REMOVAL_GENERATIONS = "inputRemovalGenerations"
+    private const val MAX_REMOVAL_GENERATIONS = 1024
     private const val MAX_VALUE_BYTES = 256 * 1024
     private const val MAX_TOTAL_BYTES = 2 * 1024 * 1024
     private var storage: PlannerDraftStorage? = null
+    private var plannerInputGeneration = 0L
+    private var removalGenerations: Map<String, Long> = emptyMap()
     private var secrets: () -> List<String> = { emptyList() }
     var generation by mutableLongStateOf(0L)
         private set
@@ -66,6 +72,15 @@ object InputDraftStore {
         val current = value?.all().orEmpty()
         generation = current[INPUT_GENERATION] as? Long ?: 0L
         draftGeneration = current[DRAFT_GENERATION] as? Long ?: 0L
+        plannerInputGeneration = current[PLANNER_INPUT_GENERATION] as? Long
+            ?: if (current.containsKey(REMOVAL_GENERATIONS)) 0L else generation
+        removalGenerations = runCatching {
+            val json = JSONObject(current[REMOVAL_GENERATIONS] as? String ?: "{}")
+            require(json.length() <= MAX_REMOVAL_GENERATIONS)
+            json.keys().asSequence().associateWith { key ->
+                require(validKey(key)); json.getLong(key).also { require(it in 0..generation) }
+            }
+        }.getOrDefault(emptyMap())
     }
     internal fun useStorageForTest(value: PlannerDraftStorage?, knownSecrets: List<String> = emptyList()) {
         synchronized(this) { attach(value); secrets = { knownSecrets } }
@@ -80,21 +95,35 @@ object InputDraftStore {
     @Synchronized fun read(key: String): String? = if (validKey(key)) storage?.all()?.get(PREFIX + key) as? String else null
     @Synchronized fun write(key: String, text: String): Boolean = saveIfCurrent(key, text, generation)
     @Synchronized fun saveIfCurrent(key: String, text: String, generation: Long): Boolean {
-        if (generation != this.generation || !validKey(key) || !safe(text)) return false
+        if (!currentInput(key, generation) || !safe(text)) return false
         return commit(mapOf(PREFIX + key to text), emptySet())
+    }
+    private fun currentInput(key: String, ticket: Long): Boolean = validKey(key) && ticket in 0..generation &&
+        ticket >= (removalGenerations[key] ?: 0L) && (!key.startsWith("planner.") || ticket >= plannerInputGeneration)
+    private fun removalJson(values: Map<String, Long>): String? {
+        if (values.size > MAX_REMOVAL_GENERATIONS) return null
+        return JSONObject().apply { values.forEach { (key, value) -> put(key, value) } }.toString()
+            .takeIf { it.toByteArray(Charsets.UTF_8).size <= MAX_VALUE_BYTES }
     }
     @Synchronized fun remove(key: String): Boolean {
         if (!validKey(key)) return false
         val next = generation + 1
-        if (!commit(mapOf(INPUT_GENERATION to next), setOf(PREFIX + key))) return false
-        generation = next
+        val removals = removalGenerations + (key to next)
+        val encoded = removalJson(removals) ?: return false
+        if (!commit(mapOf(INPUT_GENERATION to next, REMOVAL_GENERATIONS to encoded), setOf(PREFIX + key))) return false
+        generation = next; removalGenerations = removals
         return true
     }
+    @Synchronized fun removeIfCurrent(key: String, generation: Long): Boolean =
+        currentInput(key, generation) && remove(key)
     @Synchronized fun clearPlanner(): Boolean {
         val next = generation + 1
         val remove = storage?.all()?.keys.orEmpty().filter { it.startsWith(PREFIX + "planner.") }.toSet()
-        if (!commit(mapOf(INPUT_GENERATION to next), remove, allowUnconfigured = true)) return false
-        generation = next
+        val removals = removalGenerations.filterKeys { !it.startsWith("planner.") }
+        val encoded = removalJson(removals) ?: return false
+        if (!commit(mapOf(INPUT_GENERATION to next, PLANNER_INPUT_GENERATION to next, REMOVAL_GENERATIONS to encoded),
+                remove, allowUnconfigured = true)) return false
+        generation = next; plannerInputGeneration = next; removalGenerations = removals
         return true
     }
     /** One durable transaction clears planner input, full/legacy drafts and both generations. */
@@ -103,8 +132,11 @@ object InputDraftStore {
         val nextDraft = draftGeneration + 1
         val remove = storage?.all()?.keys.orEmpty().filter { it.startsWith(PREFIX + "planner.") }.toSet() +
             setOf("draft", "plannerSnapshot")
-        if (!commit(mapOf(INPUT_GENERATION to nextInput, DRAFT_GENERATION to nextDraft), remove, allowUnconfigured = true)) return false
-        generation = nextInput; draftGeneration = nextDraft
+        val removals = removalGenerations.filterKeys { !it.startsWith("planner.") }
+        val encoded = removalJson(removals) ?: return false
+        if (!commit(mapOf(INPUT_GENERATION to nextInput, DRAFT_GENERATION to nextDraft,
+                PLANNER_INPUT_GENERATION to nextInput, REMOVAL_GENERATIONS to encoded), remove, allowUnconfigured = true)) return false
+        generation = nextInput; draftGeneration = nextDraft; plannerInputGeneration = nextInput; removalGenerations = removals
         return true
     }
     @Synchronized internal fun readRecovery(key: String): String? = storage?.all()?.get(key) as? String
@@ -115,7 +147,7 @@ object InputDraftStore {
     private fun commit(values: Map<String, Any>, removals: Set<String>, allowUnconfigured: Boolean = false): Boolean {
         val target = storage ?: return allowUnconfigured
         val next = target.all().toMutableMap().apply { removals.forEach(::remove); putAll(values) }
-        if (next.filterKeys { it.startsWith(PREFIX) || it in setOf("draft", "plannerSnapshot") }
+        if (next.filterKeys { it.startsWith(PREFIX) || it in setOf("draft", "plannerSnapshot", REMOVAL_GENERATIONS) }
                 .values.sumOf { (it as? String)?.toByteArray(Charsets.UTF_8)?.size ?: 0 } > MAX_TOTAL_BYTES) return false
         return runCatching { target.commit(values, removals) }.getOrDefault(false)
     }

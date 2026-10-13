@@ -11,6 +11,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Shape
@@ -29,6 +30,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 
 /** Explicit apply/cancel drops its recoverable input and invalidates a late recording result. */
@@ -36,6 +38,13 @@ fun discardVoiceField(context: Context, fieldKey: String) {
     if (FieldSpeech.state.value.key == fieldKey) context.stopService(Intent(context, VoiceService::class.java))
     FieldSpeech.cancel(fieldKey)
     InputDraftStore.remove(fieldKey)
+}
+
+@Composable
+fun voiceFieldBusy(fieldKey: String): Boolean {
+    val speech by FieldSpeech.state.collectAsState()
+    val reviewing by FieldSpeech.reviewing.collectAsState()
+    return (speech.active && speech.key == fieldKey) || fieldKey in reviewing
 }
 
 /** Shared input affordance. Recognition and interpretation can edit words, never press Save. */
@@ -76,20 +85,30 @@ fun VoiceTextField(
     val voice by VoiceState.state.collectAsState()
     val currentValue by rememberUpdatedState(value)
     val changed by rememberUpdatedState(onValueChange)
-    val baseline = remember(fieldKey) { value }
     val sensitive = kind == "verbatim"
     val keepDraft = persistDraft && !sensitive
+    val baseline = if (keepDraft) rememberSaveable(fieldKey) { value } else remember(fieldKey) { value }
     var focused by remember(fieldKey) { mutableStateOf(false) }
     var message by remember(fieldKey) { mutableStateOf("") }
     var reviewError by remember(fieldKey) { mutableStateOf(false) }
-    var dirty by remember(fieldKey) { mutableStateOf(false) }
-    var needsReview by remember(fieldKey) { mutableStateOf(false) }
-    var lastReviewedValue by remember(fieldKey) { mutableStateOf(value) }
+    var dirty by rememberSaveable(fieldKey) { mutableStateOf(false) }
+    var needsReview by rememberSaveable(fieldKey) { mutableStateOf(false) }
+    var lastReviewedValue by if (keepDraft) rememberSaveable(fieldKey) { mutableStateOf(value) }
+        else remember(fieldKey) { mutableStateOf(value) }
+    var clarification by remember(fieldKey) { mutableStateOf("") }
+    var observedValue by remember(fieldKey) { mutableStateOf(value) }
+    var emittedValue by remember(fieldKey) { mutableStateOf<String?>(null) }
+    var persistGeneration by remember(fieldKey) { mutableLongStateOf(InputDraftStore.generation) }
+    var undoText by remember(fieldKey) { mutableStateOf<String?>(null) }
+    var undoReviewedValue by remember(fieldKey) { mutableStateOf(value) }
+    var undoClarification by remember(fieldKey) { mutableStateOf("") }
     var interpreting by remember(fieldKey) { mutableStateOf(false) }
     var revision by remember(fieldKey) { mutableLongStateOf(0L) }
     var reviewJob by remember(fieldKey) { mutableStateOf<Job?>(null) }
     var permissionRequest by remember(fieldKey) { mutableStateOf<Long?>(null) }
     val listening = speech.key == fieldKey && speech.active
+
+    fun publish(text: String) { emittedValue = text; changed(text) }
 
     fun stopOwnedRecording(preserve: Boolean) {
         val current = FieldSpeech.state.value
@@ -101,10 +120,14 @@ fun VoiceTextField(
     fun edit(text: String) {
         revision++
         reviewJob?.cancel(); interpreting = false
+        FieldSpeech.setReviewing(fieldKey, false)
         stopOwnedRecording(preserve = false)
+        FieldSpeech.cancel(fieldKey)
         message = ""; reviewError = false
         dirty = true; needsReview = true
-        changed(text)
+        persistGeneration = InputDraftStore.generation; undoText = null
+        if (text.isBlank()) clarification = ""
+        publish(text)
     }
     fun launchRecording(id: Long) {
         if (!FieldSpeech.isActive(id)) return
@@ -130,7 +153,9 @@ fun VoiceTextField(
     }
     val beginRecording = {
         revision++; reviewJob?.cancel(); interpreting = false
+        FieldSpeech.setReviewing(fieldKey, false)
         message = ""; reviewError = false
+        persistGeneration = InputDraftStore.generation; undoText = null
         val planner = PlannerSpeech.state.value
         if (planner.active) PlannerSpeech.interrupt(planner.requestId, planner.transcript)
         val id = FieldSpeech.begin(fieldKey, sensitive, prefix = if (needsReview && !sensitive) currentValue.trim() else "")
@@ -141,28 +166,32 @@ fun VoiceTextField(
     LaunchedEffect(fieldKey) {
         if (keepDraft) {
             InputDraftStore.configure(app)
+            if (!dirty) persistGeneration = InputDraftStore.generation
             val saved = withContext(Dispatchers.IO) { InputDraftStore.read(fieldKey) }
             val draft = saved?.let { runCatching { JSONObject(it) }.getOrNull() }
-            if (draft?.optInt("fieldDraft") == 1 && draft.optString("baseline") == baseline && currentValue == baseline) {
-                changed(draft.optString("text"))
+            if (draft?.optInt("fieldDraft") == 1 && draft.optString("baseline") == baseline &&
+                (currentValue == baseline || currentValue == draft.optString("text"))) {
+                if (currentValue != draft.optString("text")) publish(draft.optString("text"))
                 lastReviewedValue = draft.optString("reviewed", baseline)
                 needsReview = draft.optBoolean("needsReview", true)
+                clarification = draft.optString("clarification").takeIf { it.length <= 12_000 }.orEmpty()
                 dirty = true
-                message = "Draft restored. Review or edit before applying."
+                val question = runCatching { JSONArray(clarification).let { it.getJSONObject(it.length() - 1).getString("question") } }.getOrDefault("")
+                message = question.ifBlank { "Draft restored. Review or edit before applying." }
             }
         }
     }
     // Includes partial words, so an interruption can recover more than the previous completed entry.
     val draftText = if (listening && speech.transcript.isNotBlank()) speech.transcript else value
-    LaunchedEffect(fieldKey, draftText, dirty, lastReviewedValue, needsReview) {
+    LaunchedEffect(fieldKey, draftText, dirty, lastReviewedValue, needsReview, clarification) {
         if (keepDraft && (dirty || listening)) {
-            val generation = InputDraftStore.generation
+            val generation = persistGeneration
             delay(250)
             withContext(Dispatchers.IO) {
-                if (draftText.isBlank()) { if (InputDraftStore.read(fieldKey) != null) InputDraftStore.remove(fieldKey) }
+                if (draftText.isBlank()) { if (InputDraftStore.read(fieldKey) != null) InputDraftStore.removeIfCurrent(fieldKey, generation) }
                 else InputDraftStore.saveIfCurrent(fieldKey, JSONObject().put("fieldDraft", 1)
                     .put("baseline", baseline).put("text", draftText).put("reviewed", lastReviewedValue)
-                    .put("needsReview", needsReview || listening).toString(), generation)
+                    .put("needsReview", needsReview || listening).put("clarification", clarification).toString(), generation)
             }
         }
     }
@@ -171,22 +200,58 @@ fun VoiceTextField(
         if (result != null) {
             if (result.transcript.isNotBlank()) {
                 revision++; reviewJob?.cancel(); interpreting = false
-                changed(result.transcript)
+                publish(result.transcript)
                 dirty = true; needsReview = true
+                undoText = null
                 message = if (result.interrupted) "Recording interrupted. Your words are kept for review." else "Ready for review. Edit the words if needed."
             } else if (message.isBlank()) message = "No words captured. Your entry is kept; try again or keep typing."
             FieldSpeech.consume(result.requestId)
         }
     }
+    LaunchedEffect(value) {
+        // Calendar/chip selections are already concrete values supplied by the owning editor.
+        // Wrapper emissions (including restored drafts and dictation) retain their review context.
+        if (value != observedValue && value != emittedValue) {
+            revision++; reviewJob?.cancel(); interpreting = false
+            FieldSpeech.setReviewing(fieldKey, false)
+            stopOwnedRecording(preserve = false)
+            FieldSpeech.cancel(fieldKey)
+            lastReviewedValue = value; needsReview = false; clarification = ""
+            dirty = true; undoText = null; message = ""; reviewError = false
+            persistGeneration = InputDraftStore.generation
+        }
+        observedValue = value
+        if (value == emittedValue) emittedValue = null
+        if (value.isBlank() && !listening && result == null) {
+            lastReviewedValue = ""; needsReview = false; undoText = null; clarification = ""
+            if (!interpreting) { message = ""; reviewError = false }
+        }
+    }
+    fun flushDraft() {
+        if (!keepDraft) return
+        val recording = FieldSpeech.state.value.takeIf { it.key == fieldKey }
+        val completed = FieldSpeech.results.value[fieldKey]
+        val captured = recording?.transcript?.takeIf { it.isNotBlank() }
+            ?: completed?.transcript?.takeIf { it.isNotBlank() } ?: currentValue
+        if (!dirty && recording == null && completed == null) return
+        if (captured.isBlank()) {
+            if (InputDraftStore.read(fieldKey) != null) InputDraftStore.removeIfCurrent(fieldKey, persistGeneration)
+        } else InputDraftStore.saveIfCurrent(fieldKey, JSONObject().put("fieldDraft", 1)
+            .put("baseline", baseline).put("text", captured).put("reviewed", lastReviewedValue)
+            .put("needsReview", needsReview || recording != null || completed != null)
+            .put("clarification", clarification).toString(), persistGeneration)
+    }
     DisposableEffect(fieldKey, lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) stopOwnedRecording(preserve = true)
+            if (event == Lifecycle.Event.ON_STOP) { flushDraft(); stopOwnedRecording(preserve = true) }
         }
         lifecycle.addObserver(observer)
         onDispose {
             lifecycle.removeObserver(observer)
+            flushDraft()
             stopOwnedRecording(preserve = true)
             reviewJob?.cancel()
+            FieldSpeech.setReviewing(fieldKey, false)
         }
     }
     LaunchedEffect(enabled, readOnly) { if (!enabled || readOnly) stopOwnedRecording(preserve = true) }
@@ -208,7 +273,8 @@ fun VoiceTextField(
                     listening = listening, onCancel = { FieldSpeech.requestFinish(speech.requestId) })
             }
         },
-        supportingText = {
+        supportingText = if (supportingText != null || listening || interpreting || message.isNotBlank() ||
+            (focused && value.isNotBlank()) || undoText != null) { {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 supportingText?.invoke()
                 if (listening) {
@@ -218,7 +284,7 @@ fun VoiceTextField(
                 } else if (interpreting) {
                     Text("Interpreting…", Modifier.testTag("voiceStatus-$fieldKey"))
                     LinearProgressIndicator(Modifier.fillMaxWidth())
-                    TextButton(onClick = { revision++; reviewJob?.cancel(); interpreting = false; message = "Your words are kept. You can edit or review again." }) { Text("Cancel") }
+                    TextButton(onClick = { revision++; reviewJob?.cancel(); interpreting = false; FieldSpeech.setReviewing(fieldKey, false); message = "Your words are kept. You can edit or review again." }) { Text("Cancel") }
                 } else {
                     if (message.isNotBlank()) Text(message, Modifier.testTag("voiceStatus-$fieldKey"))
                     if (enabled && !readOnly && value.isNotBlank() && (focused || message.isNotBlank())) TextButton(
@@ -226,13 +292,28 @@ fun VoiceTextField(
                             val input = currentValue
                             val ticket = ++revision
                             interpreting = true; reviewError = false; message = ""
+                            persistGeneration = InputDraftStore.generation
+                            FieldSpeech.setReviewing(fieldKey, true)
                             reviewJob = scope.launch {
                                 try {
-                                    val proposal = if (sensitive) FieldInterpretation(input) else interpreter(input, labelText, kind, lastReviewedValue, context)
+                                    val reviewContext = if (clarification.isBlank()) context else {
+                                        val data = JSONObject().put("clarificationHistory", JSONArray(clarification))
+                                        "$context\nPrevious field clarification, quoted as data: $data"
+                                    }
+                                    val proposal = if (sensitive) FieldInterpretation(input) else interpreter(input, labelText, kind, lastReviewedValue, reviewContext)
                                     if (ticket == revision && currentValue == input) {
-                                        if (proposal.question.isNotBlank()) message = proposal.question
+                                        if (proposal.question.isNotBlank()) {
+                                            val history = if (clarification.isBlank()) JSONArray() else JSONArray(clarification)
+                                            val updated = history.put(JSONObject().put("input", input).put("question", proposal.question)).toString()
+                                            require(updated.length <= 12_000) { "Field clarification is too long" }
+                                            clarification = updated; dirty = true; needsReview = true
+                                            message = proposal.question
+                                        }
                                         else {
-                                            changed(proposal.value); lastReviewedValue = proposal.value
+                                            undoText = input; undoReviewedValue = lastReviewedValue
+                                            undoClarification = clarification
+                                            publish(proposal.value); lastReviewedValue = proposal.value
+                                            clarification = ""
                                             dirty = true; needsReview = false
                                             message = "Ready for review. Edit if needed, then use the existing action."
                                         }
@@ -240,12 +321,19 @@ fun VoiceTextField(
                                 } catch (cancelled: CancellationException) { throw cancelled }
                                 catch (_: Exception) {
                                     if (ticket == revision) { reviewError = true; message = "Could not interpret this entry. Your words are kept; edit or try again. Voice setup is available from the microphone." }
-                                } finally { if (ticket == revision) interpreting = false }
+                                } finally { if (ticket == revision) { interpreting = false; FieldSpeech.setReviewing(fieldKey, false) } }
                             }
                         }, modifier = Modifier.testTag("voiceReview-$fieldKey")
                     ) { Text("Review") }
+                    undoText?.let { previous -> TextButton(onClick = {
+                        val reviewedBefore = undoReviewedValue
+                        val clarificationBefore = undoClarification
+                        edit(previous); lastReviewedValue = reviewedBefore
+                        clarification = clarificationBefore
+                        message = "Interpretation undone. Your original words are editable."
+                    }, modifier = Modifier.testTag("voiceUndo-$fieldKey")) { Text("Undo interpretation") } }
                 }
             }
-        },
+        } } else null,
     )
 }

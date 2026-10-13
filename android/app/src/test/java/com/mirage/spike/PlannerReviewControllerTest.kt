@@ -68,6 +68,7 @@ class PlannerReviewControllerTest {
             else PlanInterpretation(emptyList(),"What departure time did you mean?") })
         vm.planning.propose("first",Field.END); advanceUntilIdle()
         vm.planning.propose("leave in the morning",Field.START); advanceUntilIdle()
+        assertEquals(Field.START,vm.planning.state.value.inputField)
         assertEquals("Home",vm.planning.state.value.candidate!!.preview.single().label)
         assertTrue(contexts.last().contains("saved_places")); assertTrue(contexts.last().contains("my house"))
         assertTrue(contexts.last().contains("timezone")); assertTrue(contexts.last().contains("earlier_instructions"))
@@ -80,6 +81,7 @@ class PlannerReviewControllerTest {
         restored.planning.restorePending()
         val review = restored.planning.state.value
         assertEquals("leave in the morning",review.input); assertEquals("What departure time did you mean?",review.question)
+        assertEquals(Field.START,review.inputField)
         assertEquals(vm.planning.state.value.candidate,review.candidate); assertFalse(review.canConfirm)
         assertTrue(restored.stops.isEmpty()); assertFalse(restored.planning.confirm())
     }

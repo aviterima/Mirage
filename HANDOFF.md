@@ -1,3 +1,9 @@
+# Mirage 0.18.0 candidate — implementation and verification in progress
+
+Current branch: `codex/contextual-voice-input-20261012`, based on verified 0.17.0 documentation HEAD `49c18c661e098484f2b469bac3a06f4f9d512938`. Initial source `d500acdb782fa058aa7a709fbb2ee0993dade876` passed [build 38329790920](https://github.com/aviterima/Mirage/actions/runs/38329790920), including 249 JVM tests, blocking lint and pinned signing. Follow-up source changes require fresh verification; acceptance results and final status belong in the [candidate report](docs/CONTEXTUAL_VOICE_0.18.0.md).
+
+**Model quality currently blocks a release claim.** No larger local model or hosted provider has been enabled. See [actual inference evidence and the pending interpretation-engine choice](docs/MODEL_EVALUATION_0.18.0.md). Continue from this branch without replacing or resetting older sources. The latest verified delivery remains 0.17.0; historical evidence below applies only to its named version.
+
 # Mirage 0.17.0 — voice in the planner
 
 Current branch: `codex/inline-voice-planner-20261012`, based on verified 0.16.1 at `3f268d56b618129051d8b1cff461a5d31d690f83`. Inline microphone input, gated setup, shared search/review and full draft/context reset are implemented. Tested source: `add03c4a8825d146fbbdf6f589c1026510656456`. Build 38268232274 and acceptance 38268232278 (attempt 2) passed **210 JVM tests and 44 emulator tests**, blocking lint, pinned signing, packaged voice, live trail service and the in-place 0.16.1 upgrade. The upgrade fixture's saved place and key/identity files were byte-identical. The installer is the exact acceptance APK; the final commit changes four Markdown files only. See [the specification, APK identity, recorded emulator timeouts and remaining phone checks](docs/INLINE_VOICE_PLANNER_0.17.0.md). Older results below are version-specific.

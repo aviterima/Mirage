@@ -54,8 +54,8 @@ object TripRecovery {
     }
     @Synchronized fun savePlannerIfCurrent(snapshot: PlannerSnapshot, generation: Long): Boolean {
         if (generation != draftGeneration || snapshot.draftGeneration != generation) return false
-        val saved = InputDraftStore.saveRecovery(mapOf("plannerSnapshot" to snapshot.toJson().toString(),
-            "draft" to snapshot.scenario.toJson().toString()), generation)
+        val saved = runCatching { InputDraftStore.saveRecovery(mapOf("plannerSnapshot" to snapshot.toJson().toString(),
+            "draft" to snapshot.scenario.toJson().toString()), generation) }.getOrDefault(false)
         failure = if (saved) null else "Could not preserve the latest planner draft"
         return saved
     }
@@ -63,7 +63,7 @@ object TripRecovery {
     /** A delayed autosave captured before Clear must never recreate the previous draft. */
     @Synchronized fun saveDraftIfCurrent(item: SavedScenario, generation: Long): Boolean {
         if (generation != draftGeneration) return false
-        val saved = InputDraftStore.saveRecovery(mapOf("draft" to item.toJson().toString()), generation)
+        val saved = runCatching { InputDraftStore.saveRecovery(mapOf("draft" to item.toJson().toString()), generation) }.getOrDefault(false)
         failure = if (saved) null else "Could not preserve the latest draft"
         return saved
     }

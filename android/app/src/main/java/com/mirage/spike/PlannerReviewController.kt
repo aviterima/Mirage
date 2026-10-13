@@ -18,6 +18,7 @@ import java.time.ZonedDateTime
 data class PlannerReviewView(
     val busy: Boolean = false,
     val input: String = "",
+    val inputField: Field = Field.END,
     val question: String = "",
     val choices: List<PlaceHit> = emptyList(),
     val candidate: PlanCandidate? = null,
@@ -64,7 +65,7 @@ class PlannerReviewController(
         val priorHistory = history
         history = (history + text).takeLast(8)
         slot = null
-        mutableState.value = PlannerReviewView(busy = true, input = text, candidate = pending, status = "Reviewing the whole plan…")
+        mutableState.value = PlannerReviewView(busy = true, input = text, inputField = field, candidate = pending, status = "Reviewing the whole plan…")
         persist()
         job = scope.launch {
             try {
@@ -185,7 +186,7 @@ class PlannerReviewController(
             history = (0 until prior.length()).map { prior.getString(it) }
             inputGeneration = InputDraftStore.generation
             val wasReady = data.optBoolean("ready")
-            mutableState.value = PlannerReviewView(input = input, question = question,
+            mutableState.value = PlannerReviewView(input = input, inputField = field, question = question,
                 choices = (0 until choices.length()).map { hitFromJson(choices.getJSONObject(it)) }, candidate = candidate,
                 canConfirm = wasReady && candidate.resolved && question.isBlank(),
                 status = if (wasReady) "Restored your pending review. Check it before applying."

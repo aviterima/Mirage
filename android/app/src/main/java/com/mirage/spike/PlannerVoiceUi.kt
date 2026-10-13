@@ -57,17 +57,18 @@ internal fun PlannerCandidatePreview(candidate: PlanCandidate) {
 }
 
 @Composable
-internal fun PlannerReviewFeedback(controller: PlannerReviewController, onApplied: () -> Unit) {
+internal fun PlannerReviewFeedback(controller: PlannerReviewController, hasUnreviewedInput: Boolean = false, onApplied: () -> Unit) {
     val view by controller.state.collectAsState()
     if (view.status.isBlank() && view.question.isBlank() && view.candidate == null && !view.busy) return
     Column(Modifier.fillMaxWidth().padding(8.dp).testTag("plannerReviewFeedback"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(if (view.busy) "Interpreting…" else view.status, style = MaterialTheme.typography.bodySmall)
         if (view.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         if (view.question.isNotBlank()) Text(view.question, Modifier.testTag("plannerReviewQuestion"), style = MaterialTheme.typography.bodyMedium)
+        if (view.canConfirm && hasUnreviewedInput) Text("Review the edited entry before applying changes.", style = MaterialTheme.typography.bodySmall)
         if (view.choices.isNotEmpty()) SuggestionList(view.choices, false, null, "this part of the plan",
             choiceTagPrefix = "plannerReviewChoice", onPick = controller::choose)
         if (view.candidate != null || view.busy || view.question.isNotBlank()) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (view.canConfirm) Button(onClick = { if (controller.confirm()) onApplied() },
+            if (view.canConfirm) Button(enabled = !hasUnreviewedInput, onClick = { if (controller.confirm()) onApplied() },
                 modifier = Modifier.testTag("plannerReviewApply")) { Text("Apply changes") }
             TextButton(onClick = controller::reset, modifier = Modifier.testTag("plannerReviewCancel")) { Text("Discard review") }
         }

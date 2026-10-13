@@ -26,8 +26,9 @@ internal fun VoiceTimeDialog(title: String, fieldKey: String, initial: Long?, on
     val context = LocalContext.current
     val formatter = remember { DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm") }
     fun formatted(value: Long) = Instant.ofEpochMilli(value).atZone(ZoneId.systemDefault()).format(formatter)
-    var text by rememberSaveable(fieldKey) { mutableStateOf(formatted(initial ?: System.currentTimeMillis())) }
+    var text by rememberSaveable(fieldKey) { mutableStateOf(initial?.let(::formatted).orEmpty()) }
     val parsed = runCatching { parsePlannerTime(text) }
+    val inputBusy = voiceFieldBusy(fieldKey)
     fun close() { discardVoiceField(context, fieldKey); onDismiss() }
     AlertDialog(onDismissRequest = ::close, title = { Text(title) }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -36,9 +37,9 @@ internal fun VoiceTimeDialog(title: String, fieldKey: String, initial: Long?, on
                 modifier = Modifier.fillMaxWidth().testTag("voiceTimeInput"), singleLine = false,
                 placeholder = { Text("Tomorrow at 9 AM, or 2026-10-15T09:00") })
             Text("${ZoneId.systemDefault().id} · Review spoken or natural-language times before setting.", style = MaterialTheme.typography.bodySmall)
-            TextButton(onClick = { chooseTripTime(context, parsed.getOrNull() ?: initial ?: System.currentTimeMillis()) { text = formatted(it) } }) { Text("Choose on calendar") }
+            TextButton(enabled = !inputBusy, onClick = { chooseTripTime(context, parsed.getOrNull() ?: initial ?: System.currentTimeMillis()) { text = formatted(it) } }) { Text("Choose on calendar") }
         }
-    }, confirmButton = { TextButton(enabled = parsed.isSuccess, onClick = {
+    }, confirmButton = { TextButton(enabled = parsed.isSuccess && !inputBusy, onClick = {
         parsed.getOrNull()?.let { discardVoiceField(context, fieldKey); onSet(it) }
     }, modifier = Modifier.testTag("voiceTimeSet")) { Text("Set time") } },
         dismissButton = { TextButton(onClick = ::close) { Text("Cancel") } })

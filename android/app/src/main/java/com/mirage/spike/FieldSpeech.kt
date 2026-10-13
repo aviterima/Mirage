@@ -21,6 +21,11 @@ object FieldSpeech {
     val state = mutable.asStateFlow()
     private val completed = MutableStateFlow<Map<String, FieldSpeechView>>(emptyMap())
     val results = completed.asStateFlow()
+    private val reviewingMutable = MutableStateFlow<Set<String>>(emptySet())
+    val reviewing = reviewingMutable.asStateFlow()
+    @Synchronized fun setReviewing(key: String, busy: Boolean) {
+        reviewingMutable.value = if (busy) reviewingMutable.value + key else reviewingMutable.value - key
+    }
 
     @Synchronized fun begin(key: String, sensitive: Boolean = false, prefix: String = ""): Long {
         require(key.isNotBlank())
@@ -54,7 +59,13 @@ object FieldSpeech {
     }
     @Synchronized fun cancel(key: String? = null) {
         completed.value = if (key == null) emptyMap() else completed.value - key
+        reviewingMutable.value = if (key == null) emptySet() else reviewingMutable.value - key
         if (key == null || mutable.value.key == key) mutable.value = FieldSpeechView(requestId = mutable.value.requestId + 1)
+    }
+    @Synchronized fun cancelPlanner() {
+        completed.value = completed.value.filterKeys { !it.startsWith("planner.") }
+        reviewingMutable.value = reviewingMutable.value.filterNot { it.startsWith("planner.") }.toSet()
+        if (mutable.value.key?.startsWith("planner.") == true) mutable.value = FieldSpeechView(requestId = mutable.value.requestId + 1)
     }
     fun isActive(id: Long) = mutable.value.let { it.requestId == id && it.active && it.key != null }
 }
