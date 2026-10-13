@@ -2,6 +2,8 @@
 
 The candidate adds microphones to app-owned text fields, recoverable interrupted input, and whole-plan review with corrections and Undo. **It is not a verified release.** The tested local language models did not reliably interpret the requested instructions; an interpretation-engine decision is pending. See the [candidate specification](docs/CONTEXTUAL_VOICE_0.18.0.md) and [measured model results](docs/MODEL_EVALUATION_0.18.0.md). The latest verified installer remains 0.17.0.
 
+Candidate verification: 259 JVM tests passed; 53 of 55 Android tests passed, with only the two native language-quality checks failing. UI journeys, lint, signing and the upgrade fixture passed. The failed model-quality gate still blocks release.
+
 # Mirage 0.17.0 — voice in the planner
 
 Use the microphone beside Start, Destination or Next stop, or type in the same field. Missing voice files open Voice setup; recognized words stay editable. The existing itinerary shows the plan and highlights new stops. Clear entry and Start new have separate scopes. Validated October 12, 2026: **210 JVM tests and 44 emulator tests passed**, with blocking lint, pinned signing and the in-place upgrade from 0.16.1. Acceptance passed on an unchanged-source rerun after two emulator idle timeouts. See [behavior, exact APK identity, failure history and remaining phone checks](docs/INLINE_VOICE_PLANNER_0.17.0.md).
