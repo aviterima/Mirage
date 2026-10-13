@@ -78,8 +78,10 @@ object LocalLanguageModel {
 
     private suspend fun infer(systemInstruction: String, userData: String, schema: String): String {
         check(ready) { "Download the voice update in Voice setup first" }
+        // Legacy commands do not need a reasoning phase. LiteRT-LM 0.18.0 also has a
+        // known constrained-output error when an enabled reasoning phase is skipped.
         return LiteRtLanguageEngine.infer(file!!, cache!!, systemInstruction, userData,
-            LanguageModelSchema.forSchema(schema), if (schema == "field") 500 else if (schema == "legacy") 500 else 1200,
-            thinkingTokenBudget = 256)
+            LanguageModelSchema.forSchema(schema), if (schema == "field") 500 else if (schema == "legacy") 220 else 1200,
+            thinkingTokenBudget = if (schema == "legacy") 0 else 256)
     }
 }
