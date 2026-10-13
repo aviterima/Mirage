@@ -1,6 +1,6 @@
 # Offline dictation and manual planning — 0.18.0
 
-Status: implemented, awaiting build and Android acceptance. No installer from this revision has been delivered. Latest verified delivery remains 0.17.0 until the checks below pass.
+Status: **verified October 13, 2026**. The normal 0.18.0 installer provides offline dictation and manual planning. Tested source is `90eb1b6dc6b4a27bf06f9711c0aa19536871ed08`; application code is unchanged from `a329be452016fc6a82996f99b695edf36027152b`. Final handoff changes documentation only.
 
 On 13 October 2026, after reviewing the on-device model failures, the user chose to keep speech processing offline, dictate into editable fields, and construct itineraries with the normal manual controls. This supersedes the conversational interpretation scope for the 0.18.0 installer. The unsuccessful [Gemma experiment](GEMMA_LOCAL_UPDATE_0.18.0.md) and its unchanged quality expectations remain recorded separately.
 
@@ -31,7 +31,24 @@ New checks cover microphone readiness without Gemma; no download UI; literal edi
 
 The former model tests and model-dependent UI/command tests retain their assertions under an explicit experimental gate. Android uses the `ExperimentalLanguageModel` annotation, and JVM command tests use the `ExperimentalLanguageModelTests` category. Normal tests exclude those out-of-scope capabilities rather than reporting them as skipped or passed. A manually dispatched acceptance run with `experimental_model=true` builds with `-PexperimentalLanguageModel=true` and selects that separate experimental gate; missing model prerequisites fail rather than skip. Its prior quality failures are not resolved by the offline release.
 
-Build/lint/signing results, exact JVM/Android counts, upgrade evidence and APK identity will be recorded after the current checks. Physical Galaxy S25 Ultra microphone, ergonomics and long-session checks remain open.
+## Verified results and installer
+
+[Build 38411851231](https://github.com/aviterima/Mirage/actions/runs/38411851231) and [acceptance 38411853403, attempt 2](https://github.com/aviterima/Mirage/actions/runs/38411853403/attempts/2) passed. Independently parsed XML records **265 JVM tests and 51 Android tests**, with zero failures, errors or skips. Seven model-dependent JVM methods and 13 experimental Android methods retain their assertions in the separate opt-in suite and are not included in those totals.
+
+Blocking lint passed with 44 warnings and 11 hints. The sole added warning concerns optional-parameter ordering in a private Compose helper. The disabled-capability check, bundled voice assets, pinned signing and native Vosk initialization passed. The actual speech initialization test used silent PCM and completed in 1.010 seconds. The Home/Save/Start new journey passed in 21.552 seconds, the shared footer/Settings Start guard in 18.841 seconds, the moving-route journey in 20.311 seconds and the previously timed-out paused-continuation journey in 23.271 seconds.
+
+The signed 0.17.0-to-0.18.0 upgrade succeeded without uninstalling. Independently compared seeded key/install-identity and saved-scenario files were byte-identical; this fixture does not certify every user record or preference. All three trail checks passed through fallback after an initial HTTP 504. Eleven selected evidence/installer archives matched metadata SHA-256 and byte count and passed ZIP CRC checks. The APK was assembled from the six exact acceptance parts and matches the workflow checksum.
+
+Installer: `Mirage-0.18.0.apk`, **131,902,929 bytes**, package `com.mirage.app`, version **0.18.0**, code **44**.
+
+- APK SHA-256: `9d8b18a32d0230b8cfae8acc15dd931af4b60ae2f31d7d31de21ca9468876c83`.
+- Signing certificate SHA-256: `e51683b8f4161d31fe4e81fe788438640151f8efb9aeba693a4ce21ad72cc8b8`.
+- Local checks covered all 248 ZIP entries, binary manifest and certificate fingerprint. These local checks are not cryptographic signature verification; CI `apksigner` verification and Android's signed upgrade acceptance establish that separately.
+- Bundled speech assets and Vosk libraries for `arm64-v8a` and `x86_64` were verified.
+
+Delivery uses `Mirage-0.18.0.zip` because the upload connector rejects individual files over 100 MiB. The ZIP is **88,651,923 bytes**, SHA-256 `3afc007a4ddef5f7fee00bfc89c2da2654b5ab742bbf096af688e18101c6980d`, and contains only the APK. Streaming extraction reproduces the exact APK SHA-256 above. Hosted metadata confirms the ZIP name and byte count. A complete download of the hosted copy also matches the ZIP SHA-256, passes CRC and reproduces the exact APK SHA-256. The private download link remains outside this repository. Download, extract the ZIP, then open the APK to update the installed application.
+
+Final reset and Settings screenshots were reviewed alongside the unchanged application layout captures. Editable fields, microphones, Saved places and separate Save/Settings/Start new controls are readable; reset leaves simulation off. The Settings screenshot shows the final enabled Start state, while test assertions establish its intermediate guards. Larger-text keyboard captures retain the editable field and microphone but can clip scrolled preview content. Physical Galaxy S25 Ultra microphone accuracy, ergonomics and long-session checks remain open. Deterministic search fixtures do not establish live Places/Directions acceptance; no local Android toolchain or physical-device run is claimed.
 
 ## Validation history
 
@@ -40,3 +57,7 @@ Offline source `59354fd024afbfea26801d7de40f9227a5f9ca3c` passed build 384064220
 Source `10135c9cc88abc00b980094c6708b20ce0421c13` failed compilation in build 38407434668 and acceptance 38407435369 because the new state helper lacked an explicit import. No Android tests ran in that revision. The next source adds only that import; the behavior and regression expectations are unchanged.
 
 Source `a329be4` passed build 38408160513: 265 JVM tests, blocking lint, the disabled-capability check, bundled speech assets and pinned signing. Acceptance 38408160892 ran all 51 Android tests: 49 passed and two failed, with zero errors/skips. Actual bundled Vosk initialization passed in 1.709 seconds, and the Settings Start guard passed in 17.368 seconds. The Home journey pressed hardware Back after the keyboard had already closed, ending its Activity before Save. A continuation journey passed its route/place/order/origin/identity/pause assertions but timed out waiting for global Compose idleness before its final moving-screen screenshot. The follow-up corrects only those test interactions; it does not change application code or the behavioral expectations. No installer was packaged from this failed run.
+
+Source `90eb1b6dc6b4a27bf06f9711c0aa19536871ed08` changes only two Android test files and two documents after `a329be4`. Build 38411851231 passed. Acceptance 38411853403 attempt 1 ran all 51 Android tests: 50 passed and one existing paused-trip journey timed out waiting for Compose idleness while reading the paused header, with zero errors/skips. Both corrected journeys passed. The paused-state/output-validity predicate had passed before the timeout, but later rendered-header stability assertions were not reached. No app fatal exception, signal, OOM or process kill appeared in that test's logcat. All five downloaded evidence archives matched metadata size/SHA-256 and passed CRC checks; 265 JVM tests passed and upgrade fixture files remained byte-identical. The full emulator job was rerun once without source, assertion or infrastructure changes; attempt 1 is retained as a failure.
+
+Attempt 2 passed all 51 Android tests on that unchanged source, with zero failures, errors or skips. The successful rerun does not establish freedom from emulator/Compose timing sensitivity. Its exact APK is the verified installer described above; failed, superseded and experimental attempts remain distinct evidence.

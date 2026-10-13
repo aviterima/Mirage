@@ -1,6 +1,8 @@
-# Mirage 0.18.0 — offline dictation, under validation
+# Mirage 0.18.0 — offline dictation
 
-The user chose offline dictation with editable fields and manual itinerary controls. The microphone uses bundled speech recognition without a large model download. Typed and dictated place names share normal search, the itinerary list remains the preview, and Save and Start stay separate. Conversational interpretation is disabled in normal builds. See [the current scope and verification](docs/OFFLINE_DICTATION_0.18.0.md). This revision is awaiting acceptance; latest verified delivery remains 0.17.0.
+Voice dictation fills the same editable fields as typing, using bundled speech recognition without a large model download. Saved places such as Home share the normal search results; the itinerary list is the preview. Clear entry and Start new have separate scopes, and Save remains separate from Start. Conversational interpretation is disabled in the normal installer.
+
+Validated October 13, 2026: **265 JVM tests and 51 Android emulator tests passed**, with blocking lint, pinned signing, bundled speech initialization and the signed upgrade from 0.17.0. Android acceptance passed on an unchanged-source rerun after an existing live-trip test's Compose idle timeout. See [behavior, exact APK identity, verification history and remaining phone checks](docs/OFFLINE_DICTATION_0.18.0.md).
 
 # Earlier 0.18.0 conversational experiment — not released
 

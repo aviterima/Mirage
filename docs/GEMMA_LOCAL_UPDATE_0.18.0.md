@@ -26,7 +26,7 @@ The runtime AAR is `com.google.ai.edge.litertlm:litertlm-android:0.18.0`, SHA-25
 
 ## Result: language quality blocks release
 
-E4B improved on the earlier Qwen candidate but did not pass the required language checks. The final frozen prompt passed **11 of 16 previously unseen cases**. Do not deliver this integration as a verified 0.18.0 update. Latest verified delivery remains 0.17.0. No hosted provider is enabled, and no physical S25 Ultra inference or microphone performance has been measured.
+E4B improved on the earlier Qwen candidate but did not pass the required language checks. The final frozen prompt passed **11 of 16 previously unseen cases**. Do not deliver this integration as a verified 0.18.0 update. See the separate [offline dictation verification record](OFFLINE_DICTATION_0.18.0.md) for the subsequent installer. No hosted provider is enabled, and no physical S25 Ultra inference or microphone performance has been measured.
 
 The production candidate uses a fresh conversation, CPU with four threads, an 8192-token context, greedy sampling and JSON-constrained output. Field and plan requests allow 256 reasoning tokens, included in their respective 500- and 1200-token output budgets. Legacy commands use no reasoning and a 220-token output budget after reproducing the SDK error described below. The overall request deadline remains 90 seconds; cancellation waits for native ownership to finish before another request can begin.
 
