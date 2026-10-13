@@ -180,7 +180,8 @@ class VoiceFieldUiAcceptanceTest {
             visible = true
         }
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Nine in the morning or evening?", substring = true).fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("datetimeInput").performTextReplacement("morning").performClick()
+        compose.onNodeWithTag("datetimeInput").performTextReplacement("morning")
+        compose.onNodeWithTag("datetimeInput").performClick()
         compose.onNodeWithTag("voiceReview-$key").performScrollTo().performClick()
         compose.onNodeWithTag("datetimeInput").assertTextContains("2026-10-13T09:00")
         compose.runOnIdle {
@@ -192,7 +193,8 @@ class VoiceFieldUiAcceptanceTest {
         }
         compose.onNodeWithTag("calendarChoice").performScrollTo().performClick()
         compose.onNodeWithTag("datetimeInput").assertTextContains("2026-11-01T10:00")
-        compose.onNodeWithTag("datetimeInput").performTextReplacement("two hours later").performClick()
+        compose.onNodeWithTag("datetimeInput").performTextReplacement("two hours later")
+        compose.onNodeWithTag("datetimeInput").performClick()
         compose.onNodeWithTag("voiceReview-$key").performScrollTo().performClick()
         compose.onNodeWithTag("datetimeInput").assertTextContains("2026-11-01T12:00")
         compose.runOnIdle {
