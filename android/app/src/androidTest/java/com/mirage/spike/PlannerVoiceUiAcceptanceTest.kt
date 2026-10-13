@@ -7,6 +7,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
@@ -41,6 +43,7 @@ class PlannerVoiceUiAcceptanceTest {
     private val queries = mutableListOf<String>()
     private var starts = 0
     private var interpreterCalls = 0
+    private lateinit var hidePlannerKeyboard: () -> Unit
     private var plannerVisible by mutableStateOf(true)
     private fun place(id: String, name: String, point: LatLng) = SavedScenario(
         id, name, "SNAP", 1L, false, null, "", point, name,
@@ -95,6 +98,9 @@ class PlannerVoiceUiAcceptanceTest {
     private fun launchPlanner(largeText: Boolean = false) {
         compose.setContent {
             val density = LocalDensity.current
+            val focus = LocalFocusManager.current
+            val keyboard = LocalSoftwareKeyboardController.current
+            SideEffect { hidePlannerKeyboard = { focus.clearFocus(); keyboard?.hide() } }
             CompositionLocalProvider(LocalViewModelStoreOwner provides vmOwner,
                 LocalDensity provides Density(density.density, if (largeText) 1.3f else density.fontScale)) {
                 MirageTheme {
@@ -117,6 +123,11 @@ class PlannerVoiceUiAcceptanceTest {
         }
         compose.waitUntil(5_000) { PlannerSpeech.state.value.target == null }
         compose.waitForIdle()
+    }
+
+    private fun dismissPlannerKeyboard() {
+        // Back can finish this test Activity when a preceding action already hid the IME.
+        compose.runOnIdle { hidePlannerKeyboard() }
     }
 
     private fun assertBeside(fieldTag: String, microphoneTag: String) {
@@ -164,16 +175,17 @@ class PlannerVoiceUiAcceptanceTest {
             assertEquals(listOf("Home"), vm.stops.map { it.name })
             assertTrue(vm.suggestions.isEmpty()); assertFalse(PlannerSpeech.state.value.active); assertIdle()
         }
-        device.pressBack()
-        compose.onNodeWithText("Save").assertIsDisplayed().performClick()
+        dismissPlannerKeyboard()
+        compose.onNode(hasText("Save") and hasAnyAncestor(hasTestTag("plannerFooter")))
+            .assertIsDisplayed().performClick()
         compose.onNodeWithTag("savedPlanName").performTextReplacement("Offline Saturday")
-        compose.onNodeWithText("Save").performClick()
+        compose.onNode(hasText("Save") and hasAnyAncestor(isDialog())).performScrollTo().performClick()
         compose.waitUntil(5_000) { PrefsScenarioStore(context).load().any { it.name == "Offline Saturday" } }
         val saved = PrefsScenarioStore(context).load().single { it.name == "Offline Saturday" }
         assertEquals("ITINERARY", saved.kind)
         assertEquals(office.dest, saved.start); assertEquals(listOf("Home"), saved.stops.map { it.name })
         // Dismiss the library, which remains open after saving, using its normal close action.
-        compose.onNodeWithText("Done").performScrollTo().performClick()
+        compose.onNode(hasText("Done") and hasAnyAncestor(isDialog())).performScrollTo().performClick()
         compose.onNodeWithTag("plannerDestinationInput").assertExists()
         var lateRequest = 0L
         compose.runOnIdle {
@@ -207,7 +219,7 @@ class PlannerVoiceUiAcceptanceTest {
         compose.onNodeWithTag("plannerPrimary").assertIsEnabled()
 
         compose.onNodeWithTag("plannerDestinationInput").performScrollTo().performTextInput("unfinished location")
-        device.pressBack()
+        dismissPlannerKeyboard()
         compose.onNodeWithTag("plannerPrimary").assertIsNotEnabled()
         compose.onNodeWithTag("plannerSettingsOpen").performClick()
         compose.onNodeWithTag("plannerSettingsPrimary").performScrollTo().assertIsNotEnabled()
@@ -291,7 +303,7 @@ class PlannerVoiceUiAcceptanceTest {
             assertEquals(home.dest, vm.start)
             assertIdle()
         }
-        device.pressBack()
+        dismissPlannerKeyboard()
         compose.onNodeWithText("Itinerary").performScrollTo().performClick()
         assertBeside("plannerDestinationInput", "plannerMicEnd")
         screenshot("planner-inline-microphones")
@@ -383,7 +395,7 @@ class PlannerVoiceUiAcceptanceTest {
         compose.onNodeWithTag("plannerClearEnd").assertIsDisplayed()
         screenshot("planner-voice-large-text-keyboard")
         compose.runOnIdle { assertEquals(listOf("Home", "Office"), vm.stops.map { it.name }); assertIdle() }
-        device.pressBack()
+        dismissPlannerKeyboard()
     }
 
     @ExperimentalLanguageModel
@@ -398,11 +410,11 @@ class PlannerVoiceUiAcceptanceTest {
             assertTrue(vm.stops.isEmpty()); assertNull(vm.departureMillis); assertIdle()
         }
         compose.onNodeWithTag("plannerDestinationInput").performScrollTo().performClick().performTextReplacement("")
-        device.pressBack()
+        dismissPlannerKeyboard()
         compose.onNodeWithTag("plannerReviewApply").performScrollTo().assertIsNotEnabled()
         compose.onNodeWithTag("plannerDestinationInput").performScrollTo().performClick()
             .performTextReplacement("Make the first stay forty five minutes instead")
-        device.pressBack()
+        dismissPlannerKeyboard()
         compose.onNodeWithTag("plannerReviewApply").performScrollTo().assertIsNotEnabled()
         compose.onNodeWithTag("plannerInputSubmit").performScrollTo().performClick()
         compose.waitUntil(5_000) { vm.planning.state.value.canConfirm && vm.planning.state.value.candidate?.preview?.firstOrNull()?.stayMinutes == 45 }
@@ -442,7 +454,7 @@ class PlannerVoiceUiAcceptanceTest {
         compose.runOnIdle { vm.pickSavedPlace(home, Field.START); vm.pickSavedPlace(office, Field.END) }
         compose.onNodeWithTag("plannerDestinationInput").performScrollTo().performClick()
             .performTextReplacement("Stay at Office for twenty minutes")
-        device.pressBack()
+        dismissPlannerKeyboard()
         compose.runOnIdle {
             val request = PlannerSpeech.begin(Field.END)
             PlannerSpeech.partial(request, "old unfinished instruction")
@@ -502,7 +514,7 @@ class PlannerVoiceUiAcceptanceTest {
                 compose.runOnIdle { assertEndpoints() }
             }
             input.assertTextContains(command)
-            device.pressBack()
+            dismissPlannerKeyboard()
             compose.onNodeWithTag("plannerInputSubmit").performScrollTo().performClick()
             compose.waitUntil(5_000) { SmartVoice.needsReply() }
             compose.onNodeWithTag("plannerVoiceConfirm").performScrollTo().performClick()

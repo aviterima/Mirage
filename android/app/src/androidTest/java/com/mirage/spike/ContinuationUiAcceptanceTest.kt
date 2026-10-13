@@ -94,8 +94,9 @@ class ContinuationUiAcceptanceTest {
         context.getSharedPreferences("mirage_recovery",android.content.Context.MODE_PRIVATE).edit().clear().commit()
         MockState.reset(); LiveSession.clear(); PlaybackSource.clearQueue(); PlaybackSource.paused = false
     }
-    private fun screenshot(name: String) {
-        compose.waitForIdle(); device.waitForIdle()
+    private fun screenshot(name: String, waitForComposeIdle: Boolean = true) {
+        if (waitForComposeIdle) compose.waitForIdle()
+        device.waitForIdle()
         device.executeShellCommand("mkdir -p /sdcard/Download/mirage-acceptance")
         device.executeShellCommand("screencap -p /sdcard/Download/mirage-acceptance/$name.png")
     }
@@ -157,7 +158,9 @@ class ContinuationUiAcceptanceTest {
         assertEquals(home, LiveSession.state.value.stops.last().stop.point)
         assertEquals("SNAP", PrefsScenarioStore(context).load().single { it.id == "home" }.kind)
         assertFalse(PlaybackSource.paused)
-        screenshot("live-route-saved-route-and-place-added")
+        // The assertions above establish the result while travelling; a live map/status
+        // keeps updating, so its evidence capture must not require global Compose idleness.
+        screenshot("live-route-saved-route-and-place-added", waitForComposeIdle = false)
     }
 
     @Test fun savedSourcesRemainVisibleWithLargeText() {

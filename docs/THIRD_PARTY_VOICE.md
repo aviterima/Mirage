@@ -1,5 +1,7 @@
 # Voice dependencies
 
+The normal 0.18.0 installer uses bundled Vosk dictation and manual editing, as specified in [the offline release](OFFLINE_DICTATION_0.18.0.md). LiteRT-LM remains packaged but its download and inference entry points are disabled in normal builds. No Gemma model is required or downloaded by that installer. The model integration described below is a separate, blocked experiment.
+
 ## 0.18.0 on-device update under evaluation
 
 - LiteRT-LM Android 0.18.0: Google AI Edge, Apache License 2.0; https://github.com/google-ai-edge/LiteRT-LM/tree/v0.18.0 . The runtime AAR includes arm64-v8a and x86_64 native libraries.
