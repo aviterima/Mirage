@@ -2,7 +2,7 @@
 
 **Historical experimental scope.** On October 13 the user chose offline dictation and manual planning after the model failures. The [offline dictation specification](OFFLINE_DICTATION_0.18.0.md) now governs the normal 0.18.0 installer. The conversational behavior/tests below remain an explicit disabled experiment and are not release claims.
 
-Status: **not released**. The approved [Gemma update](GEMMA_LOCAL_UPDATE_0.18.0.md) passed build, 269 JVM tests, lint and signing at source `58c3897`, but passed only 11/16 fresh host language cases and encountered a native Android crash. Follow-up source `1d67ecd` is undergoing integration checks. The verified delivery remains 0.17.0. Earlier Qwen results and engine-choice discussion below are historical and do not validate Gemma.
+Status: **not released**. The approved [Gemma update](GEMMA_LOCAL_UPDATE_0.18.0.md) passed build, 269 JVM tests, lint and signing at source `58c3897`, but passed only 11/16 fresh host language cases and encountered a native Android crash. Follow-up source `1d67ecd` passed 269 JVM tests and completed 56 Android tests, with 55 passes and one pending-plan correction failure (zero errors/skips). Its production-context native planner test passed, but the experimental release gate remains unmet. The verified delivery remains 0.17.0. Earlier Qwen results and engine-choice discussion below are historical and do not validate Gemma.
 
 ## Requested behavior
 

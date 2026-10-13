@@ -6,7 +6,7 @@ The user chose offline dictation with editable fields and manual itinerary contr
 
 The earlier conversational candidate added whole-plan review with corrections and Undo. **It was not released.** The [Gemma experiment](docs/GEMMA_LOCAL_UPDATE_0.18.0.md) built, but passed only 11 of 16 fresh language cases and encountered a native Android crash. Those failures remain unresolved and the capability is excluded from the normal installer. See the [historical specification](docs/CONTEXTUAL_VOICE_0.18.0.md) and [prior Qwen failures](docs/MODEL_EVALUATION_0.18.0.md).
 
-Gemma source `58c3897` passed 269 JVM tests, lint, signing and upgrade checks; Android acceptance stopped after 19 passes and one native crash, leaving 35 tests unrun. Follow-up source `1d67ecd` is undergoing checks with legacy reasoning disabled and a production-context native planner test. Earlier Qwen UI passes do not establish Gemma acceptance.
+Gemma source `58c3897` passed 269 JVM tests, lint, signing and upgrade checks; Android acceptance stopped after 19 passes and one native crash, leaving 35 tests unrun. Follow-up source `1d67ecd` passed 269 JVM tests and completed all 56 Android tests, but one pending-plan correction case failed (55 passed, zero errors/skips). Its production-context native planner test passed; the experimental capability remains blocked. Earlier Qwen UI passes do not establish Gemma acceptance.
 
 # Mirage 0.17.0 — voice in the planner
 

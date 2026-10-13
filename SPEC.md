@@ -6,7 +6,7 @@ The user selected [offline dictation with editable fields and manual itinerary c
 
 The [candidate specification](docs/CONTEXTUAL_VOICE_0.18.0.md) extends shared typed/spoken input to all app-owned fields and proposes complete plans for explicit review, correction, atomic Apply and Undo. Interruptions preserve unfinished words; Start new clears planning context durably. Exact credentials bypass interpretation and draft persistence. Saving and starting remain separate actions.
 
-Broad free-form interpretation is not accepted and the candidate is not released. Both the [earlier Qwen evaluation](docs/MODEL_EVALUATION_0.18.0.md) and the approved [Gemma update](docs/GEMMA_LOCAL_UPDATE_0.18.0.md) failed required language checks. Gemma passed 11/16 fresh cases; its first complete build passed 269 JVM tests, lint and signing, but Android acceptance crashed during native inference. Follow-up integration checks are pending. Hosted processing remains disabled. The latest verified specification is 0.17.0 below.
+Broad free-form interpretation is not accepted and the candidate is not released. Both the [earlier Qwen evaluation](docs/MODEL_EVALUATION_0.18.0.md) and the approved [Gemma update](docs/GEMMA_LOCAL_UPDATE_0.18.0.md) failed required language checks. Gemma passed 11/16 fresh cases; its first complete build passed 269 JVM tests, lint and signing, but Android acceptance crashed during native inference. Follow-up integration completed 56 Android tests with 55 passes and one pending-plan correction failure; it does not meet the experimental release gate. Hosted processing remains disabled. The latest verified specification is 0.17.0 below.
 
 # Mirage 0.17.0 — voice in the planner
 

@@ -188,6 +188,7 @@ data class SetupChecks(val location: Boolean, val notifications: Boolean, val ba
 
 /** The simulation controls handed from the screen down to the sheet. */
 private class SimActions(
+    val enabled: Boolean,
     val getRoute: () -> Unit,
     val start: () -> Unit,
     val startItinerary: () -> Unit,
@@ -399,6 +400,21 @@ fun MapScreen(
         wasRunning = status.running
     }
 
+    val startLabel = when {
+        status.running && vm.queueAfterCurrent -> "Where the current trip ends"
+        status.running && vm.useSimulatedStart -> "Current simulated position"
+        vm.start == null -> ""
+        else -> vm.startName
+    }
+    val endLabel = vm.dest?.let { vm.destName } ?: ""
+    var startQuery by rememberSaveable(vm.draftGeneration) { mutableStateOf(readPlannerEntry("start", startLabel)) }
+    var endQuery by rememberSaveable(vm.draftGeneration) { mutableStateOf(readPlannerEntry("end", endLabel)) }
+    val pendingEntry = (vm.planMode != PlanMode.SNAP && startQuery != startLabel) || endQuery != endLabel
+    val pendingInterpretation = interpretationEnabled && (planReview.busy || planReview.candidate != null ||
+        planReview.question.isNotBlank() || plannerChat.busy || Conversation.needsReply())
+    val plannerInputReady = !speech.active && !pendingInterpretation && !pendingEntry
+    val currentPlannerInputReady by rememberUpdatedState(plannerInputReady)
+
     val goTo: (LatLng) -> Unit = { p ->
         scope.launch { runCatching { camera.animate(CameraUpdateFactory.newLatLngZoom(p.toG(), 15f)) } }
     }
@@ -411,10 +427,20 @@ fun MapScreen(
         }
     }
     val actions = SimActions(
-        getRoute = { vm.buildRoute() },
-        start = { withPerms { vm.startSim(onStartService); planning = false } },
-        startItinerary = { withPerms { vm.startItinerary(onStartService); planning = false } },
-        holdAt = { at -> withPerms { armStatic(at, vm.destName, vm.api, vm.arrivalActivity, vm.arrivalEntrance, vm.stayUntilLeave, vm.defaultStayMinutes); vm.onSnapStarted(); onStartService(); planning = false } },
+        enabled = plannerInputReady,
+        getRoute = { if (currentPlannerInputReady) vm.buildRoute() },
+        start = { if (currentPlannerInputReady) withPerms {
+            if (currentPlannerInputReady) { vm.startSim(onStartService); planning = false }
+        } },
+        startItinerary = { if (currentPlannerInputReady) withPerms {
+            if (currentPlannerInputReady) { vm.startItinerary(onStartService); planning = false }
+        } },
+        holdAt = { at -> if (currentPlannerInputReady) withPerms {
+            if (currentPlannerInputReady) {
+                armStatic(at, vm.destName, vm.api, vm.arrivalActivity, vm.arrivalEntrance, vm.stayUntilLeave, vm.defaultStayMinutes)
+                vm.onSnapStarted(); onStartService(); planning = false
+            }
+        } },
     )
     val onStop = { TripRecovery.clearLive(); Conversation.cancelPending(); onStopService(); vm.onStopped(); planning = false }
     val planNow = { planning = false; follow = false; vm.continuation.begin(Placement.NOW) }
@@ -524,15 +550,6 @@ fun MapScreen(
         }
 
         // ---- Start / End boxes + setup, with the type-ahead pick list underneath -----
-        val startLabel = when {
-            status.running && vm.queueAfterCurrent -> "Where the current trip ends"
-            status.running && vm.useSimulatedStart -> "Current simulated position"
-            vm.start == null -> ""
-            else -> vm.startName
-        }
-        val endLabel = vm.dest?.let { vm.destName } ?: ""
-        var startQuery by rememberSaveable(vm.draftGeneration) { mutableStateOf(readPlannerEntry("start", startLabel)) }
-        var endQuery by rememberSaveable(vm.draftGeneration) { mutableStateOf(readPlannerEntry("end", endLabel)) }
         var inputStatus by rememberSaveable(vm.draftGeneration) { mutableStateOf("") }
         var previousStartLabel by remember { mutableStateOf(startLabel) }
         var previousEndLabel by remember { mutableStateOf(endLabel) }
@@ -994,19 +1011,14 @@ fun MapScreen(
                 vm.notice?.let {Text(it,style=MaterialTheme.typography.bodySmall)}
                 TripRecovery.failure?.let {Text(it,color=RED)}
                 vm.error?.let { Text(it,color=RED);TextButton(onClick={vm.clearError()}){Text("Dismiss")}}
-                val pendingEntry = (vm.planMode != PlanMode.SNAP && startQuery != startLabel) || endQuery != endLabel
-                val pendingInterpretation = interpretationEnabled && (planReview.busy || planReview.candidate != null ||
-                    planReview.question.isNotBlank() || plannerChat.busy || Conversation.needsReply())
-                if (speech.active || pendingInterpretation || pendingEntry) {
-                    BigButton("Finish or clear the current entry", enabled = false, icon = null, onClick = {})
-                } else PrimaryAction(vm, false, actions)
+                PrimaryAction(vm, false, actions, Modifier.testTag("plannerPrimary"))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     TextButton(onClick = {
                         val name=vm.draftSavedName
                         if(name==null)showSaved=true else if(vm.saveScenario(name,true))vm.notice="Changes saved"
-                    },enabled = !speech.active && !pendingInterpretation && !pendingEntry,
+                    },enabled = plannerInputReady,
                         modifier=Modifier.weight(1f)) { Text(if(vm.draftSavedName==null) "Save" else "Save changes") }
-                    TextButton(onClick = { showPlannerSettings = true },modifier=Modifier.weight(1f)) { Text("Settings") }
+                    TextButton(onClick = { showPlannerSettings = true },modifier=Modifier.weight(1f).testTag("plannerSettingsOpen")) { Text("Settings") }
                     TextButton(onClick = { done(); showNewItinerary = true }, enabled = !status.running,
                         modifier=Modifier.weight(1f).testTag("plannerNewItinerary")) { Text("Start new") }
                 }
@@ -1399,7 +1411,7 @@ private fun Controls(
         )
     }
 
-    PrimaryAction(vm, running, a)
+    PrimaryAction(vm, running, a, Modifier.testTag("plannerSettingsPrimary"))
 
     if (!snap) {
         // Fast-forward (testing)
@@ -1460,19 +1472,23 @@ private fun Controls(
 }
 
 @Composable
-private fun PrimaryAction(vm: MirageViewModel, running: Boolean, a: SimActions) {
+private fun PrimaryAction(vm: MirageViewModel, running: Boolean, a: SimActions, modifier: Modifier = Modifier) {
     val fly = vm.mode == TravelMode.FLY
     if (MockState.status.collectAsState(context = kotlinx.coroutines.Dispatchers.Main.immediate).value.starting) { BusyRow("Starting…"); return }
+    if (!a.enabled) {
+        BigButton("Finish or clear the current entry", enabled = false, icon = null, modifier = modifier, onClick = {})
+        return
+    }
     when (vm.planMode) {
         PlanMode.SNAP -> BigButton(
             if (vm.dest != null) "Start at “${vm.destName}”" else "Choose a place",
-            enabled = vm.dest != null, onClick = { a.holdAt(vm.dest) },
+            enabled = vm.dest != null, modifier = modifier, onClick = { a.holdAt(vm.dest) },
         )
         PlanMode.ITINERARY ->
             if (vm.itineraryBusy) BusyRow("Routing legs…")
             else BigButton(
                 when { running && vm.queueAfterCurrent -> "Queue itinerary after arrival"; running -> "Start itinerary now (replaces)"; else -> "Start itinerary" },
-                enabled = vm.stops.isNotEmpty(), onClick = a.startItinerary,
+                enabled = vm.stops.isNotEmpty(), modifier = modifier, onClick = a.startItinerary,
             )
         PlanMode.ROUTE -> when {
             vm.phase == Phase.ROUTING -> BusyRow("Routing…")
@@ -1483,17 +1499,17 @@ private fun PrimaryAction(vm: MirageViewModel, running: Boolean, a: SimActions) 
                     fly -> "Start flight"
                     else -> "Start simulation"
                 },
-                onClick = a.start,
+                modifier = modifier, onClick = a.start,
             )
-            vm.dest != null -> BigButton(if (fly) "Plot flight" else "Get route", icon = null, onClick = a.getRoute)
-            else -> BigButton("Set Start and End above", enabled = false, icon = null, onClick = {})
+            vm.dest != null -> BigButton(if (fly) "Plot flight" else "Get route", icon = null, modifier = modifier, onClick = a.getRoute)
+            else -> BigButton("Set Start and End above", enabled = false, icon = null, modifier = modifier, onClick = {})
         }
     }
 }
 
 @Composable
-private fun BigButton(text: String, enabled: Boolean = true, icon: ImageVector? = Icons.Filled.PlayArrow, onClick: () -> Unit) {
-    Button(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth().height(48.dp)) {
+private fun BigButton(text: String, enabled: Boolean = true, icon: ImageVector? = Icons.Filled.PlayArrow, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Button(onClick = onClick, enabled = enabled, modifier = modifier.fillMaxWidth().height(48.dp)) {
         if (icon != null) { Icon(icon, contentDescription = null); Spacer(Modifier.width(6.dp)) }
         Text(text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
     }

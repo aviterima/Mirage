@@ -198,6 +198,51 @@ class PlannerVoiceUiAcceptanceTest {
         screenshot("offline-home-save-start-new")
     }
 
+    @Test fun settingsCannotStartWithUnresolvedTextOrAnActiveRecording() {
+        assertFalse(LocalLanguageModel.interpretationEnabled)
+        launchPlanner()
+        compose.onNodeWithText("Itinerary").performClick()
+        dictate(Field.END, "Home")
+        compose.onNodeWithTag("plannerSavedSuggestion-inline-home").performScrollTo().performClick()
+        compose.onNodeWithTag("plannerPrimary").assertIsEnabled()
+
+        compose.onNodeWithTag("plannerDestinationInput").performScrollTo().performTextInput("unfinished location")
+        device.pressBack()
+        compose.onNodeWithTag("plannerPrimary").assertIsNotEnabled()
+        compose.onNodeWithTag("plannerSettingsOpen").performClick()
+        compose.onNodeWithTag("plannerSettingsPrimary").performScrollTo().assertIsNotEnabled()
+        compose.runOnIdle { assertEquals(listOf("Home"), vm.stops.map { it.name }); assertIdle() }
+        compose.onNodeWithText("Back to map").performScrollTo().performClick()
+        compose.onNodeWithTag("plannerClearEnd").performScrollTo().performClick()
+        compose.onNodeWithTag("plannerPrimary").assertIsEnabled()
+        compose.onNodeWithTag("plannerSettingsOpen").performClick()
+        compose.onNodeWithTag("plannerSettingsPrimary").performScrollTo().assertIsEnabled()
+        compose.onNodeWithText("Back to map").performScrollTo().performClick()
+
+        var recording = 0L
+        compose.runOnIdle {
+            recording = PlannerSpeech.begin(Field.END)
+            PlannerSpeech.partial(recording, "unfinished recording")
+        }
+        compose.onNodeWithTag("plannerPrimary").assertIsNotEnabled()
+        compose.onNodeWithTag("plannerSettingsOpen").performClick()
+        compose.onNodeWithTag("plannerSettingsPrimary").performScrollTo().assertIsNotEnabled()
+        compose.runOnIdle { assertIdle() }
+        compose.onNodeWithText("Back to map").performScrollTo().performClick()
+        compose.onNodeWithTag("plannerClearEnd").performScrollTo().performClick()
+        compose.runOnIdle {
+            PlannerSpeech.finish(recording, "late words must not re-open the entry")
+            assertFalse(PlannerSpeech.state.value.active)
+            assertEquals(listOf("Home"), vm.stops.map { it.name })
+            assertEquals(0, interpreterCalls)
+            assertIdle()
+        }
+        compose.onNodeWithTag("plannerPrimary").assertIsEnabled()
+        compose.onNodeWithTag("plannerSettingsOpen").performClick()
+        compose.onNodeWithTag("plannerSettingsPrimary").performScrollTo().assertIsEnabled()
+        screenshot("offline-settings-start-guards")
+    }
+
     @ExperimentalLanguageModel
     @Test fun microphoneShowsMissingModelSetupAndReadyModelListensWithoutDownloading() {
         var ready by mutableStateOf(false)
