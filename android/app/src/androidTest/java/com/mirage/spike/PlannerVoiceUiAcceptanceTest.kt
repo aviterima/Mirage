@@ -2,6 +2,8 @@ package com.mirage.spike
 
 import android.content.Context
 import android.content.Intent
+import android.os.Build
+import android.os.SystemClock
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
@@ -31,14 +33,68 @@ import com.mirage.spike.store.PrefsScenarioStore
 import com.mirage.spike.store.SavedScenario
 import org.junit.*
 import org.junit.Assert.*
+import org.junit.rules.RuleChain
+import org.junit.rules.TestRule
+import org.junit.runners.model.Statement
 
 /** Exercises the production planner and microphone control with deterministic recognition
  * results. Acoustic recognition and model download remain separate device checks.
  */
 class PlannerVoiceUiAcceptanceTest {
-    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+    private val compose = createAndroidComposeRule<ComponentActivity>()
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private val device get() = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+    private val compactDisplay = TestRule { base, description ->
+        object : Statement() {
+            override fun evaluate() {
+                if (description.methodName != "compactPlannerKeepsNextStopAndSearchResultAboveFooterWithKeyboard") {
+                    base.evaluate()
+                    return
+                }
+                check(Build.HARDWARE in setOf("ranchu", "goldfish")) { "Compact display override is emulator-only" }
+                val sizes = device.executeShellCommand("wm size")
+                val densities = device.executeShellCommand("wm density")
+                val physicalSize = checkNotNull(Regex("Physical size: ([0-9]+)x([0-9]+)").find(sizes))
+                val physicalDensity = checkNotNull(Regex("Physical density: ([0-9]+)").find(densities))
+                val priorSize = Regex("Override size: ([0-9]+)x([0-9]+)").find(sizes)
+                val priorDensity = Regex("Override density: ([0-9]+)").find(densities)
+                val restoredSize = priorSize ?: physicalSize
+                val restoredDensity = (priorDensity ?: physicalDensity).groupValues[1].toInt()
+                var testFailure: Throwable? = null
+                try {
+                    device.executeShellCommand("wm size 1080x1920")
+                    device.executeShellCommand("wm density 480")
+                    waitForDisplay(1080, 1920, 480)
+                    // The inner rule creates the Activity only after the display settles.
+                    base.evaluate()
+                } catch (failure: Throwable) {
+                    testFailure = failure
+                    throw failure
+                } finally {
+                    try {
+                        // The Activity has been torn down by the inner rule. Restore
+                        // exact pre-existing overrides, including absence of overrides.
+                        try {
+                            device.executeShellCommand("wm density " + (priorDensity?.groupValues?.get(1) ?: "reset"))
+                        } finally {
+                            val size = priorSize?.let { "${it.groupValues[1]}x${it.groupValues[2]}" } ?: "reset"
+                            device.executeShellCommand("wm size $size")
+                        }
+                        waitForDisplay(restoredSize.groupValues[1].toInt(), restoredSize.groupValues[2].toInt(), restoredDensity)
+                        check(Regex("Override size: ([0-9]+)x([0-9]+)").find(device.executeShellCommand("wm size"))?.value == priorSize?.value) {
+                            "The original display-size override was not restored"
+                        }
+                        check(Regex("Override density: ([0-9]+)").find(device.executeShellCommand("wm density"))?.value == priorDensity?.value) {
+                            "The original display-density override was not restored"
+                        }
+                    } catch (restoreFailure: Throwable) {
+                        if (testFailure != null) testFailure.addSuppressed(restoreFailure) else throw restoreFailure
+                    }
+                }
+            }
+        }
+    }
+    @get:Rule val rules: TestRule = RuleChain.outerRule(compactDisplay).around(compose)
     private val vmStore = ViewModelStore()
     private val vmOwner = object : ViewModelStoreOwner { override val viewModelStore = vmStore }
     private lateinit var vm: MirageViewModel
@@ -100,7 +156,19 @@ class PlannerVoiceUiAcceptanceTest {
         if (!LocalLanguageModel.interpretationEnabled) assertEquals("Offline UI reached interpretation", 0, interpreterCalls)
     }
 
-    private fun launchPlanner(largeText: Boolean = false, compactViewport: Boolean = false) {
+    private fun waitForDisplay(width: Int, height: Int, density: Int) {
+        val deadline = SystemClock.uptimeMillis() + 10_000
+        do {
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            if (device.displayWidth == width && device.displayHeight == height &&
+                context.resources.displayMetrics.densityDpi == density) return
+            SystemClock.sleep(100)
+        } while (SystemClock.uptimeMillis() < deadline)
+        error("Display did not settle at ${width}x$height/$density dpi: " +
+            "${device.displayWidth}x${device.displayHeight}/${context.resources.displayMetrics.densityDpi}")
+    }
+
+    private fun launchPlanner(largeText: Boolean = false) {
         compose.runOnUiThread {
             // Match MainActivity and its manifest before Compose reads the insets.
             // The default test Activity otherwise pans behind the real keyboard.
@@ -119,10 +187,9 @@ class PlannerVoiceUiAcceptanceTest {
             CompositionLocalProvider(LocalViewModelStoreOwner provides vmOwner,
                 LocalDensity provides Density(density.density, if (largeText) 1.3f else density.fontScale)) {
                 MirageTheme {
-                    // Constrain the app viewport, while its own scaffold still consumes
-                    // the emulator's real IME insets. This is not a physical-device test.
-                    Surface((if (compactViewport) Modifier.width(360.dp).height(640.dp) else Modifier.fillMaxSize())
-                        .testTag("plannerTestViewport")) {
+                    // The compact test changes the emulator display before this
+                    // Activity starts; the planner and keyboard share one full window.
+                    Surface(Modifier.fillMaxSize().testTag("plannerTestViewport")) {
                         if (plannerVisible) MapScreen(onStartService = { starts++ }, onStopService = {},
                             onOpenDevSettings = {}, onRequestBattery = {}, onRequestPermissions = {},
                             setupChecks = { SetupChecks(false, false, true) }, hasLocPerm = false)
@@ -492,7 +559,7 @@ class PlannerVoiceUiAcceptanceTest {
     }
 
     @Test fun compactPlannerKeepsNextStopAndSearchResultAboveFooterWithKeyboard() {
-        launchPlanner(largeText = true, compactViewport = true)
+        launchPlanner(largeText = true)
         compose.onNodeWithTag("plannerTestViewport").assertWidthIsEqualTo(360.dp).assertHeightIsEqualTo(640.dp)
         compose.onNodeWithText("Itinerary").performClick()
         compose.runOnIdle {
@@ -500,7 +567,7 @@ class PlannerVoiceUiAcceptanceTest {
             repeat(6) { index -> assertTrue(vm.pickSavedPlace(if (index % 2 == 0) office else home, Field.END)) }
         }
         val input = compose.onNodeWithTag("plannerDestinationInput")
-        input.performScrollTo().performClick().performTextInput("Western")
+        input.performScrollTo().performClick().performTextInput("Home")
         // Text injection alone does not establish a displayed system keyboard.
         // Tap the actual editor again, as in the full-Activity large-text journey.
         input.performClick()
@@ -514,35 +581,56 @@ class PlannerVoiceUiAcceptanceTest {
             compose.onAllNodesWithTag("plannerKeyboardDone").fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithTag("plannerKeyboardDone").assertIsDisplayed()
+        fun assertKeyboardResult(query: String, resultTag: String, name: String, evidence: String) {
+            compose.waitForIdle()
+            device.waitForIdle()
+            val result = compose.onNodeWithTag(resultTag)
+            result.performScrollTo()
+            // Preserve the final scrolled layout even when a geometry assertion fails.
+            screenshot(evidence)
+            result.assertIsDisplayed().assertHasClickAction().assertHeightIsAtLeast(56.dp).assertTextContains(name)
+            input.assertIsDisplayed().assertTextContains(query)
+            val microphone = compose.onNodeWithTag("plannerMicEnd").assertIsDisplayed().assertHasClickAction()
+            val footer = compose.onNodeWithTag("plannerFooter").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            val fieldBounds = input.fetchSemanticsNode().boundsInRoot
+            val micBounds = microphone.fetchSemanticsNode().boundsInRoot
+            val resultBounds = result.fetchSemanticsNode().boundsInRoot
+            val fullResult = result.getUnclippedBoundsInRoot()
+            val pixelsPerDp = context.resources.displayMetrics.density
+            assertTrue("The entire clickable result row must be visible",
+                kotlin.math.abs(resultBounds.top - fullResult.top.value * pixelsPerDp) <= 1f &&
+                    kotlin.math.abs(resultBounds.bottom - fullResult.bottom.value * pixelsPerDp) <= 1f)
+            assertTrue("The visible result target must be at least 56dp high", resultBounds.height >= 56f * pixelsPerDp - 1f)
+            compose.runOnUiThread {
+                val hostOrigin = IntArray(2).also(plannerHostView::getLocationOnScreen)
+                val insets = plannerHostView.rootWindowInsets!!
+                assertTrue("The real keyboard must remain visible", insets.isVisible(android.view.WindowInsets.Type.ime()))
+                val imeHeight = insets.getInsets(android.view.WindowInsets.Type.ime()).bottom
+                // Window metrics retain full bounds under adjustResize.
+                val keyboardTopOnScreen = compose.activity.windowManager.currentWindowMetrics.bounds.bottom - imeHeight
+                val footerBottomOnScreen = hostOrigin[1] + footer.bottom
+                assertTrue("The real keyboard must occupy part of the test window", imeHeight > 0)
+                assertTrue("Planner footer must remain above the real keyboard: footer=$footerBottomOnScreen, keyboard=$keyboardTopOnScreen",
+                    footerBottomOnScreen <= keyboardTopOnScreen + 1f)
+            }
+            listOf("Next stop" to fieldBounds, "Microphone" to micBounds, "Search result" to resultBounds).forEach { (label, bounds) ->
+                assertTrue("$label must remain above the footer on a compact phone with keyboard",
+                    bounds.height > 0 && bounds.top >= 0 && bounds.bottom <= footer.top)
+            }
+            assertTrue("Microphone remains beside the compact input", micBounds.center.y in fieldBounds.top..fieldBounds.bottom)
+            assertTrue("Microphone remains within the compact input", micBounds.right <= fieldBounds.right + 1f)
+            compose.onNodeWithTag("plannerPrimary").assertIsNotEnabled()
+            compose.runOnIdle {
+                assertEquals(6, vm.stops.size)
+                assertEquals(home.dest, vm.start)
+                assertIdle()
+            }
+        }
+        compose.waitUntil(5_000) { vm.savedPlaceSuggestions.any { it.id == home.id } }
+        assertKeyboardResult("Home", "plannerSavedSuggestion-inline-home", "Home", "planner-compact-keyboard-saved-result")
+        input.performClick().performTextReplacement("Western")
         compose.waitUntil(5_000) { vm.suggestions.singleOrNull() == remote }
-        compose.waitForIdle()
-        device.waitForIdle()
-        val result = compose.onNodeWithText(remote.name)
-        result.performScrollTo().assertIsDisplayed()
-        input.assertIsDisplayed().assertTextContains("Western")
-        val microphone = compose.onNodeWithTag("plannerMicEnd").assertIsDisplayed().assertHasClickAction()
-        val footer = compose.onNodeWithTag("plannerFooter").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
-        val fieldBounds = input.fetchSemanticsNode().boundsInRoot
-        val micBounds = microphone.fetchSemanticsNode().boundsInRoot
-        val resultBounds = result.fetchSemanticsNode().boundsInRoot
-        compose.runOnUiThread {
-            val hostOrigin = IntArray(2).also(plannerHostView::getLocationOnScreen)
-            val imeHeight = plannerHostView.rootWindowInsets!!.getInsets(android.view.WindowInsets.Type.ime()).bottom
-            // Window metrics retain the full window bounds even under adjustResize;
-            // subtracting from a resized decor height could count the IME twice.
-            val keyboardTopOnScreen = compose.activity.windowManager.currentWindowMetrics.bounds.bottom - imeHeight
-            val footerBottomOnScreen = hostOrigin[1] + footer.bottom
-            assertTrue("The real keyboard must occupy part of the test window", imeHeight > 0)
-            assertTrue("Planner footer must remain above the real keyboard: footer=$footerBottomOnScreen, keyboard=$keyboardTopOnScreen",
-                footerBottomOnScreen <= keyboardTopOnScreen + 1f)
-        }
-        listOf("Next stop" to fieldBounds, "Microphone" to micBounds, "Search result" to resultBounds).forEach { (name, bounds) ->
-            assertTrue("$name must remain above the footer on a compact phone with keyboard", bounds.height > 0 && bounds.top >= 0 && bounds.bottom <= footer.top)
-        }
-        assertTrue("Microphone remains beside the compact input", micBounds.center.y in fieldBounds.top..fieldBounds.bottom)
-        assertTrue("Microphone remains within the compact input", micBounds.right <= fieldBounds.right + 1f)
-        compose.onNodeWithTag("plannerPrimary").assertIsNotEnabled()
-        screenshot("planner-compact-keyboard-search-result")
+        assertKeyboardResult("Western", "plannerPlaceChoice0", remote.name, "planner-compact-keyboard-search-result")
         compose.onNodeWithTag("plannerInputSubmit").performScrollTo().assertIsDisplayed().assertIsEnabled().assertHasClickAction()
         compose.onNodeWithContentDescription("Reorder stop 1: Office").assertDoesNotExist()
         // The search temporarily folds the itinerary. Its visible Expand action

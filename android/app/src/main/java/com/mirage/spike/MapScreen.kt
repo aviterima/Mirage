@@ -467,7 +467,10 @@ fun MapScreen(
     }
 
     BoxWithConstraints(Modifier.fillMaxSize().imePadding()) {
-        val plannerHeight = (maxHeight - (if(footerPx==0)170.dp else with(density){footerPx.toDp()}) - 16.dp).coerceAtLeast(0.dp)
+        var startFocused by remember { mutableStateOf(false) }
+        var endFocused by remember { mutableStateOf(false) }
+        val keyboardSearch = WindowInsets.ime.getBottom(density) > 0 && (startFocused || endFocused)
+        val plannerHeight = (maxHeight - (if(footerPx==0)170.dp else with(density){footerPx.toDp()}) - (if (keyboardSearch) 4.dp else 16.dp)).coerceAtLeast(0.dp)
 
         GoogleMap(
             modifier = Modifier.fillMaxSize(),
@@ -567,8 +570,6 @@ fun MapScreen(
             plannerEntryPrefixes[Field.START] = startQuery.takeUnless { it == startLabel || (interpretationEnabled && planReview.candidate != null && it == planReview.input) }.orEmpty().trim()
             plannerEntryPrefixes[Field.END] = endQuery.takeUnless { it == endLabel || (interpretationEnabled && planReview.candidate != null && it == planReview.input) }.orEmpty().trim()
         }
-        var startFocused by remember { mutableStateOf(false) }
-        var endFocused by remember { mutableStateOf(false) }
         var snapMenu by remember { mutableStateOf<Field?>(null) }
         var savedPlaceTarget by remember { mutableStateOf<Field?>(null) }
         var previousStopCount by remember { mutableStateOf(vm.stops.size) }
@@ -793,7 +794,6 @@ fun MapScreen(
 
         val searchingPlace = startFocused || endFocused || speech.active || vm.suggestBusy ||
             vm.suggestions.isNotEmpty() || vm.savedPlaceSuggestions.isNotEmpty()
-        val keyboardSearch = WindowInsets.ime.getBottom(density) > 0 && (startFocused || endFocused)
         if (!live) Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().heightIn(max = plannerHeight)
             .onSizeChanged { plannerPanelPx = it.height }.statusBarsPadding().padding(horizontal = 8.dp, vertical = 4.dp)
             .onGloballyPositioned { plannerViewport = it.boundsInRoot() }
@@ -933,7 +933,7 @@ fun MapScreen(
                     vm.planMode == PlanMode.ITINERARY -> "next stop"
                     vm.planMode == PlanMode.SNAP -> "place"
                     else -> "destination"
-                }) { place -> pickSavedPlace(place, vm.activeField) }
+                }, compact = keyboardSearch) { place -> pickSavedPlace(place, vm.activeField) }
             }
             if (vm.suggestions.isNotEmpty() || vm.suggestBusy) {
                 Spacer(Modifier.height(6.dp))
@@ -948,6 +948,7 @@ fun MapScreen(
                         else -> "End"
                     },
                     nestedScroll = false,
+                    compact = keyboardSearch,
                     onPick = { hit -> cancelDictation(); Conversation.clearPlannerFeedback(); vm.pickSuggestion(hit); done(); syncBoxes(); goTo(hit.latLng) },
                 )
             }
@@ -1053,7 +1054,7 @@ fun MapScreen(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth().testTag("plannerFooter").onSizeChanged{footerPx=it.height}.navigationBarsPadding().padding(8.dp),
             shape = RoundedCornerShape(16.dp),
         ) {
-            Column(Modifier.padding(8.dp)) {
+            Column(Modifier.padding(if (keyboardSearch) 4.dp else 8.dp)) {
                 vm.notice?.let {Text(it,style=MaterialTheme.typography.bodySmall)}
                 TripRecovery.failure?.let {Text(it,color=RED)}
                 vm.error?.let { Text(it,color=RED);TextButton(onClick={vm.clearError()}){Text("Dismiss")}}
@@ -1292,7 +1293,7 @@ internal fun LocationBox(
                     Text(label)
                 } },
                 placeholder = { Text(placeholder, fontSize = 14.sp) },
-                singleLine = false, minLines = 1, maxLines = 2,
+                singleLine = compact, minLines = 1, maxLines = if (compact) 1 else 2,
                 textStyle = MaterialTheme.typography.bodyLarge,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = ACCENT, unfocusedBorderColor = Color.Transparent,
@@ -1338,7 +1339,7 @@ internal fun LocationBox(
 /** Uber-style pick list: every matching place with its address and distance from the start. */
 @Composable
 internal fun SuggestionList(hits: List<PlaceHit>, busy: Boolean, from: LatLng?, heading: String,
-    choiceTagPrefix: String = "plannerPlaceChoice", nestedScroll: Boolean = true, onPick: (PlaceHit) -> Unit) {
+    choiceTagPrefix: String = "plannerPlaceChoice", nestedScroll: Boolean = true, compact: Boolean = false, onPick: (PlaceHit) -> Unit) {
     Surface(
         shape = RoundedCornerShape(20.dp),
         shadowElevation = 6.dp,
@@ -1346,7 +1347,7 @@ internal fun SuggestionList(hits: List<PlaceHit>, busy: Boolean, from: LatLng?, 
         modifier = if (nestedScroll) Modifier.fillMaxWidth().heightIn(max = 320.dp) else Modifier.fillMaxWidth(),
     ) {
         Column(if (nestedScroll) Modifier.verticalScroll(rememberScrollState()) else Modifier) {
-            Text("Set as $heading", fontSize = 11.sp, color = MUTED, fontWeight = FontWeight.SemiBold,
+            if (!compact) Text("Set as $heading", fontSize = 11.sp, color = MUTED, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(start = 14.dp, top = 8.dp))
             if (busy && hits.isEmpty()) {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1358,18 +1359,26 @@ internal fun SuggestionList(hits: List<PlaceHit>, busy: Boolean, from: LatLng?, 
             hits.forEachIndexed { i, hit ->
                 if (i > 0) HorizontalDivider(color = MUTED.copy(alpha = 0.15f))
                 Row(
-                    Modifier.fillMaxWidth().testTag("$choiceTagPrefix$i").clickable { onPick(hit) }.heightIn(min = 64.dp).padding(horizontal = 14.dp, vertical = 10.dp),
+                    Modifier.fillMaxWidth().testTag("$choiceTagPrefix$i").clickable { onPick(hit) }
+                        .heightIn(min = if (compact) 56.dp else 64.dp)
+                        .padding(horizontal = 14.dp, vertical = if (compact) 4.dp else 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Filled.Place, contentDescription = null, tint = ACCENT, modifier = Modifier.size(22.dp))
-                    Spacer(Modifier.width(12.dp))
+                    if (!compact) {
+                        Icon(Icons.Filled.Place, contentDescription = null, tint = ACCENT, modifier = Modifier.size(22.dp))
+                        Spacer(Modifier.width(12.dp))
+                    }
                     Column(Modifier.weight(1f)) {
-                        Text(hit.name, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(hit.name, fontWeight = FontWeight.SemiBold, fontSize = 15.sp,
+                            lineHeight = if (compact) 20.sp else androidx.compose.ui.unit.TextUnit.Unspecified,
+                            maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis)
                         if (hit.address.isNotBlank()) {
-                            Text(hit.address, fontSize = 12.sp, color = MUTED, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(hit.address, fontSize = 12.sp, color = MUTED,
+                                lineHeight = if (compact) 16.sp else androidx.compose.ui.unit.TextUnit.Unspecified,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
-                    if (from != null) {
+                    if (from != null && !compact) {
                         Spacer(Modifier.width(8.dp))
                         Text(fmtMiles(Geo.haversine(from, hit.latLng)), fontSize = 12.sp, color = MUTED)
                     }

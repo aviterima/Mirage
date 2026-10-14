@@ -16,7 +16,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.mirage.spike.store.SavedScenario
 import com.mirage.spike.store.savedItemSearch
 
@@ -60,13 +62,14 @@ internal fun PlannerSavedPlacesSheet(
 }
 
 @Composable
-internal fun PlannerSavedMatches(places: List<SavedScenario>, target: String, onPick: (SavedScenario) -> Unit) {
+internal fun PlannerSavedMatches(places: List<SavedScenario>, target: String, compact: Boolean = false,
+    onPick: (SavedScenario) -> Unit) {
     if (places.isEmpty()) return
     Surface(shape = MaterialTheme.shapes.large, tonalElevation = 3.dp, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(8.dp)) {
-            Text("Saved places · $target", style = MaterialTheme.typography.labelMedium)
+        Column(Modifier.padding(if (compact) 4.dp else 8.dp)) {
+            if (!compact) Text("Saved places · $target", style = MaterialTheme.typography.labelMedium)
             places.take(5).forEach { place ->
-                SavedPlannerPlaceRow(place, Modifier.testTag("plannerSavedSuggestion-${place.id}")) { onPick(place) }
+                SavedPlannerPlaceRow(place, Modifier.testTag("plannerSavedSuggestion-${place.id}"), compact) { onPick(place) }
             }
             if (places.size > 5) Text("Use Saved places to browse all matches.", style = MaterialTheme.typography.bodySmall)
         }
@@ -74,16 +77,24 @@ internal fun PlannerSavedMatches(places: List<SavedScenario>, target: String, on
 }
 
 @Composable
-private fun SavedPlannerPlaceRow(place: SavedScenario, modifier: Modifier, onPick: () -> Unit) {
+private fun SavedPlannerPlaceRow(place: SavedScenario, modifier: Modifier, compact: Boolean = false, onPick: () -> Unit) {
     Row(modifier.fillMaxWidth().clickable(onClick = onPick)
         .semantics { contentDescription = "Choose saved place ${place.name}" }
-        .padding(horizontal = 8.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        .then(if (compact) Modifier.heightIn(min = 56.dp) else Modifier)
+        .padding(horizontal = 8.dp, vertical = if (compact) 4.dp else 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Default.Bookmark, contentDescription = null)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text((if (place.favorite) "★ " else "") + place.name, fontWeight = FontWeight.SemiBold)
+            val name = (if (place.favorite) "★ " else "") + place.name
+            if (compact) Text(name, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, lineHeight = 20.sp,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            else Text(name, fontWeight = FontWeight.SemiBold)
             val detail = place.destAddress.ifBlank { place.destName.takeUnless { it == place.name }.orEmpty() }
-            if (detail.isNotBlank()) Text(detail, style = MaterialTheme.typography.bodySmall)
+            if (detail.isNotBlank()) {
+                if (compact) Text(detail, fontSize = 12.sp, lineHeight = 16.sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                else Text(detail, style = MaterialTheme.typography.bodySmall)
+            }
         }
     }
 }
