@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 mkdir -p acceptance-evidence
-cat upgrade-baseline/Mirage-0.17.0.apk.part-* > upgrade-baseline/app-debug.apk
+cat upgrade-baseline/Mirage-0.18.0.apk.part-* > upgrade-baseline/app-debug.apk
 old_apk=upgrade-baseline/app-debug.apk
 new_apk=android/app/build/outputs/apk/debug/app-debug.apk
-echo 'd84c9f19be7b20b54bcbdc1fb117ccf5ff0ebf1816a304683560866e4d21592a  upgrade-baseline/app-debug.apk' | sha256sum -c -
+echo '9d8b18a32d0230b8cfae8acc15dd931af4b60ae2f31d7d31de21ca9468876c83  upgrade-baseline/app-debug.apk' | sha256sum -c -
 adb install -r "$old_apk"
 python3 - <<'PY'
 import json, pathlib, xml.etree.ElementTree as ET
@@ -26,5 +26,5 @@ adb exec-out run-as com.mirage.app cat shared_prefs/mirage_scenarios.xml > accep
 adb exec-out run-as com.mirage.app cat shared_prefs/mirage_keys.xml > acceptance-evidence/keys-after.xml
 cmp acceptance-evidence/scenarios-before.xml acceptance-evidence/scenarios-after.xml
 cmp acceptance-evidence/keys-before.xml acceptance-evidence/keys-after.xml
-echo 'PASS: 0.17.0 to 0.18.0 installed without uninstall; saved records, key and install identity preserved.' | tee -a acceptance-evidence/upgrade.txt
+echo 'PASS: 0.18.0 to 0.19.0 installed without uninstall; saved records, key and install identity preserved.' | tee -a acceptance-evidence/upgrade.txt
 adb shell run-as com.mirage.app rm shared_prefs/mirage_keys.xml

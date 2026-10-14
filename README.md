@@ -1,3 +1,7 @@
+# Mirage 0.19.0 — mobile planning and car recovery candidate
+
+Status: implementation under validation. See [the current specification and verification record](docs/MOBILE_UI_AND_CAR_RECOVERY_0.19.0.md). This pass reclaims phone-screen space for search and map review, preserves explicit Save/Start and offline dictation, and strengthens fused-location recovery. It cannot force Wi-Fi off or certify another app’s/car’s location. Latest verified release remains 0.18.0 until acceptance finishes.
+
 # Mirage 0.18.0 — offline dictation
 
 Voice dictation fills the same editable fields as typing, using bundled speech recognition without a large model download. Saved places such as Home share the normal search results; the itinerary list is the preview. Clear entry and Start new have separate scopes, and Save remains separate from Start. Conversational interpretation is disabled in the normal installer.

@@ -13,8 +13,8 @@ enum class Health { GREEN, AMBER, RED }
 
 /**
  * Health semantics:
- *  - GREEN  = we are emitting and the OS last-known fix is our mock (no leakage).
- *  - AMBER  = re-asserting after a provider drop, or a real (non-mock) fix was seen.
+ *  - GREEN  = raw writes accepted plus fresh fused write and mock readback confirmed.
+ *  - AMBER  = output/readback unconfirmed, recovery underway, or a fresh real fix seen.
  *  - RED    = cannot mock (app not selected as the mock-location app, or stopped).
  */
 data class MockStatus(

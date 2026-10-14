@@ -44,6 +44,7 @@ class PlannerVoiceUiAcceptanceTest {
     private var starts = 0
     private var interpreterCalls = 0
     private lateinit var hidePlannerKeyboard: () -> Unit
+    private var plannerKeyboardVisible = false
     private var plannerVisible by mutableStateOf(true)
     private fun place(id: String, name: String, point: LatLng) = SavedScenario(
         id, name, "SNAP", 1L, false, null, "", point, name,
@@ -95,16 +96,20 @@ class PlannerVoiceUiAcceptanceTest {
         if (!LocalLanguageModel.interpretationEnabled) assertEquals("Offline UI reached interpretation", 0, interpreterCalls)
     }
 
-    private fun launchPlanner(largeText: Boolean = false) {
+    private fun launchPlanner(largeText: Boolean = false, compactWidth: Boolean = false) {
         compose.setContent {
             val density = LocalDensity.current
             val focus = LocalFocusManager.current
             val keyboard = LocalSoftwareKeyboardController.current
-            SideEffect { hidePlannerKeyboard = { focus.clearFocus(); keyboard?.hide() } }
+            val imeBottom = WindowInsets.ime.getBottom(density)
+            SideEffect {
+                hidePlannerKeyboard = { focus.clearFocus(); keyboard?.hide() }
+                plannerKeyboardVisible = imeBottom > 0
+            }
             CompositionLocalProvider(LocalViewModelStoreOwner provides vmOwner,
                 LocalDensity provides Density(density.density, if (largeText) 1.3f else density.fontScale)) {
                 MirageTheme {
-                    Surface(Modifier.fillMaxSize()) {
+                    Surface(if (compactWidth) Modifier.width(360.dp).fillMaxHeight() else Modifier.fillMaxSize()) {
                         if (plannerVisible) MapScreen(onStartService = { starts++ }, onStopService = {},
                             onOpenDevSettings = {}, onRequestBattery = {}, onRequestPermissions = {},
                             setupChecks = { SetupChecks(false, false, true) }, hasLocPerm = false)
@@ -395,6 +400,86 @@ class PlannerVoiceUiAcceptanceTest {
         compose.onNodeWithTag("plannerClearEnd").assertIsDisplayed()
         screenshot("planner-voice-large-text-keyboard")
         compose.runOnIdle { assertEquals(listOf("Home", "Office"), vm.stops.map { it.name }); assertIdle() }
+        dismissPlannerKeyboard()
+    }
+
+    @Test fun mapPreviewPreservesSelectedPlanAndUnfinishedEntryWithoutStarting() {
+        launchPlanner()
+        compose.onNodeWithText("Itinerary").performClick()
+        compose.runOnIdle {
+            assertTrue(vm.pickSavedPlace(home, Field.START))
+            assertTrue(vm.pickSavedPlace(office, Field.END))
+            assertTrue(vm.pickSavedPlace(home, Field.END))
+        }
+        compose.onNodeWithTag("plannerPrimary").assertIsEnabled()
+        val unfinished = "unfinished next destination"
+        compose.onNodeWithTag("plannerDestinationInput").performScrollTo().performClick()
+            .performTextInput(unfinished)
+        compose.onNodeWithTag("plannerPrimary").assertIsNotEnabled()
+        compose.onNodeWithTag("plannerMapToggle").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("plannerPanel").assertDoesNotExist()
+        compose.onNodeWithTag("plannerDestinationInput").assertDoesNotExist()
+        compose.onNodeWithTag("plannerCollapsedSummary").assertIsDisplayed()
+        compose.onNodeWithTag("plannerPrimary").assertIsNotEnabled()
+        compose.runOnIdle {
+            assertEquals(home.dest, vm.start)
+            assertEquals(listOf("Office", "Home"), vm.stops.map { it.name })
+            assertEquals(unfinished, readPlannerEntry("end", ""))
+            assertIdle()
+        }
+        screenshot("planner-map-preview-pending-entry")
+        compose.onNodeWithTag("plannerMapToggle").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("plannerPanel").assertIsDisplayed()
+        compose.onNodeWithTag("plannerStartInput").performScrollTo().assertTextContains("Home")
+        compose.onNodeWithTag("plannerDestinationInput").performScrollTo().assertTextContains(unfinished)
+        compose.onNodeWithTag("plannerPrimary").assertIsNotEnabled()
+        compose.runOnIdle {
+            assertEquals(home.dest, vm.start)
+            assertEquals(listOf("Office", "Home"), vm.stops.map { it.name })
+            assertEquals(unfinished, readPlannerEntry("end", ""))
+            assertIdle()
+        }
+        screenshot("planner-edit-restores-pending-entry")
+    }
+
+    @Test fun compactPlannerKeepsNextStopAndSearchResultAboveFooterWithKeyboard() {
+        launchPlanner(largeText = true, compactWidth = true)
+        compose.onNodeWithText("Itinerary").performClick()
+        compose.runOnIdle {
+            assertTrue(vm.pickSavedPlace(home, Field.START))
+            repeat(6) { index -> assertTrue(vm.pickSavedPlace(if (index % 2 == 0) office else home, Field.END)) }
+        }
+        val input = compose.onNodeWithTag("plannerDestinationInput")
+        input.performScrollTo().performClick().performTextInput("Western")
+        compose.waitUntil(15_000) { plannerKeyboardVisible && vm.suggestions.singleOrNull() == remote }
+        val result = compose.onNodeWithText(remote.name)
+        result.performScrollTo().assertIsDisplayed()
+        input.assertIsDisplayed().assertTextContains("Western")
+        val microphone = compose.onNodeWithTag("plannerMicEnd").assertIsDisplayed().assertHasClickAction()
+        val footer = compose.onNodeWithTag("plannerFooter").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val fieldBounds = input.fetchSemanticsNode().boundsInRoot
+        val micBounds = microphone.fetchSemanticsNode().boundsInRoot
+        val resultBounds = result.fetchSemanticsNode().boundsInRoot
+        listOf("Next stop" to fieldBounds, "Microphone" to micBounds, "Search result" to resultBounds).forEach { (name, bounds) ->
+            assertTrue("$name must remain above the footer on a compact phone with keyboard", bounds.height > 0 && bounds.top >= 0 && bounds.bottom <= footer.top)
+        }
+        assertTrue("Microphone remains beside the compact input", micBounds.center.y in fieldBounds.top..fieldBounds.bottom)
+        assertTrue("Microphone remains within the compact input", micBounds.right <= fieldBounds.right + 1f)
+        compose.onNodeWithTag("plannerPrimary").assertIsNotEnabled()
+        screenshot("planner-compact-keyboard-search-result")
+        compose.onNodeWithTag("plannerInputSubmit").performScrollTo().assertIsDisplayed().assertIsEnabled().assertHasClickAction()
+        compose.onNodeWithContentDescription("Reorder stop 1: Office").assertDoesNotExist()
+        // The search temporarily folds the itinerary. Its visible Expand action
+        // must reveal the existing stops with one tap while retaining the entry.
+        compose.onNodeWithTag("plannerPreviewToggle").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Reorder stop 1: Office").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("plannerDestinationInput").performScrollTo().assertTextContains("Western")
+        compose.onNodeWithTag("plannerPrimary").assertIsNotEnabled()
+        compose.runOnIdle {
+            assertEquals(home.dest, vm.start)
+            assertEquals(listOf("Office", "Home", "Office", "Home", "Office", "Home"), vm.stops.map { it.name })
+            assertIdle()
+        }
         dismissPlannerKeyboard()
     }
 

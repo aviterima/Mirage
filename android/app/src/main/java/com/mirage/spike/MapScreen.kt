@@ -219,6 +219,8 @@ fun MapScreen(
     // against the current time so fresh output never looks like a future timestamp.
     val simulationLabel = simulationStatusText(status, session.activity, maxOf(statusClock, System.currentTimeMillis()))
     var planning by remember { mutableStateOf(false) }
+    var plannerExpanded by rememberSaveable { mutableStateOf(true) }
+    var itineraryExpanded by rememberSaveable { mutableStateOf(true) }
     var showChat by remember { mutableStateOf(false) }
     var showNewItinerary by remember { mutableStateOf(false) }
     var showVoiceSetup by remember { mutableStateOf(false) }
@@ -226,6 +228,7 @@ fun MapScreen(
     var showUpcoming by remember { mutableStateOf(false) }
     var orderProposal by remember { mutableStateOf<List<ItineraryStop>?>(null) }
     var showPlannerSettings by remember { mutableStateOf(false) }
+    var showCarHelp by remember { mutableStateOf(false) }
     var showDeparture by rememberSaveable { mutableStateOf(false) }
     var showAdvanced by remember { mutableStateOf(false) }
     var showLiveDetails by remember { mutableStateOf(false) }
@@ -236,6 +239,7 @@ fun MapScreen(
     var showSaved by remember { mutableStateOf(false) }
     var plannerPinPick by remember { mutableStateOf<String?>(null) }
     var footerPx by remember {mutableStateOf(0)}
+    var plannerPanelPx by remember {mutableStateOf(0)}
     val density=LocalDensity.current
     var sheetCollapsed by remember { mutableStateOf(false) }
     // The control sheet may never take more than half the screen; the map keeps the rest.
@@ -465,13 +469,8 @@ fun MapScreen(
             properties = MapProperties(isMyLocationEnabled = hasLocPerm && !status.running),
             uiSettings = MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = hasLocPerm, compassEnabled = true),
             contentPadding = PaddingValues(
-                top = topInset + if (live) 60.dp else if (vm.planMode == PlanMode.SNAP) 148.dp else 204.dp,
-                bottom = when {
-                    live -> 96.dp
-                    sheetCollapsed -> 100.dp
-                    status.running -> maxSheet
-                    else -> maxSheet
-                },
+                top = if (live) topInset + 60.dp else with(density) { plannerPanelPx.toDp() },
+                bottom = if (live) 96.dp else with(density) { footerPx.toDp() },
             ),
             onMapClick = { point ->
                 if (!live) { cancelDictation(); Conversation.clearPlannerFeedback() }
@@ -587,6 +586,7 @@ fun MapScreen(
             if (vm.draftGeneration != previousEntryGeneration) {
                 cancelDictation()
                 startQuery = startLabel; endQuery = endLabel; inputStatus = ""
+                plannerExpanded = true; itineraryExpanded = true
                 plannerEntryTexts[Field.START] = startLabel; plannerEntryTexts[Field.END] = endLabel
                 plannerEntryPrefixes.clear()
                 previousEntryGeneration = vm.draftGeneration
@@ -622,6 +622,7 @@ fun MapScreen(
         }
         val done = { keyboard?.hide(); focus.clearFocus() }
         val editEntry: (Field, String) -> Unit = { field, value ->
+            plannerExpanded = true
             inputStatus = ""
             if (speech.active) cancelDictation()
             val replying = interpretationEnabled && Conversation.needsReply() && isPlannerReplyPrefix(value)
@@ -715,8 +716,10 @@ fun MapScreen(
         }
         val snapButton: @Composable (Field, Boolean) -> Unit = { field, allowSimulated ->
             Box {
-                IconButton(onClick = { snapMenu = field }) {
-                    Icon(Icons.Filled.MyLocation, contentDescription = "Choose place source", tint = ACCENT)
+                TextButton(onClick = { snapMenu = field }, modifier = Modifier.heightIn(min = 48.dp)
+                    .semantics { contentDescription = "Choose place source" }) {
+                    Icon(Icons.Filled.MyLocation, contentDescription = null, tint = ACCENT, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(4.dp)); Text("Place options")
                 }
                 DropdownMenu(expanded = snapMenu == field, onDismissRequest = { snapMenu = null }) {
                     DropdownMenuItem(
@@ -765,10 +768,23 @@ fun MapScreen(
             }
         }
 
-        if (!live) Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().heightIn(max = plannerHeight).statusBarsPadding().padding(12.dp).verticalScroll(rememberScrollState())) {
-            Surface(shape = RoundedCornerShape(12.dp)) {
-                Text(simulationLabel, Modifier.padding(8.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                    color = if (simulationLabel.startsWith("NEEDS") || status.blocked) RED else ACCENT)
+        val searchingPlace = startFocused || endFocused || speech.active || vm.suggestBusy ||
+            vm.suggestions.isNotEmpty() || vm.savedPlaceSuggestions.isNotEmpty()
+        if (!live) Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().heightIn(max = plannerHeight)
+            .onSizeChanged { plannerPanelPx = it.height }.statusBarsPadding().padding(horizontal = 8.dp, vertical = 4.dp)
+            .verticalScroll(rememberScrollState())) {
+            Surface(shape = RoundedCornerShape(16.dp), tonalElevation = 2.dp) {
+                Row(Modifier.fillMaxWidth().padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(simulationLabel, Modifier.weight(1f), fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        color = if (simulationLabel.startsWith("NEEDS") || status.blocked) RED else ACCENT)
+                    IconButton(onClick = { done(); showSaved = true }, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Filled.Bookmark, contentDescription = "Saved plans", tint = ACCENT)
+                    }
+                    IconButton(onClick = { done(); showSetup = true }, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Filled.Settings, contentDescription = "Setup", tint = ACCENT)
+                    }
+                }
             }
             if (status.running) Surface(shape = RoundedCornerShape(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -776,25 +792,32 @@ fun MapScreen(
                     TextButton(onClick = { planning = false; follow = true }) { Text("Back to live") }
                 }
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
-                Surface(
-                    shape = RoundedCornerShape(20.dp), shadowElevation = 4.dp,
-                    color = MaterialTheme.colorScheme.surface, modifier = Modifier.weight(1f),
-                ) {
-                    Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
-                        // What are we doing?
-                        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp)) {
-                            PlanMode.entries.forEachIndexed { i, m ->
-                                SegmentedButton(
-                                    selected = vm.planMode == m,
-                                    onClick = { cancelDictation(); Conversation.clearPlannerFeedback(); done(); vm.choosePlanMode(m); syncBoxes() },
-                                    shape = SegmentedButtonDefaults.itemShape(index = i, count = PlanMode.entries.size),
-                                    label = { Text(m.label(), fontSize = 13.sp) },
-                                )
-                            }
+            Spacer(Modifier.height(4.dp))
+            if (!plannerExpanded) Surface(shape = RoundedCornerShape(16.dp), shadowElevation = 2.dp,
+                modifier = Modifier.fillMaxWidth().testTag("plannerCollapsedSummary").clickable { plannerExpanded = true }) {
+                Row(Modifier.heightIn(min = 56.dp).padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(when (vm.planMode) {
+                            PlanMode.SNAP -> vm.destName.ifBlank { "Choose a place" }
+                            PlanMode.ROUTE -> vm.destName.takeIf { vm.dest != null }?.let { "To $it" } ?: "Plan a route"
+                            PlanMode.ITINERARY -> "Your itinerary · ${vm.stops.size} stops"
+                        }, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(if (!plannerInputReady) "Unfinished entry · tap to edit" else "Tap to edit your plan",
+                            style = MaterialTheme.typography.bodySmall, color = MUTED)
+                    }
+                    Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Edit plan")
+                }
+            } else Surface(shape = RoundedCornerShape(20.dp), shadowElevation = 4.dp,
+                color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth().testTag("plannerPanel")) {
+                Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                        PlanMode.entries.forEachIndexed { i, m ->
+                            SegmentedButton(selected = vm.planMode == m,
+                                onClick = { cancelDictation(); Conversation.clearPlannerFeedback(); done(); vm.choosePlanMode(m); syncBoxes() },
+                                shape = SegmentedButtonDefaults.itemShape(index = i, count = PlanMode.entries.size),
+                                label = { Text(m.label(), fontSize = 13.sp) })
                         }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
+                    }
                         // START (Route and Itinerary)
                         if (vm.planMode != PlanMode.SNAP) {
                             LocationBox(
@@ -819,48 +842,13 @@ fun MapScreen(
                                 clearTag = "plannerClearStart",
                                 label = "Start",
                                 inputTag = "plannerStartInput",
+                                showActions = startQuery != startLabel || (speech.active && speech.target == Field.START),
                                 savedTag = "plannerSavedStart",
                                 onSaved = { openSavedPlaces(Field.START) },
                             )
                             HorizontalDivider(color = MUTED.copy(alpha = 0.15f), modifier = Modifier.padding(horizontal = 8.dp))
                         }
-                        if(vm.planMode!=PlanMode.SNAP) {
-                            TextButton(onClick={done();vm.hiking.open(vm.hikingLocation()?.point ?: camera.position.target.toE())},modifier=Modifier.testTag("plannerAddTrail")) {Text("+ Add hiking trail")}
-                        }
-                        // THE CHAIN (Itinerary): every stop, editable in place, with the clock.
-                        if (interpretationEnabled && planReview.candidate != null) {
-                            PlannerCandidatePreview(planReview.candidate!!)
-                        } else if (vm.planMode == PlanMode.ITINERARY && vm.stops.isNotEmpty()) {
-                            Column(Modifier.testTag("plannerPreview")) {
-                            val stopsNow = vm.stops.toList()
-                            val tl = remember(stopsNow, vm.start, status.running, vm.departureMillis) { vm.timeline() }
-                            Text("Your itinerary · ${stopsNow.size} stops", style = MaterialTheme.typography.titleSmall)
-                            Text("Estimated · ${tl.sumOf{it.legMinutes}} min travel + ${stopsNow.sumOf{it.dwellMinutes}} min stays" + (tl.lastOrNull()?.let { " · finish ${tripTime(it.leaveMillis)}" } ?: ""),style=MaterialTheme.typography.bodySmall)
-                            Row {
-                                TextButton(onClick={showDeparture=true}){Text("Departure")}
-                                TextButton(onClick={runCatching{TripPlanning.suggest(vm.tripStart() ?: stopsNow.first().point,stopsNow)}.onSuccess{orderProposal=it}.onFailure{vm.error=it.message}}){Text("Suggest order")}
-                            }
-                            Row {
-                                Text("Drag handles to reorder", style=MaterialTheme.typography.bodySmall, modifier=Modifier.weight(1f))
-                                if(vm.draftUndoAvailable) TextButton(onClick=vm::undoDraftStops) { Text("Undo") }
-                            }
-                            ReorderableStopList(stopsNow, onMove = vm::moveStopTo) { i, stop, handle ->
-                                ChainRow(
-                                    index = i, stop = stop, entry = tl.getOrNull(i),
-                                    current = status.running && status.legIndex == i,
-                                    done = status.running && status.legIndex > i,
-                                    onMode = { m -> vm.setStopMode(i, m) },
-                                    onStay = { vm.dwellEditIndex = i },
-                                    onMove = { d -> vm.moveStop(i, d) },
-                                    onRemove = { vm.removeStop(i) },
-                                    handleModifier = handle,
-                                    canMoveUp = i > 0, canMoveDown = i < stopsNow.lastIndex,
-                                    recentlyAdded = i == stopsNow.lastIndex && stop == newestStop,
-                                )
-                            }
-                            HorizontalDivider(color = MUTED.copy(alpha = 0.15f), modifier = Modifier.padding(horizontal = 8.dp))
-                            }
-                        }
+
                         // END / PLACE / NEXT STOP
                         LocationBox(
                             value = endQuery,
@@ -897,6 +885,7 @@ fun MapScreen(
                                 PlanMode.ITINERARY -> "Next stop"
                             },
                             inputTag = "plannerDestinationInput",
+                            showActions = endQuery != endLabel || (speech.active && speech.target == Field.END),
                             savedTag = if (vm.planMode == PlanMode.ITINERARY) "plannerSavedStop" else "plannerSavedDestination",
                             onSaved = { openSavedPlaces(Field.END) },
                         )
@@ -921,32 +910,6 @@ fun MapScreen(
                         if (vm.draftUndoAvailable && (vm.planMode != PlanMode.ITINERARY || (interpretationEnabled && planReview.candidate != null)))
                             TextButton(onClick = vm::undoDraftStops, modifier = Modifier.testTag("plannerUndo")) { Text("Undo last change") }
                         if (interpretationEnabled) PlannerConversationFeedback(Modifier.padding(top = 4.dp))
-                        }
-                        if (vm.planMode == PlanMode.ROUTE) {
-                            IconButton(
-                                onClick = { done(); vm.swapEndpoints() },
-                                enabled = vm.tripStart() != null && vm.dest != null,
-                                modifier = Modifier.size(48.dp),
-                            ) {
-                                Icon(Icons.Filled.SwapVert, contentDescription = "Swap start and destination", tint = if (vm.tripStart() != null && vm.dest != null) ACCENT else MUTED)
-                            }
-                        }
-                        }
-                    }
-                }
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Surface(shape = CircleShape, shadowElevation = 3.dp, modifier = Modifier.size(48.dp)) {
-                        IconButton(onClick = { showSetup = true }) {
-                            Icon(Icons.Filled.Settings, contentDescription = "Setup", tint = ACCENT)
-                        }
-                    }
-                    Surface(shape = CircleShape, shadowElevation = 3.dp, modifier = Modifier.size(48.dp)) {
-                        IconButton(onClick = { showSaved = true }) {
-                            Icon(Icons.Filled.Bookmark, contentDescription = "Saved plans", tint = ACCENT)
-                        }
-                    }
-                }
-            }
             if (vm.savedPlaceSuggestions.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
                 PlannerSavedMatches(vm.savedPlaceSuggestions, when {
@@ -970,6 +933,65 @@ fun MapScreen(
                     },
                     onPick = { hit -> cancelDictation(); Conversation.clearPlannerFeedback(); vm.pickSuggestion(hit); done(); syncBoxes(); goTo(hit.latLng) },
                 )
+            }
+                    if (!searchingPlace) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        if (vm.planMode != PlanMode.SNAP) TextButton(
+                            onClick = { done(); vm.hiking.open(vm.hikingLocation()?.point ?: camera.position.target.toE()) },
+                            modifier = Modifier.weight(1f).testTag("plannerAddTrail")) { Text("+ Add hiking trail") }
+                        if (vm.planMode == PlanMode.ROUTE) TextButton(
+                            onClick = { done(); vm.swapEndpoints() }, enabled = vm.tripStart() != null && vm.dest != null,
+                            modifier = Modifier.semantics { contentDescription = "Swap start and destination" }) {
+                            Icon(Icons.Filled.SwapVert, contentDescription = null, modifier = Modifier.size(20.dp))
+                            Text("Swap")
+                        }
+                    }
+                        // THE CHAIN (Itinerary): every stop, editable in place, with the clock.
+                        if (interpretationEnabled && planReview.candidate != null) {
+                            PlannerCandidatePreview(planReview.candidate!!)
+                        } else if (vm.planMode == PlanMode.ITINERARY && vm.stops.isNotEmpty()) {
+                            Column(Modifier.testTag("plannerPreview")) {
+                            val stopsNow = vm.stops.toList()
+                            val tl = remember(stopsNow, vm.start, status.running, vm.departureMillis) { vm.timeline() }
+                            TextButton(onClick = {
+                                itineraryExpanded = searchingPlace || !itineraryExpanded
+                                done(); vm.clearSuggestions()
+                            },
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plannerPreviewToggle")) {
+                                Text("Your itinerary · ${stopsNow.size} stops", modifier = Modifier.weight(1f),
+                                    style = MaterialTheme.typography.titleSmall)
+                                Icon(if (itineraryExpanded && !searchingPlace) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                                    contentDescription = if (itineraryExpanded && !searchingPlace) "Collapse itinerary" else "Expand itinerary")
+                            }
+                            Text("Estimated · ${tl.sumOf{it.legMinutes}} min travel + ${stopsNow.sumOf{it.dwellMinutes}} min stays" + (tl.lastOrNull()?.let { " · finish ${tripTime(it.leaveMillis)}" } ?: ""),style=MaterialTheme.typography.bodySmall)
+                            if (itineraryExpanded && !searchingPlace) {
+                            Row {
+                                TextButton(onClick={showDeparture=true}){Text("Departure")}
+                                TextButton(onClick={runCatching{TripPlanning.suggest(vm.tripStart() ?: stopsNow.first().point,stopsNow)}.onSuccess{orderProposal=it}.onFailure{vm.error=it.message}}){Text("Suggest order")}
+                            }
+                            Row {
+                                Text("Drag handles to reorder", style=MaterialTheme.typography.bodySmall, modifier=Modifier.weight(1f))
+                                if(vm.draftUndoAvailable) TextButton(onClick=vm::undoDraftStops) { Text("Undo") }
+                            }
+                            ReorderableStopList(stopsNow, onMove = vm::moveStopTo) { i, stop, handle ->
+                                ChainRow(
+                                    index = i, stop = stop, entry = tl.getOrNull(i),
+                                    current = status.running && status.legIndex == i,
+                                    done = status.running && status.legIndex > i,
+                                    onMode = { m -> vm.setStopMode(i, m) },
+                                    onStay = { vm.dwellEditIndex = i },
+                                    onMove = { d -> vm.moveStop(i, d) },
+                                    onRemove = { vm.removeStop(i) },
+                                    handleModifier = handle,
+                                    canMoveUp = i > 0, canMoveDown = i < stopsNow.lastIndex,
+                                    recentlyAdded = i == stopsNow.lastIndex && stop == newestStop,
+                                )
+                            }
+                            }
+                            HorizontalDivider(color = MUTED.copy(alpha = 0.15f), modifier = Modifier.padding(horizontal = 8.dp))
+                            }
+                        }
+
+                }
             }
         }
 
@@ -1018,10 +1040,17 @@ fun MapScreen(
                         val name=vm.draftSavedName
                         if(name==null)showSaved=true else if(vm.saveScenario(name,true))vm.notice="Changes saved"
                     },enabled = plannerInputReady,
-                        modifier=Modifier.weight(1f)) { Text(if(vm.draftSavedName==null) "Save" else "Save changes") }
-                    TextButton(onClick = { showPlannerSettings = true },modifier=Modifier.weight(1f).testTag("plannerSettingsOpen")) { Text("Settings") }
+                        modifier=Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)) {
+                        Text(if(vm.draftSavedName==null) "Save" else "Save changes", fontSize = 13.sp)
+                    }
+                    TextButton(onClick = { done(); plannerExpanded = !plannerExpanded }, enabled = !speech.active,
+                        modifier = Modifier.weight(1f).testTag("plannerMapToggle"),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)) {
+                        Text(if (plannerExpanded) "Map" else "Edit plan", fontSize = 13.sp)
+                    }
+                    TextButton(onClick = { showPlannerSettings = true },modifier=Modifier.weight(1f).testTag("plannerSettingsOpen"), contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)) { Text("Settings", fontSize = 13.sp) }
                     TextButton(onClick = { done(); showNewItinerary = true }, enabled = !status.running,
-                        modifier=Modifier.weight(1f).testTag("plannerNewItinerary")) { Text("Start new") }
+                        modifier=Modifier.weight(1f).testTag("plannerNewItinerary"), contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)) { Text("Start new", fontSize = 13.sp) }
                 }
                 if (status.running) TextButton(onClick=onStop) { Text("Stop simulation") }
             }
@@ -1034,6 +1063,7 @@ fun MapScreen(
                 if (vm.startNewItinerary()) {
                     cancelDictation()
                     startQuery = vm.startName; endQuery = ""; newestStop = null; orderProposal = null
+                    plannerExpanded = true; itineraryExpanded = true
                     plannerEntryTexts.clear(); plannerEntryPrefixes.clear(); plannerEntryBaselines.clear()
                     inputStatus = ""
                     savedPlaceTarget = null; snapMenu = null; plannerPinPick = null; showRecovery = false; recoveredDraft = null
@@ -1053,6 +1083,15 @@ fun MapScreen(
             if(recovery!=null) TextButton(onClick={withPerms{vm.recoverLive(recovery,onStartService)};showRecovery=false}){Text("Resume trip")}
             TextButton(onClick={showRecovery=false}){Text("Not now")}
         }})
+    if (showCarHelp) androidx.compose.material3.ModalBottomSheet(
+        onDismissRequest = { showCarHelp = false },
+        sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp).navigationBarsPadding()) {
+            AndroidAutoHelp()
+            TextButton(onClick = { showCarHelp = false }) { Text("Done") }
+        }
+    }
     if (showPlannerSettings) androidx.compose.material3.ModalBottomSheet(
         onDismissRequest = { showPlannerSettings = false },
         sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -1089,6 +1128,7 @@ fun MapScreen(
                 showPlannerSettings = false; focus.clearFocus(); keyboard?.hide(); showAudit = true
             }) { Text("Interaction audit") }
             TextButton(onClick = { showPlannerSettings = false; focus.clearFocus(); keyboard?.hide(); showVoiceSetup = true }) { Text("Voice setup") }
+            TextButton(onClick = { showPlannerSettings = false; done(); showCarHelp = true }, modifier = Modifier.testTag("plannerCarHelp")) { Text("Android Auto & Wi-Fi") }
             Controls(vm, status, !status.running && status.blocked, { showSetup = true }, actions)
             TextButton(onClick = { showPlannerSettings = false }) { Text("Back to map") }
         }
@@ -1178,6 +1218,7 @@ fun MapScreen(
             initialKey = keyStore.userKey,
             onSaveKey = saveKey,
             onDismiss = { showSetup = false },
+            onCarHelp = { showSetup = false; done(); showCarHelp = true },
             onDev = onOpenDevSettings,
             onPerms = onRequestPermissions,
             onBattery = onRequestBattery,
@@ -1192,7 +1233,7 @@ fun MapScreen(
     })
 }
 
-/** One compact location box: coloured dot, editable text, optional trailing control. */
+/** One full-width editable field; secondary place actions appear while editing. */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 internal fun LocationBox(
@@ -1210,41 +1251,53 @@ internal fun LocationBox(
     inputTag: String,
     savedTag: String,
     onSaved: () -> Unit,
+    showActions: Boolean = false,
 ) {
-    val bringIntoView=remember {BringIntoViewRequester()}
-    var focused by remember {mutableStateOf(false)}
-    val imeBottom=WindowInsets.ime.getBottom(LocalDensity.current)
-    LaunchedEffect(focused,imeBottom) {
-        if(focused && imeBottom>0) bringIntoView.bringIntoView()
+    val bringIntoView = remember { BringIntoViewRequester() }
+    var focused by remember { mutableStateOf(false) }
+    val imeBottom = WindowInsets.ime.getBottom(LocalDensity.current)
+    LaunchedEffect(focused, imeBottom, value) {
+        if (focused && imeBottom > 0) bringIntoView.bringIntoView()
     }
-    Column {
-    Row(Modifier.fillMaxWidth().padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
-        if (value.isNotBlank()) IconButton(onClick = onClear, modifier = Modifier.size(40.dp).testTag(clearTag)) {
-            Icon(Icons.Filled.Close, contentDescription = "Clear ${label.lowercase()} entry", modifier = Modifier.size(18.dp))
+    Column(Modifier.bringIntoViewRequester(bringIntoView)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = value, onValueChange = onValueChange,
+                label = { Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(6.dp).background(dot, CircleShape)); Spacer(Modifier.width(6.dp))
+                    Text(label)
+                } },
+                placeholder = { Text(placeholder, fontSize = 14.sp) },
+                singleLine = false, minLines = 1, maxLines = 2,
+                textStyle = MaterialTheme.typography.bodyLarge,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = ACCENT, unfocusedBorderColor = Color.Transparent,
+                    focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
+                ),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { onEnter() }, onDone = { onEnter() }),
+                trailingIcon = microphone,
+                modifier = Modifier.weight(1f).testTag(inputTag).onFocusChanged { focused = it.isFocused; onFocus(it.isFocused) },
+            )
+            TextButton(onClick = onSaved, contentPadding = PaddingValues(4.dp),
+                modifier = Modifier.size(56.dp).testTag(savedTag)
+                    .semantics { contentDescription = "Saved places for ${label.lowercase()}" }) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Filled.Bookmark, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Text("Saved", style = MaterialTheme.typography.labelSmall)
+                }
+            }
         }
-        TextButton(onClick = onSaved, modifier = Modifier.testTag(savedTag)
-            .semantics { contentDescription = "Saved places for ${label.lowercase()}" }) { Text("Saved places") }
-    }
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.padding(start = 8.dp, end = 4.dp).size(10.dp).background(dot, CircleShape))
-        OutlinedTextField(
-            value = value,
-            onValueChange = onValueChange,
-            placeholder = { Text(placeholder, fontSize = 14.sp) },
-            singleLine = false, minLines = 1, maxLines = 3,
-            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent,
-                focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
-            ),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = { onEnter() }),
-            trailingIcon = microphone,
-            modifier = Modifier.weight(1f).testTag(inputTag).bringIntoViewRequester(bringIntoView).onFocusChanged { focused=it.isFocused;onFocus(it.isFocused) },
-        )
-        trailing()
-    }
+        if (focused || showActions) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            trailing()
+            Spacer(Modifier.weight(1f))
+            if (value.isNotBlank()) TextButton(onClick = onClear,
+                modifier = Modifier.heightIn(min = 48.dp).testTag(clearTag)
+                    .semantics { contentDescription = "Clear ${label.lowercase()} entry" }) {
+                Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp)); Text("Clear")
+            }
+        }
     }
 }
 
@@ -1273,13 +1326,13 @@ internal fun SuggestionList(hits: List<PlaceHit>, busy: Boolean, from: LatLng?, 
             hits.forEachIndexed { i, hit ->
                 if (i > 0) HorizontalDivider(color = MUTED.copy(alpha = 0.15f))
                 Row(
-                    Modifier.fillMaxWidth().testTag("$choiceTagPrefix$i").clickable { onPick(hit) }.padding(horizontal = 14.dp, vertical = 10.dp),
+                    Modifier.fillMaxWidth().testTag("$choiceTagPrefix$i").clickable { onPick(hit) }.heightIn(min = 64.dp).padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(Icons.Filled.Place, contentDescription = null, tint = ACCENT, modifier = Modifier.size(22.dp))
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(hit.name, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(hit.name, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         if (hit.address.isNotBlank()) {
                             Text(hit.address, fontSize = 12.sp, color = MUTED, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
@@ -1510,7 +1563,7 @@ private fun PrimaryAction(vm: MirageViewModel, running: Boolean, a: SimActions, 
 
 @Composable
 private fun BigButton(text: String, enabled: Boolean = true, icon: ImageVector? = Icons.Filled.PlayArrow, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Button(onClick = onClick, enabled = enabled, modifier = modifier.fillMaxWidth().height(48.dp)) {
+    Button(onClick = onClick, enabled = enabled, modifier = modifier.fillMaxWidth().heightIn(min = 48.dp)) {
         if (icon != null) { Icon(icon, contentDescription = null); Spacer(Modifier.width(6.dp)) }
         Text(text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
     }
@@ -1537,6 +1590,7 @@ private fun SetupDialog(
     onDev: () -> Unit,
     onPerms: () -> Unit,
     onBattery: () -> Unit,
+    onCarHelp: () -> Unit,
     onDiagnostics: () -> Unit,
 ) {
     AlertDialog(
@@ -1550,6 +1604,7 @@ private fun SetupDialog(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 TextButton(onClick = onDiagnostics, modifier = Modifier.testTag("setupDiagnostics")) { Text("Interaction audit") }
+                TextButton(onClick = onCarHelp, modifier = Modifier.testTag("setupCarHelp")) { Text("Android Auto & Wi-Fi") }
                 Text("One-time device setup. Each step shows its current state.", fontSize = 12.sp, color = MUTED)
                 SetupRow(
                     ok = status.mockAppSelected, title = "Mock-location app",
@@ -1658,35 +1713,12 @@ internal fun ChainRow(
             Box(Modifier.size(22.dp).background(if (done) MUTED else ACCENT, CircleShape), contentAlignment = Alignment.Center) {
                 Text("${index + 1}", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
-            Box {
-                IconButton(onClick = { modeMenu = true }, modifier = Modifier.size(34.dp)) {
-                    Icon(stop.mode.icon(), contentDescription = "How to get there: ${stop.mode.label()}", tint = if (done) MUTED else ACCENT)
-                }
-                DropdownMenu(expanded = modeMenu, onDismissRequest = { modeMenu = false }) {
-                    TravelMode.entries.forEach { m ->
-                        DropdownMenuItem(
-                            text = { Text(m.label()) },
-                            leadingIcon = { Icon(m.icon(), contentDescription = null) },
-                            onClick = { modeMenu = false; onMode(m) },
-                        )
-                    }
-                }
-            }
             Text(
                 stop.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = textColor,
-                maxLines = if (placeDetails) Int.MAX_VALUE else 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f).clickable { placeDetails = !placeDetails },
+                maxLines = if (placeDetails) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).clickable { placeDetails = !placeDetails }
+                    .heightIn(min = 48.dp).padding(start = 8.dp, top = 8.dp, bottom = 8.dp),
             )
-            Surface(
-                shape = RoundedCornerShape(12.dp), color = ACCENT.copy(alpha = 0.12f),
-                modifier = Modifier.clickable { onStay() },
-            ) {
-                Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Schedule, contentDescription = "Stay time", tint = ACCENT, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(fmtStay(stop.dwellMinutes), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = ACCENT)
-                }
-            }
             Box {
                 IconButton(onClick = { moreMenu = true }, modifier = handleModifier.size(48.dp)) {
                     Icon(Icons.Filled.DragHandle, contentDescription = "Reorder stop ${index + 1}: ${stop.name}", tint = MUTED)
@@ -1696,6 +1728,27 @@ internal fun ChainRow(
                     DropdownMenuItem(text = { Text("Move down") }, enabled = canMoveDown, onClick = { moreMenu = false; onMove(1) })
                     DropdownMenuItem(text = { Text("Remove", color = RED) }, onClick = { moreMenu = false; onRemove() })
                 }
+            }
+        }
+        Row(Modifier.fillMaxWidth().padding(start = 30.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) {
+                TextButton(onClick = { modeMenu = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .semantics { contentDescription = "How to get there: ${stop.mode.label()}" }) {
+                    Icon(stop.mode.icon(), contentDescription = null, tint = if (done) MUTED else ACCENT, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(6.dp)); Text(stop.mode.label(), fontSize = 13.sp)
+                }
+                DropdownMenu(expanded = modeMenu, onDismissRequest = { modeMenu = false }) {
+                    TravelMode.entries.forEach { m ->
+                        DropdownMenuItem(text = { Text(m.label()) },
+                            leadingIcon = { Icon(m.icon(), contentDescription = null) },
+                            onClick = { modeMenu = false; onMode(m) })
+                    }
+                }
+            }
+            TextButton(onClick = onStay, modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                .semantics { contentDescription = "Stay time" }) {
+                Icon(Icons.Filled.Schedule, contentDescription = null, tint = ACCENT, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(6.dp)); Text(fmtStay(stop.dwellMinutes), fontSize = 13.sp)
             }
         }
         if (placeDetails) Text(stop.address.ifBlank { "No street address recorded" } + " · " + stop.arrivalActivity.label,

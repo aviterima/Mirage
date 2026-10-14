@@ -300,6 +300,10 @@ class WorkflowUiAcceptanceTest {
         compose.onNodeWithContentDescription("Load Fixture day").performScrollTo().performClick()
         val first = compose.onNodeWithContentDescription("Reorder stop 1: First")
         val second = compose.onNodeWithContentDescription("Reorder stop 2: Second")
+        // The editor now places next-stop entry above the itinerary. Bring the
+        // two real drag targets into view before measuring their touch positions.
+        second.performScrollTo().assertIsDisplayed()
+        first.assertIsDisplayed()
         val dy = second.fetchSemanticsNode().boundsInRoot.center.y - first.fetchSemanticsNode().boundsInRoot.center.y
         first.performTouchInput { swipe(center, center + androidx.compose.ui.geometry.Offset(0f, dy), 600) }
         compose.onNodeWithContentDescription("Reorder stop 1: Second").assertIsDisplayed()

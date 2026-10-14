@@ -1,3 +1,7 @@
+# Mirage 0.19.0 — mobile planning and car recovery candidate
+
+Status: implementation under validation. See [the current specification and verification record](docs/MOBILE_UI_AND_CAR_RECOVERY_0.19.0.md). This pass reclaims phone-screen space for search and map review, preserves explicit Save/Start and offline dictation, and strengthens fused-location recovery. It cannot force Wi-Fi off or certify another app’s/car’s location. Latest verified release remains 0.18.0 until acceptance finishes.
+
 # Mirage 0.18.0 — offline dictation and manual planning
 
 The user selected [offline dictation with editable fields and manual itinerary controls](docs/OFFLINE_DICTATION_0.18.0.md). Microphones use bundled recognition; ordinary typed and dictated place searches share results. The actual itinerary is the preview. Save, Start, Clear entry and Start new remain explicit separate controls. Advanced interpretation and hands-free conversational trip commands are disabled in normal builds, including when a model file already exists. No hosted model is enabled. Validated October 13, 2026: 265 JVM tests and 51 Android emulator tests passed, along with lint, signing, bundled speech initialization and the in-place 0.17.0 upgrade. See the linked offline record for exact APK identity, the unchanged-source retry and physical-phone gaps.
@@ -398,46 +402,17 @@ A monitor coroutine independent of the emit loop that:
   AMBER = re-asserting, RED = cannot mock). Optional hard-fail hook so a CI run
   **aborts the test** instead of silently trusting a leaked location.
 
-### 5.4 Android Auto coexistence — car real, phone-apps spoofed
+### 5.4 Android Auto coexistence — hardware validation required
 
-**Desired end state (not a bug to remove):** while driving a real route, the **car's
-Android Auto Google Maps navigates on real location**, and *simultaneously* the
-**apps under test on the phone keep the spoofed location**. This is the reverse of
-the naive "keep the spoof everywhere" goal — the car being real is wanted.
+The original desired split was real navigation on the car display while phone apps under test used a simulated location. This remains an unverified compatibility goal, not a guaranteed feature. Google's fused mock mode is global to its clients. The car hardware API permits vehicle location data but does not prove that a projected Google Maps session is isolated from the phone's provider. Android Auto projection and built-in Android Automotive are different systems.
 
-**Why this is possible.** A single phone cannot serve two different locations through
-the *global* mock API, but the car and the phone are effectively **two location
-sources**: the car head unit / Android Automotive supplies its **own GPS** to Android
-Auto (independent of the phone — this matches the observed behavior). So the split is
-naturally: **car GPS → car nav (real)**, **phone mock → phone apps (spoofed)**.
+The October 14 report says location reverts with Android Auto connected and returns to simulation after Wi-Fi is turned off, with reconnection attempts. Wireless projection uses Wi-Fi, so disconnection is a plausible explanation. The exact observed app/display and location source require physical testing. The earlier assertion that the car remains unaffected by phone mocks was unsupported and is superseded here.
 
-**Primary mechanism (chosen): rely on the car's own GPS.**
-- No app changes. Phone spoofs system-wide; the car's Maps uses the head unit's GPS
-  and is unaffected.
-- **The one real risk to engineer:** if the head unit feeds its GPS *back* into the
-  phone (via the Android Auto vehicle-sensor channel / an external NMEA source) and
-  the phone's fused provider **prefers that real fix over our mock**, the phone apps
-  would leak real location. That is the actual failure mode behind the earlier
-  "reverts to real" observation, and it is what the phone must defend against:
-  - Keep FLP mock mode + test providers continuously asserted at cadence (§5.1).
-  - Watchdog (§5.3) detects any real-fix leakage on the phone and immediately
-    re-asserts; tighten cadence across the AA connect/disconnect edge, observed via
-    `CarConnection` LiveData (`CONNECTION_TYPE_PROJECTION`) + `UiModeManager`.
-  - Emit loop lives in the service, independent of UI mode.
+Mirage continues to emit to GPS/network test providers and Google fused mock location. The 0.19.0 candidate adds bounded recovery and fused readback monitoring; see [its specification](docs/MOBILE_UI_AND_CAR_RECOVERY_0.19.0.md). Provider acceptance and readback are evidence about those channels, not proof of what a destination app or car displays. Persistent failures must remain visible. No per-app exemption for car navigation is promised.
 
-**Fallbacks (documented; not primary):**
-- **Test-SDK injection** for the *own* apps in the mixed fleet (§8A): those apps read
-  spoofed fixes from a Mirage source directly, guaranteeing their spoof regardless of
-  any fused-provider fight. Black-box apps in the fleet stay on the global-mock +
-  car-own-GPS path above.
-- **Two-device rig** where absolute isolation is required (phone A → real car nav,
-  phone B → spoofed apps).
+Ordinary Android apps targeting API 29+ cannot force Wi-Fi off; Mirage targets 34. The UI opens system Wi-Fi settings and explains manual disconnection, reconnection settings and the consequences for wireless Android Auto. It does not change Wi-Fi automatically or request elevated device privileges.
 
-**Phase-0 AA spike must empirically determine:** whether this car's GPS reaches the
-phone's fused provider, and whether mock reliably wins — on a physical head unit and
-the Desktop Head Unit (DHU). The chosen mechanism above is only "done" once the spike
-shows the phone apps hold the spoof through a full AA drive while the car nav stays
-real.
+For required isolation use separate devices, or direct test-source injection in an app the developer controls (§8A). Compare disconnected, wired and wireless projection while parked, with phone and car display observed separately. Hardware acceptance remains open.
 
 ### 5.5 Acceptance tests for G0 + G2
 - **Google Maps, foreground navigation** along a simulated route → blue dot tracks
