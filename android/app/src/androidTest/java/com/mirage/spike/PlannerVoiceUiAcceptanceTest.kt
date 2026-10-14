@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
@@ -44,7 +45,7 @@ class PlannerVoiceUiAcceptanceTest {
     private var starts = 0
     private var interpreterCalls = 0
     private lateinit var hidePlannerKeyboard: () -> Unit
-    private var plannerKeyboardVisible = false
+    private lateinit var plannerHostView: android.view.View
     private var plannerVisible by mutableStateOf(true)
     private fun place(id: String, name: String, point: LatLng) = SavedScenario(
         id, name, "SNAP", 1L, false, null, "", point, name,
@@ -96,20 +97,23 @@ class PlannerVoiceUiAcceptanceTest {
         if (!LocalLanguageModel.interpretationEnabled) assertEquals("Offline UI reached interpretation", 0, interpreterCalls)
     }
 
-    private fun launchPlanner(largeText: Boolean = false, compactWidth: Boolean = false) {
+    private fun launchPlanner(largeText: Boolean = false, compactViewport: Boolean = false) {
         compose.setContent {
             val density = LocalDensity.current
             val focus = LocalFocusManager.current
             val keyboard = LocalSoftwareKeyboardController.current
-            val imeBottom = WindowInsets.ime.getBottom(density)
+            val hostView = LocalView.current
             SideEffect {
                 hidePlannerKeyboard = { focus.clearFocus(); keyboard?.hide() }
-                plannerKeyboardVisible = imeBottom > 0
+                plannerHostView = hostView
             }
             CompositionLocalProvider(LocalViewModelStoreOwner provides vmOwner,
                 LocalDensity provides Density(density.density, if (largeText) 1.3f else density.fontScale)) {
                 MirageTheme {
-                    Surface(if (compactWidth) Modifier.width(360.dp).fillMaxHeight() else Modifier.fillMaxSize()) {
+                    // Constrain the app viewport, while its own scaffold still consumes
+                    // the emulator's real IME insets. This is not a physical-device test.
+                    Surface((if (compactViewport) Modifier.width(360.dp).height(640.dp) else Modifier.fillMaxSize())
+                        .testTag("plannerTestViewport")) {
                         if (plannerVisible) MapScreen(onStartService = { starts++ }, onStopService = {},
                             onOpenDevSettings = {}, onRequestBattery = {}, onRequestPermissions = {},
                             setupChecks = { SetupChecks(false, false, true) }, hasLocPerm = false)
@@ -442,8 +446,45 @@ class PlannerVoiceUiAcceptanceTest {
         screenshot("planner-edit-restores-pending-entry")
     }
 
+    @Test fun plannerSettingsOpensCarHelpAndReturnsToTheUnchangedDraft() {
+        launchPlanner()
+        compose.onNodeWithText("Itinerary").performClick()
+        val before = compose.runOnIdle {
+            assertTrue(vm.pickSavedPlace(home, Field.START))
+            assertTrue(vm.pickSavedPlace(office, Field.END))
+            vm.capturePlanner()
+        }
+        val unfinished = "Another place to find"
+        compose.onNodeWithTag("plannerDestinationInput").performScrollTo().performClick()
+            .performTextInput(unfinished)
+        dismissPlannerKeyboard()
+        compose.onNodeWithTag("plannerSettingsOpen").performClick()
+        compose.onNodeWithTag("plannerCarHelp").performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithText("Android Auto & Wi-Fi").assertIsDisplayed()
+        screenshot("planner-car-help-open")
+        compose.onNodeWithText("Wireless Android Auto uses Wi-Fi.", substring = true)
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("A car can use a separate location source.", substring = true)
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("carWifiSettings").performScrollTo().assertIsDisplayed().assertIsEnabled().assertHasClickAction()
+        compose.runOnIdle { assertIdle() }
+        screenshot("planner-car-help-wifi-action")
+        // The injected-card test verifies the Settings callback. This journey keeps
+        // actual system Wi-Fi settings closed and verifies production navigation.
+        compose.onNodeWithText("Done").performScrollTo().performClick()
+        compose.onNodeWithTag("carWifiSettings").assertDoesNotExist()
+        compose.onNodeWithTag("plannerDestinationInput").performScrollTo().assertTextContains(unfinished)
+        compose.onNodeWithTag("plannerPrimary").assertIsNotEnabled()
+        compose.runOnIdle {
+            assertEquals(before, vm.capturePlanner().copy(activeField = before.activeField))
+            assertEquals(unfinished, readPlannerEntry("end", ""))
+            assertIdle()
+        }
+    }
+
     @Test fun compactPlannerKeepsNextStopAndSearchResultAboveFooterWithKeyboard() {
-        launchPlanner(largeText = true, compactWidth = true)
+        launchPlanner(largeText = true, compactViewport = true)
+        compose.onNodeWithTag("plannerTestViewport").assertWidthIsEqualTo(360.dp).assertHeightIsEqualTo(640.dp)
         compose.onNodeWithText("Itinerary").performClick()
         compose.runOnIdle {
             assertTrue(vm.pickSavedPlace(home, Field.START))
@@ -451,7 +492,16 @@ class PlannerVoiceUiAcceptanceTest {
         }
         val input = compose.onNodeWithTag("plannerDestinationInput")
         input.performScrollTo().performClick().performTextInput("Western")
-        compose.waitUntil(15_000) { plannerKeyboardVisible && vm.suggestions.singleOrNull() == remote }
+        // Text injection alone does not establish a displayed system keyboard.
+        // Tap the actual editor again, as in the full-Activity large-text journey.
+        input.performClick()
+        screenshot("planner-compact-search-before-ime-check")
+        compose.waitUntil(15_000) {
+            compose.runOnUiThread {
+                plannerHostView.rootWindowInsets?.isVisible(android.view.WindowInsets.Type.ime()) == true
+            }
+        }
+        compose.waitUntil(5_000) { vm.suggestions.singleOrNull() == remote }
         val result = compose.onNodeWithText(remote.name)
         result.performScrollTo().assertIsDisplayed()
         input.assertIsDisplayed().assertTextContains("Western")

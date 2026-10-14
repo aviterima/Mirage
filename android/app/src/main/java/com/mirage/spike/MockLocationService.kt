@@ -152,6 +152,7 @@ class MockLocationService : Service() {
         }
         acquireWakeLock()
         // A new Start (also while already running) replaces the playback.
+        val heldOutput = continuationHold(MockState.status.value, latestFix)
         val gen = ++generation
         PlaybackSource.paused = false
         PlaybackSource.consumeSkip()
@@ -167,9 +168,13 @@ class MockLocationService : Service() {
         reasserts = 0L
         leakEver = false
         notifTick = 0
-        if (setupProviders(operation)) {
+        if (setupProviders(operation, continuing = heldOutput != null)) {
             startMonitoring(gen, operation)
-            if (gen == generation) loop = scope.launch { runPlayback(gen, operation) }
+            // Publish accepted holding output before the new route can publish its
+            // LiveSession. Continuing a trip must not briefly look stopped while
+            // the new flow prepares its first point or waits to reach Main.
+            if (gen == generation && heldOutput != null) pushFix(heldOutput, gen, operation)
+            if (gen == generation) loop = scope.launch { runPlayback(gen, operation, heldOutput) }
         } else {
             revertToReal("Not the selected mock-location app", blocked = true)
             return START_NOT_STICKY
@@ -183,14 +188,15 @@ class MockLocationService : Service() {
 
     // --- provider setup -----------------------------------------------------
 
-    private fun setupProviders(operation: Long): Boolean {
+    private fun setupProviders(operation: Long, continuing: Boolean): Boolean {
         return try {
             for (p in providers) addOneProvider(p)
             MockState.update {
                 it.copy(
-                    mockAppSelected = true, blocked = false, starting = true, running = false,
+                    mockAppSelected = true, blocked = false, starting = !continuing, running = continuing,
                     lastFixMillis = 0L, lastFusedFixMillis = 0L,
-                    health = Health.AMBER, message = "Starting…", stepLabel = "", label = PlaybackSource.label,
+                    health = Health.AMBER, message = if (continuing) "Updating trip — holding here" else "Starting…",
+                    stepLabel = "", label = PlaybackSource.label,
                     leakSeen = false, reassertCount = 0L,
                     progress = -1f, remainingSec = -1, legIndex = -1,
                 )
@@ -308,6 +314,10 @@ class MockLocationService : Service() {
                     done(task.isSuccessful)
                 }
                 MODE_TIMEOUTS.postDelayed({ MODE_SWITCH.checkTimeout() }, 5_000L)
+            } catch (e: SecurityException) {
+                // Selection/app-op can be revoked after the initial Start check.
+                failure = e
+                done(false)
             } catch (e: Exception) {
                 failure = e
                 done(false)
@@ -357,6 +367,10 @@ class MockLocationService : Service() {
                     if (failure != null && isDenied(failure)) blockMockOutput(operation)
                 }
             }
+        } catch (e: SecurityException) {
+            fusedWriteRequest.complete(requestToken)
+            monitor.writeFailed()
+            blockMockOutput(operation)
         } catch (e: Exception) {
             fusedWriteRequest.complete(requestToken)
             monitor.writeFailed()
@@ -387,9 +401,9 @@ class MockLocationService : Service() {
 
     // --- playback -----------------------------------------------------------
 
-    private suspend fun runPlayback(gen: Int, operation: Long) {
+    private suspend fun runPlayback(gen: Int, operation: Long, initialAnchor: Fix?) {
         var src = PlaybackSource.current
-        var last: Fix? = null
+        var last: Fix? = initialAnchor
         var startRecorded = false
         suspend fun emitFix(fix: Fix) = withContext(Dispatchers.Main.immediate) {
             pushFix(fix, gen, operation)
@@ -430,7 +444,7 @@ class MockLocationService : Service() {
             if (point == null) {
                 audit(AuditControl.START, AuditOutcome.BLOCKED, AuditReason.NOT_READY, operation)
                 withContext(Dispatchers.Main.immediate) {
-                    if (gen == generation) revertToReal("Nothing to simulate — real location restored", false)
+                    if (gen == generation) revertToReal("Nothing to simulate — waiting for real location", false)
                 }
                 return
             }

@@ -1,11 +1,32 @@
 package com.mirage.spike
 
+import com.mirage.spike.engine.Fix
 import org.junit.Assert.*
 import org.junit.Test
 
 class FusedLocationMonitorTest {
     private val second = FusedLocationMonitor.SECOND_NANOS
     private val start = 100 * second
+
+    @Test fun continuingTripHoldsTheExactPriorOutputUntilNewRouteEmits() {
+        val moving = Fix(33.5, -112.0, 20f, 90f, 4f, altitudeM = 12.0, progress = 0.5f, remainingSec = 30)
+        val held = continuationHold(MockStatus(running = true, lastFixMillis = 100L), moving)!!
+        assertEquals(moving.lat, held.lat, 0.0)
+        assertEquals(moving.lng, held.lng, 0.0)
+        assertEquals(moving.altitudeM, held.altitudeM, 0.0)
+        assertEquals(0f, held.speedMps)
+        assertEquals(-1f, held.progress)
+        assertEquals(-1, held.remainingSec)
+        assertEquals(20f, moving.speedMps)
+    }
+
+    @Test fun stoppedStartingOrNeverEmittedSessionsCannotReviveAnOldAnchor() {
+        val old = Fix(33.5, -112.0, 0f, 0f, 4f)
+        assertNull(continuationHold(MockStatus(lastFixMillis = 100L), old))
+        assertNull(continuationHold(MockStatus(starting = true, lastFixMillis = 100L), old))
+        assertNull(continuationHold(MockStatus(running = true), old))
+        assertNull(continuationHold(MockStatus(running = true, lastFixMillis = 100L), null))
+    }
 
     @Test fun failedInitialEnableRetriesAndRequestsAreCoalesced() {
         val monitor = FusedLocationMonitor(start)

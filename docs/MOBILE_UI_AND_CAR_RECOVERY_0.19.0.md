@@ -31,3 +31,9 @@ Physical follow-up remains essential: compare phone Maps and the car display wit
 ## Verification record
 
 Pending. No installer is certified by this document yet. The latest verified installer remains 0.18.0.
+
+Initial source `844dae9f7e7a4490649c8befdbee638f686f4688` failed compilation in the two new car-help callbacks because a local keyboard-dismiss helper was out of scope. No JVM, Android, upgrade or lint result is claimed for that source. Its predecessor `bc258067` was superseded and cancelled.
+
+Corrected source `721ed1ffe17d09ca9e6168a5eeb020d61f7a077b` compiled and passed **283 JVM tests**, independently counted from XML with zero failures/errors/skips. Build 38602264804 then failed blocking lint with two MissingPermission errors in the new fused-mode/write calls (44 warnings, 12 hints). Acceptance 38602264671 ran **54 Android tests: 51 passed, three failed, zero errors/skips**, independently counted. Failures were a running-state discontinuity during saved-place continuation, combined keyboard/result readiness in the new compact fixture, and nested-scroll visibility of the 25th itinerary stop. The later compact geometry assertions were unrun. No unchanged retry is used to dismiss these failures.
+
+The signed 0.18.0-to-0.19.0 upgrade and trail checks passed at `721ed1f`; seeded scenario and key/install-identity files independently compared byte-identical. Four selected evidence ZIPs matched GitHub size/SHA-256 and passed CRC. Evidence is retained under the registered entry folder at `builds/0.19.0/evidence-721ed1`. Visual review confirmed the full-width fields and preserved Map/Edit draft, but also showed crowded keyboard search and secondary footer labels. Follow-up changes and complete acceptance remain pending.

@@ -1,6 +1,7 @@
 package com.mirage.spike
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
@@ -9,9 +10,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -28,9 +32,14 @@ import kotlin.math.abs
 internal fun ReorderableStopList(
     stops: List<ItineraryStop>,
     onMove: (Int, Int) -> Unit,
+    parentScroll: ScrollState? = null,
+    parentViewport: Rect = Rect.Zero,
     row: @Composable (Int, ItineraryStop, Modifier) -> Unit,
 ) {
-    val scroll = rememberScrollState()
+    val ownScroll = rememberScrollState()
+    val scroll = parentScroll ?: ownScroll
+    val latestParentViewport by rememberUpdatedState(parentViewport)
+    var listTop by remember { mutableFloatStateOf(0f) }
     val heights = remember(stops) { mutableStateMapOf<Int, Int>() }
     var dragging by remember(stops) { mutableIntStateOf(-1) }
     var distance by remember(stops) { mutableFloatStateOf(0f) }
@@ -47,20 +56,26 @@ internal fun ReorderableStopList(
     } ?: dragging
 
     // Continue scrolling while the handle is held near either edge, including long lists.
-    LaunchedEffect(dragging) {
+    LaunchedEffect(dragging, scroll) {
         if (dragging < 0) return@LaunchedEffect
         while (true) {
-            val y = center(dragging) + distance - initialScroll
-            when {
+            val visibleHeight = if (parentScroll == null) viewport.toFloat() else latestParentViewport.height
+            val y = if (parentScroll == null) center(dragging) + distance - initialScroll
+                else listTop + center(dragging) + distance + scroll.value - initialScroll - latestParentViewport.top
+            if (visibleHeight > 0f) when {
                 y < edge -> scroll.scrollBy(-speed)
-                y > viewport - edge -> scroll.scrollBy(speed)
+                y > visibleHeight - edge -> scroll.scrollBy(speed)
             }
             delay(16)
         }
     }
-    Box(Modifier.heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.30f).dp)
-        .onSizeChanged { viewport = it.height }) {
-        Column(Modifier.verticalScroll(scroll).padding(horizontal = 4.dp),
+    // The planner already scrolls. Sharing that viewport avoids a second, partly
+    // clipped scroll region; the live itinerary sheet keeps its bounded list.
+    val container = if (parentScroll == null) Modifier.heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.30f).dp)
+        else Modifier
+    Box(container.onSizeChanged { viewport = it.height }
+        .onGloballyPositioned { listTop = it.positionInRoot().y }) {
+        Column((if (parentScroll == null) Modifier.verticalScroll(scroll) else Modifier).padding(horizontal = 4.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp)) {
             stops.forEachIndexed { index, stop ->
                 val active = index == dragging

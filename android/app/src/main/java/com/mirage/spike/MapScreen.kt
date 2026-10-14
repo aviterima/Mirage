@@ -118,10 +118,13 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -134,6 +137,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -240,6 +244,8 @@ fun MapScreen(
     var plannerPinPick by remember { mutableStateOf<String?>(null) }
     var footerPx by remember {mutableStateOf(0)}
     var plannerPanelPx by remember {mutableStateOf(0)}
+    val plannerScroll = rememberScrollState()
+    var plannerViewport by remember { mutableStateOf(Rect.Zero) }
     val density=LocalDensity.current
     var sheetCollapsed by remember { mutableStateOf(false) }
     // The control sheet may never take more than half the screen; the map keeps the rest.
@@ -620,7 +626,7 @@ fun MapScreen(
             startQuery = startLabel
             endQuery = endLabel
         }
-        val done = { keyboard?.hide(); focus.clearFocus() }
+        val done = { keyboard?.hide(); focus.clearFocus(); vm.clearSuggestions() }
         val editEntry: (Field, String) -> Unit = { field, value ->
             plannerExpanded = true
             inputStatus = ""
@@ -638,6 +644,23 @@ fun MapScreen(
             plannerEntryTexts[field] = ""
             if (field == Field.START) startQuery = "" else endQuery = ""
             vm.editLocationQuery(field, "", camera.position.target.toE())
+        }
+        val focusEntry: (Field, Boolean) -> Unit = { field, focused ->
+            if (field == Field.START) startFocused = focused else endFocused = focused
+            if (focused) {
+                if (speech.active && speech.target != field) cancelDictation()
+                val changedField = vm.activeField != field
+                if (changedField) { Conversation.clearPlannerFeedback(); vm.clearSuggestions() }
+                vm.activeField = field
+                val query = if (field == Field.START) startQuery else endQuery
+                val selected = if (field == Field.START) startLabel else endLabel
+                if (query.isNotBlank() && query != selected &&
+                    (changedField || (!vm.suggestBusy && vm.suggestions.isEmpty() && vm.savedPlaceSuggestions.isEmpty()))) {
+                    editEntry(field, query)
+                }
+            }
+            // Focus may transfer while the keyboard layout contracts. Only an
+            // explicit Done/pick/field switch clears results, never another field's blur.
         }
         LaunchedEffect(plannerChat.lines.lastOrNull()) {
             val last = plannerChat.lines.lastOrNull()
@@ -770,15 +793,27 @@ fun MapScreen(
 
         val searchingPlace = startFocused || endFocused || speech.active || vm.suggestBusy ||
             vm.suggestions.isNotEmpty() || vm.savedPlaceSuggestions.isNotEmpty()
+        val keyboardSearch = WindowInsets.ime.getBottom(density) > 0 && (startFocused || endFocused)
         if (!live) Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().heightIn(max = plannerHeight)
             .onSizeChanged { plannerPanelPx = it.height }.statusBarsPadding().padding(horizontal = 8.dp, vertical = 4.dp)
-            .verticalScroll(rememberScrollState())) {
+            .onGloballyPositioned { plannerViewport = it.boundsInRoot() }
+            .verticalScroll(plannerScroll)) {
             Surface(shape = RoundedCornerShape(16.dp), tonalElevation = 2.dp) {
                 Row(Modifier.fillMaxWidth().padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(simulationLabel, Modifier.weight(1f), fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    Text(if (keyboardSearch) when {
+                        simulationLabel.startsWith("NEEDS") || status.blocked -> "Needs attention"
+                        status.starting -> "Starting…"
+                        status.running -> "Simulating"
+                        else -> "Simulation off"
+                    } else simulationLabel, Modifier.weight(1f), fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                        maxLines = if (keyboardSearch) 1 else 2, overflow = TextOverflow.Ellipsis,
                         color = if (simulationLabel.startsWith("NEEDS") || status.blocked) RED else ACCENT)
-                    IconButton(onClick = { done(); showSaved = true }, modifier = Modifier.size(48.dp)) {
+                    if (keyboardSearch) {
+                        TextButton(onClick = { done(); plannerExpanded = false }, modifier = Modifier.heightIn(min = 48.dp).testTag("plannerMapToggle"),
+                            contentPadding = PaddingValues(horizontal = 8.dp)) { Text("Map", fontSize = 13.sp) }
+                        TextButton(onClick = done, modifier = Modifier.heightIn(min = 48.dp).testTag("plannerKeyboardDone"),
+                            contentPadding = PaddingValues(horizontal = 8.dp)) { Text("Done", fontSize = 13.sp) }
+                    } else IconButton(onClick = { done(); showSaved = true }, modifier = Modifier.size(48.dp)) {
                         Icon(Icons.Filled.Bookmark, contentDescription = "Saved plans", tint = ACCENT)
                     }
                     IconButton(onClick = { done(); showSetup = true }, modifier = Modifier.size(48.dp)) {
@@ -786,7 +821,7 @@ fun MapScreen(
                     }
                 }
             }
-            if (status.running) Surface(shape = RoundedCornerShape(12.dp)) {
+            if (status.running && !keyboardSearch) Surface(shape = RoundedCornerShape(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(if (vm.queueAfterCurrent) "Next plan · after the current plan" else "New plan · replaces remaining trip", Modifier.weight(1f).padding(8.dp), fontSize = 12.sp)
                     TextButton(onClick = { planning = false; follow = true }) { Text("Back to live") }
@@ -810,7 +845,7 @@ fun MapScreen(
             } else Surface(shape = RoundedCornerShape(20.dp), shadowElevation = 4.dp,
                 color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth().testTag("plannerPanel")) {
                 Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
-                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                    if (!keyboardSearch) SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
                         PlanMode.entries.forEachIndexed { i, m ->
                             SegmentedButton(selected = vm.planMode == m,
                                 onClick = { cancelDictation(); Conversation.clearPlannerFeedback(); done(); vm.choosePlanMode(m); syncBoxes() },
@@ -819,21 +854,13 @@ fun MapScreen(
                         }
                     }
                         // START (Route and Itinerary)
-                        if (vm.planMode != PlanMode.SNAP) {
+                        if (vm.planMode != PlanMode.SNAP && (!keyboardSearch || startFocused)) {
                             LocationBox(
                                 value = startQuery,
                                 onValueChange = { editEntry(Field.START, it) },
                                 placeholder = if (interpretationEnabled) "Starting place or instruction" else "Search for a starting place",
                                 dot = GREEN,
-                                onFocus = { f ->
-                                    startFocused = f
-                                    if (f) {
-                                        if (speech.active && speech.target != Field.START) cancelDictation()
-                                        if (vm.activeField != Field.START) Conversation.clearPlannerFeedback()
-                                        vm.activeField = Field.START; vm.clearSuggestions()
-                                    }
-                                    else vm.clearSuggestions()
-                                },
+                                onFocus = { focusEntry(Field.START, it) },
                                 onEnter = { submitEntry(Field.START, startQuery) },
                                 trailing = { snapButton(Field.START, true) },
                                 microphone = { PlannerMicrophone(onListen = { beginDictation(Field.START) }, modifier = Modifier.testTag("plannerMicStart"),
@@ -843,14 +870,15 @@ fun MapScreen(
                                 label = "Start",
                                 inputTag = "plannerStartInput",
                                 showActions = startQuery != startLabel || (speech.active && speech.target == Field.START),
+                                compact = keyboardSearch,
                                 savedTag = "plannerSavedStart",
                                 onSaved = { openSavedPlaces(Field.START) },
                             )
-                            HorizontalDivider(color = MUTED.copy(alpha = 0.15f), modifier = Modifier.padding(horizontal = 8.dp))
+                            if (!keyboardSearch) HorizontalDivider(color = MUTED.copy(alpha = 0.15f), modifier = Modifier.padding(horizontal = 8.dp))
                         }
 
                         // END / PLACE / NEXT STOP
-                        LocationBox(
+                        if (!keyboardSearch || endFocused) LocationBox(
                             value = endQuery,
                             onValueChange = { editEntry(Field.END, it) },
                             placeholder = if (!interpretationEnabled) when (vm.planMode) {
@@ -863,15 +891,7 @@ fun MapScreen(
                                 PlanMode.ITINERARY -> "Next stop or describe your itinerary"
                             },
                             dot = if (vm.planMode == PlanMode.SNAP) ACCENT else VIOLET,
-                            onFocus = { f ->
-                                endFocused = f
-                                if (f) {
-                                    if (speech.active && speech.target != Field.END) cancelDictation()
-                                    if (vm.activeField != Field.END) Conversation.clearPlannerFeedback()
-                                    vm.activeField = Field.END; vm.clearSuggestions()
-                                }
-                                else vm.clearSuggestions()
-                            },
+                            onFocus = { focusEntry(Field.END, it) },
                             onEnter = { submitEntry(Field.END, endQuery) },
                             trailing = { snapButton(Field.END, false) },
                             microphone = { PlannerMicrophone(onListen = { beginDictation(Field.END) }, modifier = Modifier.testTag("plannerMicEnd"),
@@ -886,6 +906,7 @@ fun MapScreen(
                             },
                             inputTag = "plannerDestinationInput",
                             showActions = endQuery != endLabel || (speech.active && speech.target == Field.END),
+                            compact = keyboardSearch,
                             savedTag = if (vm.planMode == PlanMode.ITINERARY) "plannerSavedStop" else "plannerSavedDestination",
                             onSaved = { openSavedPlaces(Field.END) },
                         )
@@ -893,14 +914,9 @@ fun MapScreen(
                         if (speech.active) Text(
                             if (voice.listening) "Listening… ${speech.transcript}" else "Preparing microphone…",
                             Modifier.padding(horizontal = 8.dp).testTag("plannerListening"), style = MaterialTheme.typography.bodySmall)
-                        else if (vm.suggestBusy) Text("Searching…", Modifier.padding(horizontal = 8.dp), style = MaterialTheme.typography.bodySmall)
-                        else if (inputStatus.isNotBlank()) Text(inputStatus, Modifier.padding(horizontal = 8.dp).testTag("plannerInputStatus"), style = MaterialTheme.typography.bodySmall)
+                        else if (vm.suggestBusy && !keyboardSearch) Text("Searching…", Modifier.padding(horizontal = 8.dp), style = MaterialTheme.typography.bodySmall)
+                        else if (inputStatus.isNotBlank() && !keyboardSearch) Text(inputStatus, Modifier.padding(horizontal = 8.dp).testTag("plannerInputStatus"), style = MaterialTheme.typography.bodySmall)
                         val selectedLabel = if (vm.activeField == Field.START) startLabel else endLabel
-                        if (entry.isNotBlank() && (entry != selectedLabel || (interpretationEnabled && (planReview.candidate != null || Conversation.needsReply())))) TextButton(
-                            enabled = !speech.active && (!interpretationEnabled || (!planReview.busy && !plannerChat.busy)),
-                            onClick = { submitEntry(vm.activeField, entry) }, modifier = Modifier.testTag("plannerInputSubmit")) {
-                            Text(if (interpretationEnabled) "Review instruction" else "Search places")
-                        }
                         if (interpretationEnabled) PlannerReviewFeedback(vm.planning, hasUnreviewedInput = speech.active ||
                             (if (planReview.inputField == Field.START) startQuery != planReview.input || endQuery != endLabel
                                 else endQuery != planReview.input || startQuery != startLabel), onApplied = {
@@ -931,9 +947,15 @@ fun MapScreen(
                         vm.planMode == PlanMode.SNAP -> "the place"
                         else -> "End"
                     },
+                    nestedScroll = false,
                     onPick = { hit -> cancelDictation(); Conversation.clearPlannerFeedback(); vm.pickSuggestion(hit); done(); syncBoxes(); goTo(hit.latLng) },
                 )
             }
+                        if (entry.isNotBlank() && (entry != selectedLabel || (interpretationEnabled && (planReview.candidate != null || Conversation.needsReply())))) TextButton(
+                            enabled = !speech.active && (!interpretationEnabled || (!planReview.busy && !plannerChat.busy)),
+                            onClick = { submitEntry(vm.activeField, entry) }, modifier = Modifier.testTag("plannerInputSubmit")) {
+                            Text(if (interpretationEnabled) "Review instruction" else "Search places")
+                        }
                     if (!searchingPlace) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         if (vm.planMode != PlanMode.SNAP) TextButton(
                             onClick = { done(); vm.hiking.open(vm.hikingLocation()?.point ?: camera.position.target.toE()) },
@@ -972,7 +994,8 @@ fun MapScreen(
                                 Text("Drag handles to reorder", style=MaterialTheme.typography.bodySmall, modifier=Modifier.weight(1f))
                                 if(vm.draftUndoAvailable) TextButton(onClick=vm::undoDraftStops) { Text("Undo") }
                             }
-                            ReorderableStopList(stopsNow, onMove = vm::moveStopTo) { i, stop, handle ->
+                            ReorderableStopList(stopsNow, onMove = vm::moveStopTo,
+                                parentScroll = plannerScroll, parentViewport = plannerViewport) { i, stop, handle ->
                                 ChainRow(
                                     index = i, stop = stop, entry = tl.getOrNull(i),
                                     current = status.running && status.legIndex == i,
@@ -1035,22 +1058,22 @@ fun MapScreen(
                 TripRecovery.failure?.let {Text(it,color=RED)}
                 vm.error?.let { Text(it,color=RED);TextButton(onClick={vm.clearError()}){Text("Dismiss")}}
                 PrimaryAction(vm, false, actions, Modifier.testTag("plannerPrimary"))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                if (!keyboardSearch) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     TextButton(onClick = {
                         val name=vm.draftSavedName
                         if(name==null)showSaved=true else if(vm.saveScenario(name,true))vm.notice="Changes saved"
                     },enabled = plannerInputReady,
-                        modifier=Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)) {
-                        Text(if(vm.draftSavedName==null) "Save" else "Save changes", fontSize = 13.sp)
+                        modifier=Modifier.weight(1f).heightIn(min = 48.dp), contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp)) {
+                        Text(if(vm.draftSavedName==null) "Save" else "Save changes", fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
                     }
                     TextButton(onClick = { done(); plannerExpanded = !plannerExpanded }, enabled = !speech.active,
-                        modifier = Modifier.weight(1f).testTag("plannerMapToggle"),
-                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)) {
-                        Text(if (plannerExpanded) "Map" else "Edit plan", fontSize = 13.sp)
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("plannerMapToggle"),
+                        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp)) {
+                        Text(if (plannerExpanded) "Map" else "Edit plan", fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
                     }
-                    TextButton(onClick = { showPlannerSettings = true },modifier=Modifier.weight(1f).testTag("plannerSettingsOpen"), contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)) { Text("Settings", fontSize = 13.sp) }
+                    TextButton(onClick = { showPlannerSettings = true },modifier=Modifier.weight(1f).heightIn(min = 48.dp).testTag("plannerSettingsOpen"), contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp)) { Text("Settings", fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center) }
                     TextButton(onClick = { done(); showNewItinerary = true }, enabled = !status.running,
-                        modifier=Modifier.weight(1f).testTag("plannerNewItinerary"), contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)) { Text("Start new", fontSize = 13.sp) }
+                        modifier=Modifier.weight(1f).heightIn(min = 48.dp).testTag("plannerNewItinerary"), contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp)) { Text("Start new", fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center) }
                 }
                 if (status.running) TextButton(onClick=onStop) { Text("Stop simulation") }
             }
@@ -1252,6 +1275,7 @@ internal fun LocationBox(
     savedTag: String,
     onSaved: () -> Unit,
     showActions: Boolean = false,
+    compact: Boolean = false,
 ) {
     val bringIntoView = remember { BringIntoViewRequester() }
     var focused by remember { mutableStateOf(false) }
@@ -1276,7 +1300,15 @@ internal fun LocationBox(
                 ),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { onEnter() }, onDone = { onEnter() }),
-                trailingIcon = microphone,
+                trailingIcon = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        microphone()
+                        if (compact && value.isNotBlank()) IconButton(onClick = onClear,
+                            modifier = Modifier.size(48.dp).testTag(clearTag)) {
+                            Icon(Icons.Filled.Close, contentDescription = "Clear ${label.lowercase()} entry", modifier = Modifier.size(20.dp))
+                        }
+                    }
+                },
                 modifier = Modifier.weight(1f).testTag(inputTag).onFocusChanged { focused = it.isFocused; onFocus(it.isFocused) },
             )
             TextButton(onClick = onSaved, contentPadding = PaddingValues(4.dp),
@@ -1288,7 +1320,7 @@ internal fun LocationBox(
                 }
             }
         }
-        if (focused || showActions) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        if (!compact && (focused || showActions)) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             trailing()
             Spacer(Modifier.weight(1f))
             if (value.isNotBlank()) TextButton(onClick = onClear,
@@ -1306,14 +1338,14 @@ internal fun LocationBox(
 /** Uber-style pick list: every matching place with its address and distance from the start. */
 @Composable
 internal fun SuggestionList(hits: List<PlaceHit>, busy: Boolean, from: LatLng?, heading: String,
-    choiceTagPrefix: String = "plannerPlaceChoice", onPick: (PlaceHit) -> Unit) {
+    choiceTagPrefix: String = "plannerPlaceChoice", nestedScroll: Boolean = true, onPick: (PlaceHit) -> Unit) {
     Surface(
         shape = RoundedCornerShape(20.dp),
         shadowElevation = 6.dp,
         color = MaterialTheme.colorScheme.surface,
-        modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp),
+        modifier = if (nestedScroll) Modifier.fillMaxWidth().heightIn(max = 320.dp) else Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.verticalScroll(rememberScrollState())) {
+        Column(if (nestedScroll) Modifier.verticalScroll(rememberScrollState()) else Modifier) {
             Text("Set as $heading", fontSize = 11.sp, color = MUTED, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(start = 14.dp, top = 8.dp))
             if (busy && hits.isEmpty()) {
@@ -1530,7 +1562,7 @@ private fun PrimaryAction(vm: MirageViewModel, running: Boolean, a: SimActions, 
     val fly = vm.mode == TravelMode.FLY
     if (MockState.status.collectAsState(context = kotlinx.coroutines.Dispatchers.Main.immediate).value.starting) { BusyRow("Starting…"); return }
     if (!a.enabled) {
-        BigButton("Finish or clear the current entry", enabled = false, icon = null, modifier = modifier, onClick = {})
+        BigButton("Finish or clear this entry", enabled = false, icon = null, modifier = modifier, onClick = {})
         return
     }
     when (vm.planMode) {
@@ -1565,7 +1597,7 @@ private fun PrimaryAction(vm: MirageViewModel, running: Boolean, a: SimActions, 
 private fun BigButton(text: String, enabled: Boolean = true, icon: ImageVector? = Icons.Filled.PlayArrow, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Button(onClick = onClick, enabled = enabled, modifier = modifier.fillMaxWidth().heightIn(min = 48.dp)) {
         if (icon != null) { Icon(icon, contentDescription = null); Spacer(Modifier.width(6.dp)) }
-        Text(text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        Text(text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 

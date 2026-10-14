@@ -1,5 +1,12 @@
 package com.mirage.spike
 
+import com.mirage.spike.engine.Fix
+
+/** Carry only output from an engaged, previously emitting session into its replacement. */
+internal fun continuationHold(previous: MockStatus, lastEmitted: Fix?): Fix? =
+    if (previous.running && previous.lastFixMillis > 0L) lastEmitted?.copy(speedMps = 0f, progress = -1f, remainingSec = -1)
+    else null
+
 /**
  * Monotonic, session-local evidence for the phone's fused output. An accepted write is
  * not a readback, and neither proves what a separate app or a car head unit displays.
