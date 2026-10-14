@@ -461,7 +461,7 @@ fun MapScreen(
     }
 
     BoxWithConstraints(Modifier.fillMaxSize().imePadding()) {
-        val plannerHeight = (maxHeight - (if(footerPx==0)170.dp else with(density){footerPx.toDp()}) - 16.dp).coerceAtLeast(80.dp)
+        val plannerHeight = (maxHeight - (if(footerPx==0)170.dp else with(density){footerPx.toDp()}) - 16.dp).coerceAtLeast(0.dp)
 
         GoogleMap(
             modifier = Modifier.fillMaxSize(),
