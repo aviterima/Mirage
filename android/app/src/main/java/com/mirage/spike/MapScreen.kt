@@ -1128,7 +1128,7 @@ fun MapScreen(
                 showPlannerSettings = false; focus.clearFocus(); keyboard?.hide(); showAudit = true
             }) { Text("Interaction audit") }
             TextButton(onClick = { showPlannerSettings = false; focus.clearFocus(); keyboard?.hide(); showVoiceSetup = true }) { Text("Voice setup") }
-            TextButton(onClick = { showPlannerSettings = false; done(); showCarHelp = true }, modifier = Modifier.testTag("plannerCarHelp")) { Text("Android Auto & Wi-Fi") }
+            TextButton(onClick = { showPlannerSettings = false; focus.clearFocus(); keyboard?.hide(); showCarHelp = true }, modifier = Modifier.testTag("plannerCarHelp")) { Text("Android Auto & Wi-Fi") }
             Controls(vm, status, !status.running && status.blocked, { showSetup = true }, actions)
             TextButton(onClick = { showPlannerSettings = false }) { Text("Back to map") }
         }
@@ -1218,7 +1218,7 @@ fun MapScreen(
             initialKey = keyStore.userKey,
             onSaveKey = saveKey,
             onDismiss = { showSetup = false },
-            onCarHelp = { showSetup = false; done(); showCarHelp = true },
+            onCarHelp = { showSetup = false; focus.clearFocus(); keyboard?.hide(); showCarHelp = true },
             onDev = onOpenDevSettings,
             onPerms = onRequestPermissions,
             onBattery = onRequestBattery,
