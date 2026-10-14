@@ -7,12 +7,42 @@ if [ "${MIRAGE_EXPERIMENTAL_MODEL:-false}" = "true" ]; then
   ./gradlew --no-daemon -PexperimentalLanguageModel=true \
     -Pandroid.testInstrumentationRunnerArguments.annotation=com.mirage.spike.ExperimentalLanguageModel \
     connectedDebugAndroidTest
+  test_result=$?
 else
+  # Fail early on the two live paused-status regressions before running all journeys.
   ./gradlew --no-daemon -PexperimentalLanguageModel=false \
-    -Pandroid.testInstrumentationRunnerArguments.notAnnotation=com.mirage.spike.ExperimentalLanguageModel \
-    connectedDebugAndroidTest
+    -Pandroid.testInstrumentationRunnerArguments.class=com.mirage.spike.ContinuationUiAcceptanceTest#addingSnapAfterCurrentStopDoesNotResumePausedSimulation,com.mirage.spike.ContinuationUiAcceptanceTest#savedItineraryAddsAllStopsAndPreservesItsStaysAndOriginal \
+    connectedDebugAndroidTest > ../acceptance-evidence/paused-preflight.log 2>&1
+  test_result=$?
+  cat ../acceptance-evidence/paused-preflight.log
+  python3 - <<'PY'
+import json, pathlib, xml.etree.ElementTree as ET
+cases = []
+for path in pathlib.Path('app/build/outputs/androidTest-results').rglob('*.xml'):
+    try:
+        root = ET.parse(path).getroot()
+    except ET.ParseError:
+        continue
+    for case in root.iter('testcase'):
+        cases.append({'class': case.get('classname'), 'name': case.get('name'),
+                      'failure': case.find('failure') is not None,
+                      'error': case.find('error') is not None,
+                      'skipped': case.find('skipped') is not None})
+pathlib.Path('../acceptance-evidence/paused-preflight.json').write_text(json.dumps(cases, indent=2))
+expected = {'addingSnapAfterCurrentStopDoesNotResumePausedSimulation',
+            'savedItineraryAddsAllStopsAndPreservesItsStaysAndOriginal'}
+assert {case['name'] for case in cases} == expected, 'Focused test selection did not run both expected journeys'
+assert not any(case[key] for case in cases for key in ('failure', 'error', 'skipped')), 'Focused paused checks failed'
+PY
+  preflight_record_result=$?
+  if [ "$preflight_record_result" -ne 0 ]; then test_result="$preflight_record_result"; fi
+  if [ "$test_result" -eq 0 ]; then
+    ./gradlew --no-daemon -PexperimentalLanguageModel=false \
+      -Pandroid.testInstrumentationRunnerArguments.notAnnotation=com.mirage.spike.ExperimentalLanguageModel \
+      connectedDebugAndroidTest
+    test_result=$?
+  fi
 fi
-test_result=$?
 adb pull /sdcard/Download/mirage-acceptance ../acceptance-evidence/
 adb logcat -d -s AndroidRuntime TestRunner MirageModelTest > ../acceptance-evidence/logcat.txt
 adb logcat -b crash -d > ../acceptance-evidence/native-crash.txt

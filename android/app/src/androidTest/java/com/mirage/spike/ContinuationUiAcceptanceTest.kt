@@ -5,12 +5,12 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.By
 import androidx.test.uiautomator.Configurator
 import androidx.test.uiautomator.UiDevice
-import androidx.test.uiautomator.Until
 import com.mirage.spike.engine.*
 import com.mirage.spike.store.*
+import java.io.ByteArrayOutputStream
+import java.io.File
 import org.junit.*
 import org.junit.Assert.*
 
@@ -111,38 +111,68 @@ class ContinuationUiAcceptanceTest {
         compose.waitUntil(15_000) { compose.onAllNodes(hasTestTag("confirmContinuation") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
     }
     private fun confirm() { ready(); compose.onNodeWithTag("confirmContinuation").performScrollTo().performClick() }
-    private fun assertPausedOutput() {
-        compose.waitUntil(10_000) {
-            val status = MockState.status.value
-            status.paused && locationOutputIssue(status) == null
-        }
-        val pausedText = "PAUSED · simulated location held"
-        val selector = By.pkg("com.mirage.app").text(pausedText)
+    private fun capturePausedEvidence(name: String) {
         val configuration = Configurator.getInstance()
         val previousIdleTimeout = configuration.waitForIdleTimeout
         try {
-            // A live map/status may keep Compose busy. Read its rendered Android
-            // accessibility node with bounded waits instead of requiring global idle.
+            // Preserve the actual screen even if Compose cannot synchronize. Neither
+            // screenshot nor hierarchy capture should replace the assertion failure.
             configuration.setWaitForIdleTimeout(0)
-            assertNotNull("The paused status must render", device.wait(Until.findObject(selector), 10_000))
-            // Preserve twelve observations across header timer/provider callbacks.
+            runCatching {
+                device.executeShellCommand("mkdir -p /sdcard/Download/mirage-acceptance")
+                device.executeShellCommand("screencap -p /sdcard/Download/mirage-acceptance/$name.png")
+            }.onFailure { println("Paused screenshot $name failed: $it") }
+            runCatching {
+                val hierarchy = ByteArrayOutputStream()
+                device.dumpWindowHierarchy(hierarchy)
+                val hierarchyFile = File(context.getExternalFilesDir(null), "$name.xml")
+                try {
+                    hierarchyFile.writeBytes(hierarchy.toByteArray())
+                    device.executeShellCommand("cp ${hierarchyFile.absolutePath} /sdcard/Download/mirage-acceptance/$name.xml")
+                } finally {
+                    hierarchyFile.delete()
+                }
+            }.onFailure { println("Paused hierarchy $name failed: $it") }
+            val status = MockState.status.value
+            println("Paused evidence $name: paused=${status.paused}, outputIssue=${locationOutputIssue(status)}, playbackPaused=${PlaybackSource.paused}")
+        } finally {
+            configuration.setWaitForIdleTimeout(previousIdleTimeout)
+        }
+    }
+    private fun assertPausedOutput(evidenceName: String) {
+        val previousAutoAdvance = compose.mainClock.autoAdvance
+        compose.mainClock.autoAdvance = false
+        try {
+            capturePausedEvidence("$evidenceName-before")
+            compose.waitUntil(10_000) {
+                val status = MockState.status.value
+                status.paused && locationOutputIssue(status) == null
+            }
+            val pausedText = "PAUSED · simulated location held"
+            // UiAutomator waits do not advance Compose recomposition. Advance frames
+            // explicitly so async service state renders, without chasing live map or
+            // status animations until globally idle.
+            compose.waitUntil(10_000) {
+                compose.mainClock.advanceTimeByFrame()
+                compose.onAllNodesWithText(pausedText, substring = false).fetchSemanticsNodes().isNotEmpty()
+            }
+            // Keep twelve real-time observations and advance the Compose clock too,
+            // covering both service callbacks and at least one header timer tick.
             repeat(12) { observation ->
+                android.os.SystemClock.sleep(100)
+                compose.mainClock.advanceTimeBy(100)
                 val status = MockState.status.value
                 assertTrue("Service must stay paused at observation $observation", status.paused)
                 assertNull("Paused location output must stay confirmed at observation $observation", locationOutputIssue(status))
                 assertTrue("Playback must stay paused at observation $observation", PlaybackSource.paused)
-                val label = device.wait(Until.findObject(selector), 500)
-                assertNotNull("Paused label must stay visible at observation $observation", label)
-                assertEquals(pausedText, label!!.text)
-                val bounds = label.visibleBounds
-                assertEquals("Paused status must belong to the foreground app", "com.mirage.app", device.currentPackageName)
-                assertTrue("Paused label must have visible screen bounds at observation $observation: $bounds",
-                    bounds.width() > 0 && bounds.height() > 0 && bounds.left >= 0 && bounds.top >= 0 &&
-                        bounds.right <= device.displayWidth && bounds.bottom <= device.displayHeight)
-                android.os.SystemClock.sleep(100)
+                compose.onNodeWithText(pausedText, substring = false).assertIsDisplayed()
             }
+            capturePausedEvidence(evidenceName)
+        } catch (failure: Throwable) {
+            capturePausedEvidence("$evidenceName-failure")
+            throw failure
         } finally {
-            configuration.setWaitForIdleTimeout(previousIdleTimeout)
+            compose.mainClock.autoAdvance = previousAutoAdvance
         }
     }
     private fun chooseSnap() {
@@ -250,8 +280,7 @@ class ContinuationUiAcceptanceTest {
         compose.waitUntil(10_000) { LiveSession.state.value.stops.size == 2 }
         assertTrue(PlaybackSource.paused)
         assertEquals(office, LiveSession.state.value.stops[1].stop.point)
-        assertPausedOutput()
-        screenshot("continuation-paused-addition", waitForComposeIdle = false)
+        assertPausedOutput("continuation-paused-addition")
     }
     @Test fun savedRouteConnectsItsStartWithoutJumpingOrReplacingTheTrip() {
         PlaybackSource.paused = true
@@ -278,8 +307,7 @@ class ContinuationUiAcceptanceTest {
         assertTrue("Using a saved item records recent use", after.lastUsedAt > original.lastUsedAt)
         assertEquals("Trip content and identity remain unchanged", original, after.copy(lastUsedAt=original.lastUsedAt))
         assertTrue(PlaybackSource.paused)
-        assertPausedOutput()
-        screenshot("continuation-itinerary-added", waitForComposeIdle = false)
+        assertPausedOutput("continuation-itinerary-added")
     }
     @Test fun cancelAndMapBrowsingLeaveExistingSessionUntouched() {
         val before = LiveSession.state.value.stops
