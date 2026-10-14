@@ -2,6 +2,9 @@ package com.mirage.spike
 
 import android.content.Context
 import android.content.Intent
+import android.view.WindowManager
+import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
@@ -13,7 +16,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -33,7 +36,7 @@ import org.junit.Assert.*
  * results. Acoustic recognition and model download remain separate device checks.
  */
 class PlannerVoiceUiAcceptanceTest {
-    @get:Rule val compose = createComposeRule()
+    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private val device get() = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
     private val vmStore = ViewModelStore()
@@ -98,6 +101,12 @@ class PlannerVoiceUiAcceptanceTest {
     }
 
     private fun launchPlanner(largeText: Boolean = false, compactViewport: Boolean = false) {
+        compose.runOnUiThread {
+            // Match MainActivity and its manifest before Compose reads the insets.
+            // The default test Activity otherwise pans behind the real keyboard.
+            compose.activity.enableEdgeToEdge()
+            compose.activity.window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        }
         compose.setContent {
             val density = LocalDensity.current
             val focus = LocalFocusManager.current
@@ -501,7 +510,13 @@ class PlannerVoiceUiAcceptanceTest {
                 plannerHostView.rootWindowInsets?.isVisible(android.view.WindowInsets.Type.ime()) == true
             }
         }
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithTag("plannerKeyboardDone").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("plannerKeyboardDone").assertIsDisplayed()
         compose.waitUntil(5_000) { vm.suggestions.singleOrNull() == remote }
+        compose.waitForIdle()
+        device.waitForIdle()
         val result = compose.onNodeWithText(remote.name)
         result.performScrollTo().assertIsDisplayed()
         input.assertIsDisplayed().assertTextContains("Western")
@@ -510,6 +525,17 @@ class PlannerVoiceUiAcceptanceTest {
         val fieldBounds = input.fetchSemanticsNode().boundsInRoot
         val micBounds = microphone.fetchSemanticsNode().boundsInRoot
         val resultBounds = result.fetchSemanticsNode().boundsInRoot
+        compose.runOnUiThread {
+            val hostOrigin = IntArray(2).also(plannerHostView::getLocationOnScreen)
+            val imeHeight = plannerHostView.rootWindowInsets!!.getInsets(android.view.WindowInsets.Type.ime()).bottom
+            // Window metrics retain the full window bounds even under adjustResize;
+            // subtracting from a resized decor height could count the IME twice.
+            val keyboardTopOnScreen = compose.activity.windowManager.currentWindowMetrics.bounds.bottom - imeHeight
+            val footerBottomOnScreen = hostOrigin[1] + footer.bottom
+            assertTrue("The real keyboard must occupy part of the test window", imeHeight > 0)
+            assertTrue("Planner footer must remain above the real keyboard: footer=$footerBottomOnScreen, keyboard=$keyboardTopOnScreen",
+                footerBottomOnScreen <= keyboardTopOnScreen + 1f)
+        }
         listOf("Next stop" to fieldBounds, "Microphone" to micBounds, "Search result" to resultBounds).forEach { (name, bounds) ->
             assertTrue("$name must remain above the footer on a compact phone with keyboard", bounds.height > 0 && bounds.top >= 0 && bounds.bottom <= footer.top)
         }

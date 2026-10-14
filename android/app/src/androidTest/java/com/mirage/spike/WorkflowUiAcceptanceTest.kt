@@ -314,6 +314,7 @@ class WorkflowUiAcceptanceTest {
         compose.onNodeWithText("Move up").assertIsDisplayed()
         compose.onNodeWithText("Move down").performClick()
         compose.onNodeWithContentDescription("Reorder stop 3: First").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("Saved plans").performScrollTo().assertIsDisplayed()
         saved()
         compose.onNodeWithTag("savedPlanName").performTextReplacement("Reordered fixture")
         compose.onNodeWithText("Save", useUnmergedTree = false).performClick()
