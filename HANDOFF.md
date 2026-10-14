@@ -1,6 +1,8 @@
-# Mirage 0.19.0 — mobile planning and car recovery candidate
+# Mirage 0.19.0 — mobile planning and location recovery
 
-Status: implementation under validation. See [the current specification and verification record](docs/MOBILE_UI_AND_CAR_RECOVERY_0.19.0.md). This pass reclaims phone-screen space for search and map review, preserves explicit Save/Start and offline dictation, and strengthens fused-location recovery. It cannot force Wi-Fi off or certify another app’s/car’s location. Latest verified release remains 0.18.0 until acceptance finishes.
+Full-width place entry, focused keyboard search, nearby Saved controls, one scrolling itinerary and a draft-preserving Map / Edit plan view. Save and Start remain separate; offline dictation stays bundled. Fresh fused-location readback now drives bounded recovery and honest status. Wireless Android Auto compatibility still requires a physical car test; ordinary Android apps cannot force Wi-Fi off.
+
+Validated 2026-10-14: **285 JVM tests and 55 Android emulator tests passed**, with zero failures/errors/skips independently counted from XML. Blocking lint passed with zero errors, 44 warnings and 12 hints. Pinned signing, bundled offline speech, the signed 0.18.0 upgrade and live trail checks passed. The emulator display is configured to 360×640dp with 1.3× text; its compact test uses the real keyboard, requires the focused layout and checks the footer against actual IME screen bounds. Final screenshots confirm the active field, microphone, full first saved/remote result and guarded footer above the real keyboard at 360x640dp with 1.3x text. Actual-Activity large-text search, Map/Edit draft preservation, car-help actions and both paused additions were reviewed. The settled itinerary frame shows Second, Third, First; itinerary-dragged.png captures a transient drag frame and is not used as final-order evidence. Physical phone and car behavior remain unverified. See [behavior, verification history and remaining phone/car checks](docs/MOBILE_UI_AND_CAR_RECOVERY_0.19.0.md).
 
 # Mirage 0.18.0 — verified offline dictation
 

@@ -1,6 +1,6 @@
 # Mobile planning and car location recovery — 0.19.0
 
-Status: implementation in progress, not a verified release. Baseline: verified 0.18.0 at `159972b0e33575b90903421e73e7c296f4de8d9c`. Work remains in the existing `planner-saved-places` worktree and `codex/contextual-voice-input-20261012` branch. Version 0.19.0 / 45 is reserved for this change.
+Status: automated acceptance and exact hosted installer verification complete on 2026-10-14. Version **0.19.0 / 45**. Tested source: `d5e7e507f7af44c7d34fa791901fac43fd4873cb`; application source unchanged from `ee8981f9631685c11d93402d653c3c1caf5532aa`. Physical phone and wireless Android Auto acceptance remain open.
 
 ## Request and design
 
@@ -38,7 +38,15 @@ Physical follow-up remains essential: compare phone Maps and the car display wit
 
 ## Verification record
 
-Pending. No installer is certified by this document yet. The latest verified installer remains 0.18.0.
+Final tested source `d5e7e507f7af44c7d34fa791901fac43fd4873cb` passed [build 38652149795](https://github.com/aviterima/Mirage/actions/runs/38652149795) and [acceptance 38652149784](https://github.com/aviterima/Mirage/actions/runs/38652149784) on attempt 1. Validated 2026-10-14: **285 JVM tests and 55 Android emulator tests passed**, with zero failures/errors/skips independently counted from XML. Blocking lint passed with zero errors, 44 warnings and 12 hints. Pinned signing, bundled offline speech, the signed 0.18.0 upgrade and live trail checks passed. The emulator display is configured to 360×640dp with 1.3× text; its compact test uses the real keyboard, requires the focused layout and checks the footer against actual IME screen bounds. Final screenshots confirm the active field, microphone, full first saved/remote result and guarded footer above the real keyboard at 360x640dp with 1.3x text. Actual-Activity large-text search, Map/Edit draft preservation, car-help actions and both paused additions were reviewed. The settled itinerary frame shows Second, Third, First; itinerary-dragged.png captures a transient drag frame and is not used as final-order evidence. Physical phone and car behavior remain unverified.
+
+The signed upgrade installed over checksum-pinned 0.18.0 without uninstalling. Seeded saved-record and key/install-identity preference files were independently compared byte-identical; this fixture does not cover every user preference or itinerary. All 11 selected evidence/installer archives matched GitHub byte counts and SHA-256 and passed CRC. The six exact tested APK parts assembled unchanged and matched the workflow checksum. APK members passed CRC, and the binary manifest and pinned signing-certificate fingerprint matched. Local certificate extraction is not cryptographic signature verification; CI ran apksigner and Android accepted the exact test APK in the signed upgrade.
+
+Installer: **Mirage-0.19.0.apk**, 131,935,733 bytes, package `com.mirage.app`, code 45. SHA-256: `df3e29beac92b2fabf5c10c7a546cebd0c6cae3d5eaf26d0eb7196edc336a68d`. Signing certificate: `e51683b8f4161d31fe4e81fe788438640151f8efb9aeba693a4ce21ad72cc8b8`.
+
+The unchanged APK is transported inside **Mirage-0.19.0.zip**, 88,690,601 bytes, SHA-256 `07a552407a683dd9f0852b360ee1db42b719237124c729b2ce64fe0eb992e952`, because the APK exceeds the connector's individual-file limit. Hosted metadata and a complete downloaded copy were checked: byte count, ZIP checksum/CRC, sole APK member and extracted APK checksum all matched. The private delivery URL remains in chat. Final source changes after acceptance are Markdown documentation only. Local evidence: `builds/0.19.0/evidence-d5e7e50` in the registered entry folder.
+
+### Earlier candidate failures (retained)
 
 Initial source `844dae9f7e7a4490649c8befdbee638f686f4688` failed compilation in the two new car-help callbacks because a local keyboard-dismiss helper was out of scope. No JVM, Android, upgrade or lint result is claimed for that source. Its predecessor `bc258067` was superseded and cancelled.
 
