@@ -5,7 +5,10 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.Configurator
 import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.Until
 import com.mirage.spike.engine.*
 import com.mirage.spike.store.*
 import org.junit.*
@@ -113,14 +116,33 @@ class ContinuationUiAcceptanceTest {
             val status = MockState.status.value
             status.paused && locationOutputIssue(status) == null
         }
-        // Wait for the sheet to close and Compose to render the service status.
-        compose.waitUntil(10_000) {
-            compose.onAllNodesWithText("PAUSED · simulated location held").fetchSemanticsNodes().isNotEmpty()
-        }
-        // Cover provider callbacks both before and after the header timer ticks.
-        repeat(12) {
-            compose.onNodeWithText("PAUSED · simulated location held").assertIsDisplayed()
-            android.os.SystemClock.sleep(100)
+        val pausedText = "PAUSED · simulated location held"
+        val selector = By.pkg("com.mirage.app").text(pausedText)
+        val configuration = Configurator.getInstance()
+        val previousIdleTimeout = configuration.waitForIdleTimeout
+        try {
+            // A live map/status may keep Compose busy. Read its rendered Android
+            // accessibility node with bounded waits instead of requiring global idle.
+            configuration.setWaitForIdleTimeout(0)
+            assertNotNull("The paused status must render", device.wait(Until.findObject(selector), 10_000))
+            // Preserve twelve observations across header timer/provider callbacks.
+            repeat(12) { observation ->
+                val status = MockState.status.value
+                assertTrue("Service must stay paused at observation $observation", status.paused)
+                assertNull("Paused location output must stay confirmed at observation $observation", locationOutputIssue(status))
+                assertTrue("Playback must stay paused at observation $observation", PlaybackSource.paused)
+                val label = device.wait(Until.findObject(selector), 500)
+                assertNotNull("Paused label must stay visible at observation $observation", label)
+                assertEquals(pausedText, label!!.text)
+                val bounds = label.visibleBounds
+                assertEquals("Paused status must belong to the foreground app", "com.mirage.app", device.currentPackageName)
+                assertTrue("Paused label must have visible screen bounds at observation $observation: $bounds",
+                    bounds.width() > 0 && bounds.height() > 0 && bounds.left >= 0 && bounds.top >= 0 &&
+                        bounds.right <= device.displayWidth && bounds.bottom <= device.displayHeight)
+                android.os.SystemClock.sleep(100)
+            }
+        } finally {
+            configuration.setWaitForIdleTimeout(previousIdleTimeout)
         }
     }
     private fun chooseSnap() {
@@ -229,7 +251,7 @@ class ContinuationUiAcceptanceTest {
         assertTrue(PlaybackSource.paused)
         assertEquals(office, LiveSession.state.value.stops[1].stop.point)
         assertPausedOutput()
-        screenshot("continuation-paused-addition")
+        screenshot("continuation-paused-addition", waitForComposeIdle = false)
     }
     @Test fun savedRouteConnectsItsStartWithoutJumpingOrReplacingTheTrip() {
         PlaybackSource.paused = true
@@ -257,7 +279,7 @@ class ContinuationUiAcceptanceTest {
         assertEquals("Trip content and identity remain unchanged", original, after.copy(lastUsedAt=original.lastUsedAt))
         assertTrue(PlaybackSource.paused)
         assertPausedOutput()
-        screenshot("continuation-itinerary-added")
+        screenshot("continuation-itinerary-added", waitForComposeIdle = false)
     }
     @Test fun cancelAndMapBrowsingLeaveExistingSessionUntouched() {
         val before = LiveSession.state.value.stops
