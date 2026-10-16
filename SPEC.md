@@ -2,7 +2,7 @@
 
 Current location and Saved are visible beneath Start, Destination and Next stop, including while the keyboard is open. During simulation, the physical-location action says Last real location. Selecting it clears unfinished text correctly; pending fixes block Save/Start and cannot replace a newer edit.
 
-Automated validation is pending. The previous verified installer remains 0.19.0. See [behavior and validation](docs/CURRENT_LOCATION_0.19.1.md).
+App validation passed on 16 October 2026: 285 JVM and 59 Android tests, zero failures/errors/skips. The external live-trail release check remains failed after three attempts; delivery is awaiting the owner’s decision on that specific gate. The previous delivered installer remains 0.19.0. See [behavior and validation](docs/CURRENT_LOCATION_0.19.1.md).
 
 # Mirage 0.19.0 — mobile planning and location recovery
 
