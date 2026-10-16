@@ -31,6 +31,8 @@ import androidx.test.uiautomator.UiDevice
 import com.mirage.spike.engine.*
 import com.mirage.spike.store.PrefsScenarioStore
 import com.mirage.spike.store.SavedScenario
+import kotlinx.coroutines.CompletableDeferred
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.*
 import org.junit.Assert.*
 import org.junit.rules.RuleChain
@@ -102,6 +104,7 @@ class PlannerVoiceUiAcceptanceTest {
         "Irvine, CA, USA (fixture)", "fixture-inline-western-digital")
     private val queries = mutableListOf<String>()
     private var starts = 0
+    private var permissionRequests = 0
     private var interpreterCalls = 0
     private lateinit var hidePlannerKeyboard: () -> Unit
     private lateinit var plannerHostView: android.view.View
@@ -120,7 +123,7 @@ class PlannerVoiceUiAcceptanceTest {
         MockState.reset(); LiveSession.clear(); PlaybackSource.clearQueue()
         PlaybackSource.current = null; PlaybackSource.paused = false
         PlannerSpeech.cancel(); Conversation.resetPlanningSession()
-        queries.clear(); starts = 0; interpreterCalls = 0
+        queries.clear(); starts = 0; permissionRequests = 0; interpreterCalls = 0
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             val factory = object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
@@ -168,7 +171,11 @@ class PlannerVoiceUiAcceptanceTest {
             "${device.displayWidth}x${device.displayHeight}/${context.resources.displayMetrics.densityDpi}")
     }
 
-    private fun launchPlanner(largeText: Boolean = false) {
+    private fun launchPlanner(
+        largeText: Boolean = false,
+        hasLocPerm: Boolean = false,
+        resolveCurrentLocation: suspend (Context) -> LatLng? = { error("Unexpected provider lookup in a no-permission fixture") },
+    ) {
         compose.runOnUiThread {
             // Match MainActivity and its manifest before Compose reads the insets.
             // The default test Activity otherwise pans behind the real keyboard.
@@ -191,8 +198,9 @@ class PlannerVoiceUiAcceptanceTest {
                     // Activity starts; the planner and keyboard share one full window.
                     Surface(Modifier.fillMaxSize().testTag("plannerTestViewport")) {
                         if (plannerVisible) MapScreen(onStartService = { starts++ }, onStopService = {},
-                            onOpenDevSettings = {}, onRequestBattery = {}, onRequestPermissions = {},
-                            setupChecks = { SetupChecks(false, false, true) }, hasLocPerm = false)
+                            onOpenDevSettings = {}, onRequestBattery = {}, onRequestPermissions = { permissionRequests++ },
+                            setupChecks = { SetupChecks(hasLocPerm, false, true) }, hasLocPerm = hasLocPerm,
+                            resolveCurrentLocation = resolveCurrentLocation)
                     }
                 }
             }
@@ -232,10 +240,204 @@ class PlannerVoiceUiAcceptanceTest {
         assertNull(PlaybackSource.current)
     }
 
-    private fun screenshot(name: String) {
-        compose.waitForIdle(); device.waitForIdle()
+    private fun screenshot(name: String, waitForIdle: Boolean = true) {
+        if (waitForIdle) { compose.waitForIdle(); device.waitForIdle() }
         device.executeShellCommand("mkdir -p /sdcard/Download/mirage-acceptance")
         device.executeShellCommand("screencap -p /sdcard/Download/mirage-acceptance/$name.png")
+    }
+
+    private fun waitForPlannerKeyboard() {
+        compose.waitUntil(15_000) {
+            compose.runOnUiThread {
+                plannerHostView.rootWindowInsets?.isVisible(android.view.WindowInsets.Type.ime()) == true
+            }
+        }
+        compose.onNodeWithTag("plannerKeyboardDone").assertIsDisplayed()
+    }
+
+    private fun assertCurrentAction(tag: String, description: String) {
+        val action = compose.onNodeWithTag(tag).assertIsDisplayed().assertHasClickAction().assertIsEnabled()
+            .assertHeightIsAtLeast(48.dp).assertContentDescriptionEquals(description)
+            .assertTextContains(if (description.startsWith("Last")) "Last real location" else "Current location")
+        val bounds = action.fetchSemanticsNode().boundsInRoot
+        val footer = compose.onNodeWithTag("plannerFooter").fetchSemanticsNode().boundsInRoot
+        assertTrue("The direct location action must remain above the footer", bounds.bottom <= footer.top)
+    }
+
+    private fun enterCachedRealPlanner(mode: PlanMode, real: LatLng) {
+        launchPlanner()
+        // Loading through the normal library sets planning=true. A simulated
+        // running-status fixture then exercises the cached-real branch without
+        // starting a service or relying on a physical/emulator GPS provider.
+        compose.onNodeWithContentDescription("Saved plans").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Load Home").performScrollTo().performClick()
+        compose.onNodeWithText(if (mode == PlanMode.ROUTE) "Route" else "Itinerary").performClick()
+        compose.runOnIdle {
+            vm.pickRealStart(real)
+            MockState.update { it.copy(running = true, lat = 34.1, lng = -111.8, label = "Fixture holding") }
+        }
+        compose.onNodeWithTag("plannerStartInput").assertExists()
+    }
+
+    private fun assertCachedSelectionDoesNotStart() {
+        assertEquals(0, starts)
+        assertEquals(0, permissionRequests)
+        assertTrue(MockState.status.value.running)
+        assertEquals(LatLng(34.1, -111.8), LatLng(MockState.status.value.lat, MockState.status.value.lng))
+        assertNull(LiveSession.plan)
+        assertNull(PlaybackSource.current)
+    }
+
+    @Test fun currentLocationActionsStayVisibleAndPermissionHelpPreservesEntries() {
+        launchPlanner()
+        compose.onNodeWithText("Route").performClick()
+        assertCurrentAction("plannerCurrentStart", "Current location for start")
+        assertCurrentAction("plannerCurrentEnd", "Current location for destination")
+        compose.onNodeWithTag("plannerSavedStart").assertIsDisplayed()
+        compose.onNodeWithTag("plannerSavedDestination").assertIsDisplayed()
+        screenshot("planner-current-location-idle-actions")
+
+        listOf("plannerStartInput" to "plannerCurrentStart", "plannerDestinationInput" to "plannerCurrentEnd")
+            .forEachIndexed { index, (inputTag, actionTag) ->
+                val words = "unfinished ${if (index == 0) "start" else "destination"}"
+                compose.onNodeWithTag(inputTag).performScrollTo().performClick().performTextInput(words)
+                compose.onNodeWithTag(inputTag).performClick()
+                waitForPlannerKeyboard()
+                assertCurrentAction(actionTag, "Current location for ${if (index == 0) "start" else "destination"}")
+                compose.onNodeWithTag(actionTag).performClick()
+                compose.onNodeWithText("Location permission is needed", substring = true).assertIsDisplayed()
+                compose.onNodeWithTag(inputTag).assertTextContains(words)
+                compose.onNodeWithTag("plannerPrimary").assertIsNotEnabled()
+                compose.runOnIdle { assertEquals(0, permissionRequests); assertIdle() }
+                screenshot("planner-current-location-permission-${if (index == 0) "start" else "destination"}")
+                dismissPlannerKeyboard()
+                compose.onNodeWithText("Dismiss").performClick()
+            }
+        compose.onNodeWithContentDescription("Setup").performScrollTo().performClick()
+        compose.onNodeWithText("Location permission", substring = false).performScrollTo().assertIsDisplayed()
+        // Setup presents location before notification permission; this first Grant
+        // belongs to the visible Location permission row in the production dialog.
+        compose.onAllNodesWithText("Grant", substring = false)[0].performScrollTo().assertIsDisplayed().performClick()
+        compose.runOnIdle {
+            assertEquals(1, permissionRequests)
+            assertNull(vm.start); assertNull(vm.dest)
+            assertIdle()
+        }
+    }
+
+    @Test fun lastRealLocationReplacesSameLabelUnfinishedStartAndDestination() {
+        val real = LatLng(33.25, -112.30)
+        enterCachedRealPlanner(PlanMode.ROUTE, real)
+        compose.runOnIdle { vm.setDestPoint(office.dest!!, "My location") }
+        compose.onNodeWithTag("plannerStartInput").assertTextContains("My location")
+        compose.onNodeWithTag("plannerDestinationInput").assertTextContains("My location")
+        listOf("plannerStartInput" to "plannerCurrentStart", "plannerDestinationInput" to "plannerCurrentEnd")
+            .forEachIndexed { index, (inputTag, actionTag) ->
+                compose.onNodeWithTag(inputTag).performScrollTo().performClick()
+                    .performTextReplacement("unfinished replacement $index")
+                compose.onNodeWithTag(inputTag).performClick()
+                waitForPlannerKeyboard()
+                compose.onNodeWithTag("plannerPrimary").assertIsNotEnabled()
+                assertCurrentAction(actionTag, "Last real location for ${if (index == 0) "start" else "destination"}")
+                compose.onNodeWithTag(actionTag).performClick()
+                compose.onNodeWithTag(inputTag).assertTextContains("My location")
+                compose.onNodeWithTag("plannerPrimary").assertIsEnabled()
+                compose.runOnIdle {
+                    assertEquals(real, vm.start)
+                    assertTrue(vm.startFromReal)
+                    assertEquals(if (index == 0) office.dest else real, vm.dest)
+                    assertEquals("My location", readPlannerEntry(if (index == 0) "start" else "end", "My location"))
+                    assertTrue(vm.suggestions.isEmpty()); assertTrue(vm.savedPlaceSuggestions.isEmpty())
+                    assertCachedSelectionDoesNotStart()
+                }
+                screenshot("planner-last-real-selected-${if (index == 0) "start" else "destination"}")
+                dismissPlannerKeyboard()
+            }
+    }
+
+    @Test fun lastRealLocationAppendsNextStopWithoutReplacingExistingStops() {
+        val real = LatLng(33.25, -112.30)
+        enterCachedRealPlanner(PlanMode.ITINERARY, real)
+        val originalStops = compose.runOnIdle {
+            assertTrue(vm.pickSavedPlace(office, Field.END))
+            vm.stops.toList()
+        }
+        compose.onNodeWithTag("plannerDestinationInput").performScrollTo().performClick()
+            .performTextInput("unfinished next stop")
+        compose.onNodeWithTag("plannerDestinationInput").performClick()
+        waitForPlannerKeyboard()
+        compose.onNodeWithTag("plannerPrimary").assertIsNotEnabled()
+        assertCurrentAction("plannerCurrentEnd", "Last real location for next stop")
+        compose.onNodeWithTag("plannerCurrentEnd").performClick()
+        assertEquals("", compose.onNodeWithTag("plannerDestinationInput").fetchSemanticsNode()
+            .config[SemanticsProperties.EditableText].text)
+        compose.onNodeWithTag("plannerPrimary").assertIsEnabled()
+        compose.runOnIdle {
+            assertEquals(originalStops.size + 1, vm.stops.size)
+            assertEquals(originalStops, vm.stops.dropLast(1))
+            assertEquals(real, vm.stops.last().point)
+            assertEquals("My location", vm.stops.last().name)
+            assertEquals(real, vm.start)
+            assertEquals("", readPlannerEntry("end", ""))
+            assertCachedSelectionDoesNotStart()
+        }
+        screenshot("planner-last-real-next-stop-added")
+        dismissPlannerKeyboard()
+    }
+
+    @Test fun currentLocationLookupBlocksActionsAndLateFixCannotReplaceNewSelection() {
+        val fixes = listOf(CompletableDeferred<LatLng?>(), CompletableDeferred<LatLng?>())
+        val requested = AtomicInteger()
+        val returned = AtomicInteger()
+        launchPlanner(hasLocPerm = true, resolveCurrentLocation = {
+            val index = requested.getAndIncrement()
+            check(index < fixes.size) { "Unexpected extra current-location request" }
+            fixes[index].await().also { returned.incrementAndGet() }
+        })
+        compose.runOnIdle { assertTrue(vm.pickSavedPlace(home, Field.END)) }
+        val current = compose.onNodeWithTag("plannerCurrentEnd")
+        val primary = compose.onNodeWithTag("plannerPrimary")
+        val save = compose.onNode(hasText("Save") and hasAnyAncestor(hasTestTag("plannerFooter")))
+        primary.assertIsEnabled(); save.assertIsEnabled()
+        current.performScrollTo().performClick()
+        compose.waitUntil(5_000) { requested.get() == 1 }
+        current.assertTextContains("Finding location…").assertIsNotEnabled()
+        primary.assertIsNotEnabled(); save.assertIsNotEnabled()
+        compose.runOnIdle { assertEquals(home.dest, vm.dest); assertIdle() }
+        screenshot("planner-current-location-pending", waitForIdle = false)
+
+        val firstFix = LatLng(33.25, -112.30)
+        fixes[0].complete(firstFix)
+        compose.waitUntil(5_000) { returned.get() == 1 && vm.dest == firstFix }
+        compose.onNodeWithTag("plannerDestinationInput").assertTextContains("My location")
+        current.assertIsEnabled(); primary.assertIsEnabled(); save.assertIsEnabled()
+        compose.runOnIdle {
+            assertEquals("My location", vm.destName)
+            assertEquals("My location", readPlannerEntry("end", "My location"))
+            assertEquals(0, permissionRequests); assertIdle()
+        }
+
+        current.performScrollTo().performClick()
+        compose.waitUntil(5_000) { requested.get() == 2 }
+        primary.assertIsNotEnabled(); save.assertIsNotEnabled()
+        compose.onNodeWithTag("plannerDestinationInput").performScrollTo().performClick().performTextReplacement("Office")
+        compose.waitUntil(5_000) { vm.savedPlaceSuggestions.any { it.id == office.id } }
+        compose.onNodeWithTag("plannerSavedSuggestion-inline-office").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(office.dest, vm.dest); assertIdle() }
+        fixes[1].complete(LatLng(35.0, -113.0))
+        compose.waitUntil(5_000) { returned.get() == 2 }
+        compose.waitForIdle()
+        dismissPlannerKeyboard()
+        compose.onNodeWithTag("plannerDestinationInput").performScrollTo().assertTextContains("Office")
+        primary.assertIsEnabled(); save.assertIsEnabled()
+        compose.runOnIdle {
+            assertEquals(office.dest, vm.dest)
+            assertEquals("Office", vm.destName)
+            assertEquals("Office", readPlannerEntry("end", "Office"))
+            assertEquals(2, requested.get())
+            assertEquals(0, permissionRequests); assertIdle()
+        }
+        screenshot("planner-current-location-late-fix-ignored")
     }
 
     @Test fun offlineHomeSearchEnterSaveAndStartNewStayExplicit() {
@@ -591,12 +793,17 @@ class PlannerVoiceUiAcceptanceTest {
             result.assertIsDisplayed().assertHasClickAction().assertHeightIsAtLeast(56.dp).assertTextContains(name)
             input.assertIsDisplayed().assertTextContains(query)
             val microphone = compose.onNodeWithTag("plannerMicEnd").assertIsDisplayed().assertHasClickAction()
+            val currentLocation = compose.onNodeWithTag("plannerCurrentEnd").assertIsDisplayed()
+                .assertHasClickAction().assertIsEnabled().assertHeightIsAtLeast(48.dp)
+                .assertContentDescriptionEquals("Current location for next stop").assertTextContains("Current location")
             val footer = compose.onNodeWithTag("plannerFooter").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
             val fieldBounds = input.fetchSemanticsNode().boundsInRoot
             val micBounds = microphone.fetchSemanticsNode().boundsInRoot
             val resultBounds = result.fetchSemanticsNode().boundsInRoot
+            val currentBounds = currentLocation.fetchSemanticsNode().boundsInRoot
             val fullResult = result.getUnclippedBoundsInRoot()
             val pixelsPerDp = context.resources.displayMetrics.density
+            assertTrue("The current-location touch target must remain fully visible", currentBounds.height >= 48f * pixelsPerDp - 1f)
             assertTrue("The entire clickable result row must be visible",
                 kotlin.math.abs(resultBounds.top - fullResult.top.value * pixelsPerDp) <= 1f &&
                     kotlin.math.abs(resultBounds.bottom - fullResult.bottom.value * pixelsPerDp) <= 1f)
@@ -613,7 +820,8 @@ class PlannerVoiceUiAcceptanceTest {
                 assertTrue("Planner footer must remain above the real keyboard: footer=$footerBottomOnScreen, keyboard=$keyboardTopOnScreen",
                     footerBottomOnScreen <= keyboardTopOnScreen + 1f)
             }
-            listOf("Next stop" to fieldBounds, "Microphone" to micBounds, "Search result" to resultBounds).forEach { (label, bounds) ->
+            listOf("Next stop" to fieldBounds, "Microphone" to micBounds, "Current location" to currentBounds,
+                "Search result" to resultBounds).forEach { (label, bounds) ->
                 assertTrue("$label must remain above the footer on a compact phone with keyboard",
                     bounds.height > 0 && bounds.top >= 0 && bounds.bottom <= footer.top)
             }

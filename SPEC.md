@@ -1,3 +1,9 @@
+# Mirage 0.19.1 — direct current-location selection
+
+Current location and Saved are visible beneath Start, Destination and Next stop, including while the keyboard is open. During simulation, the physical-location action says Last real location. Selecting it clears unfinished text correctly; pending fixes block Save/Start and cannot replace a newer edit.
+
+Automated validation is pending. The previous verified installer remains 0.19.0. See [behavior and validation](docs/CURRENT_LOCATION_0.19.1.md).
+
 # Mirage 0.19.0 — mobile planning and location recovery
 
 Full-width place entry, focused keyboard search, nearby Saved controls, one scrolling itinerary and a draft-preserving Map / Edit plan view. Save and Start remain separate; offline dictation stays bundled. Fresh fused-location readback now drives bounded recovery and honest status. Wireless Android Auto compatibility still requires a physical car test; ordinary Android apps cannot force Wi-Fi off.

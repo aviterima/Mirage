@@ -210,6 +210,7 @@ fun MapScreen(
     onRequestPermissions: () -> Unit,
     setupChecks: () -> SetupChecks,
     hasLocPerm: Boolean,
+    resolveCurrentLocation: suspend (Context) -> LatLng? = ::realLocation,
 ) {
     val vm: MirageViewModel = viewModel()
     val status by MockState.status.collectAsState(context = kotlinx.coroutines.Dispatchers.Main.immediate)
@@ -374,25 +375,29 @@ fun MapScreen(
     // never the fused provider's cached last point (which is the mock after a Stop).
     // explicit = the user asked (⌖ menu): always adopt, and complain if it fails.
     // automatic = launch / after Stop: adopt only when it does not destroy the user's work.
+    var realRecentreJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val recentreOnReal: (Boolean) -> Unit = { explicit ->
-        if (hasLocPerm) scope.launch {
-            // Instantly: any real last-known fix puts the map on your location right away…
-            quickLastReal(context)?.let { q ->
-                if (!MockState.status.value.running) {
-                    val hadStart = vm.start != null
-                    if (explicit) vm.pickRealStart(q) else vm.useMyLocation(q)
-                    if (explicit || !hadStart) runCatching { camera.animate(CameraUpdateFactory.newLatLngZoom(q.toG(), 14f)) }
+        if (hasLocPerm) {
+            realRecentreJob?.cancel()
+            realRecentreJob = scope.launch {
+                // Instantly: any real last-known fix puts the map on your location right away…
+                quickLastReal(context)?.let { q ->
+                    if (!MockState.status.value.running) {
+                        val hadStart = vm.start != null
+                        if (explicit) vm.pickRealStart(q) else vm.useMyLocation(q)
+                        if (explicit || !hadStart) runCatching { camera.animate(CameraUpdateFactory.newLatLngZoom(q.toG(), 14f)) }
+                    }
                 }
-            }
-            // …then a fresh fix refines it (and is the only thing trusted right after a Stop),
-            // without discarding a route the user may have built while we waited.
-            val p = realLocation(context)
-            if (p != null) {
-                val hadStart = vm.start != null
-                if (explicit) vm.pickRealStart(p) else vm.refineMyLocation(p)
-                if (explicit || !hadStart) runCatching { camera.animate(CameraUpdateFactory.newLatLngZoom(p.toG(), 14f)) }
-            } else if (explicit || vm.start == null) {
-                vm.error = "Could not get a real fix — is Location turned on?"
+                // …then a fresh fix refines it (and is the only thing trusted right after a Stop),
+                // without discarding a route the user may have built while we waited.
+                val p = realLocation(context)
+                if (p != null) {
+                    val hadStart = vm.start != null
+                    if (explicit) vm.pickRealStart(p) else vm.refineMyLocation(p)
+                    if (explicit || !hadStart) runCatching { camera.animate(CameraUpdateFactory.newLatLngZoom(p.toG(), 14f)) }
+                } else if (explicit || vm.start == null) {
+                    vm.error = "Could not get a real fix — is Location turned on?"
+                }
             }
         } else if (explicit) {
             vm.error = "Location permission is needed — tap ⚙ to grant it"
@@ -423,7 +428,8 @@ fun MapScreen(
     val pendingEntry = (vm.planMode != PlanMode.SNAP && startQuery != startLabel) || endQuery != endLabel
     val pendingInterpretation = interpretationEnabled && (planReview.busy || planReview.candidate != null ||
         planReview.question.isNotBlank() || plannerChat.busy || Conversation.needsReply())
-    val plannerInputReady = !speech.active && !pendingInterpretation && !pendingEntry
+    var locatingField by remember { mutableStateOf<Field?>(null) }
+    val plannerInputReady = locatingField == null && !speech.active && !pendingInterpretation && !pendingEntry
     val currentPlannerInputReady by rememberUpdatedState(plannerInputReady)
 
     val goTo: (LatLng) -> Unit = { p ->
@@ -571,6 +577,9 @@ fun MapScreen(
             plannerEntryPrefixes[Field.END] = endQuery.takeUnless { it == endLabel || (interpretationEnabled && planReview.candidate != null && it == planReview.input) }.orEmpty().trim()
         }
         var snapMenu by remember { mutableStateOf<Field?>(null) }
+        var locationRequest by remember { mutableStateOf(0L) }
+        val latestEntries by rememberUpdatedState(startQuery to endQuery)
+        val cancelLocationRequest = { locationRequest++; locatingField = null }
         var savedPlaceTarget by remember { mutableStateOf<Field?>(null) }
         var previousStopCount by remember { mutableStateOf(vm.stops.size) }
         var newestStop by remember { mutableStateOf<ItineraryStop?>(null) }
@@ -591,6 +600,7 @@ fun MapScreen(
         }
         LaunchedEffect(vm.draftGeneration) {
             if (vm.draftGeneration != previousEntryGeneration) {
+                cancelLocationRequest()
                 cancelDictation()
                 startQuery = startLabel; endQuery = endLabel; inputStatus = ""
                 plannerExpanded = true; itineraryExpanded = true
@@ -629,6 +639,7 @@ fun MapScreen(
         }
         val done = { keyboard?.hide(); focus.clearFocus(); vm.clearSuggestions() }
         val editEntry: (Field, String) -> Unit = { field, value ->
+            cancelLocationRequest()
             plannerExpanded = true
             inputStatus = ""
             if (speech.active) cancelDictation()
@@ -640,6 +651,7 @@ fun MapScreen(
             } else vm.editLocationQuery(field, value, camera.position.target.toE(), preserveSelection = true)
         }
         val clearEntry: (Field) -> Unit = { field ->
+            cancelLocationRequest()
             cancelDictation(); Conversation.clearPlannerFeedback(); vm.planning.reset()
             inputStatus = ""
             plannerEntryTexts[field] = ""
@@ -651,7 +663,7 @@ fun MapScreen(
             if (focused) {
                 if (speech.active && speech.target != field) cancelDictation()
                 val changedField = vm.activeField != field
-                if (changedField) { Conversation.clearPlannerFeedback(); vm.clearSuggestions() }
+                if (changedField) { cancelLocationRequest(); Conversation.clearPlannerFeedback(); vm.clearSuggestions() }
                 vm.activeField = field
                 val query = if (field == Field.START) startQuery else endQuery
                 val selected = if (field == Field.START) startLabel else endLabel
@@ -689,6 +701,7 @@ fun MapScreen(
             }
         }
         val openSavedPlaces: (Field) -> Unit = { field ->
+            cancelLocationRequest()
             done()
             cancelDictation(); Conversation.clearPlannerFeedback()
             vm.clearSuggestions()
@@ -720,36 +733,62 @@ fun MapScreen(
             }
         }
         val snapReal: (Field) -> Unit = { field ->
+            realRecentreJob?.cancel()
+            cancelLocationRequest()
             cancelDictation(); Conversation.clearPlannerFeedback()
-            // "My real location" for a box: a fresh fix when idle; while spoofing the phone's own
-            // GPS is masked by our mock, so use the last real fix captured before the simulation.
             snapMenu = null
-            if (status.running) {
-                val r = vm.lastReal
-                if (r == null) vm.error = "Real location unknown — it is captured before a simulation starts"
-                else if (field == Field.START) { vm.pickRealStart(r); goTo(r) }
-                else { vm.setDestPoint(r, "My location"); goTo(r) }
-            } else if (field == Field.START) {
-                recentreOnReal(true)
+            done()
+            val applyLocation: (LatLng) -> Unit = { point ->
+                vm.clearError()
+                if (field == Field.START) {
+                    vm.pickRealStart(point)
+                    startQuery = vm.startName
+                    plannerEntryTexts[field] = startQuery
+                } else {
+                    vm.setDestPoint(point, "My location")
+                    endQuery = vm.dest?.let { vm.destName }.orEmpty()
+                    plannerEntryTexts[field] = endQuery
+                }
+                inputStatus = ""
+                goTo(point)
+            }
+            if (MockState.status.value.running) {
+                // The phone's providers are mocked during simulation. Never label
+                // the captured pre-simulation fix as a fresh physical position.
+                val real = vm.lastReal
+                if (real == null) vm.error = "Real location unknown — it is captured before a simulation starts"
+                else applyLocation(real)
             } else if (!hasLocPerm) {
                 vm.error = "Location permission is needed — tap ⚙ to grant it"
-            } else scope.launch {
-                val p = realLocation(context)
-                if (p != null) { vm.setDestPoint(p, "My location"); goTo(p) } else vm.error = "Could not get a real fix right now"
+            } else {
+                val request = locationRequest
+                val before = vm.capturePlanner()
+                val entries = startQuery to endQuery
+                locatingField = field
+                scope.launch {
+                    val point = try {
+                        kotlinx.coroutines.withTimeoutOrNull(30_000) { resolveCurrentLocation(context) }
+                    } catch (_: SecurityException) { null }
+                    // A fix arriving after another edit, selection, reset or Start
+                    // belongs to the old request and must not change the new plan.
+                    if (request == locationRequest) {
+                        locatingField = null
+                        if (vm.matchesPlannerSnapshot(before) && latestEntries == entries &&
+                            !MockState.status.value.let { it.running || it.starting }) {
+                            if (point != null) applyLocation(point)
+                            else vm.error = "Could not get a real fix — check Location and permissions, then try again"
+                        }
+                    }
+                }
             }
         }
         val snapButton: @Composable (Field, Boolean) -> Unit = { field, allowSimulated ->
-            Box {
-                TextButton(onClick = { snapMenu = field }, modifier = Modifier.heightIn(min = 48.dp)
-                    .semantics { contentDescription = "Choose place source" }) {
-                    Icon(Icons.Filled.MyLocation, contentDescription = null, tint = ACCENT, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(4.dp)); Text("Place options")
+            if (status.running && (allowSimulated || vm.planMode == PlanMode.ITINERARY)) Box {
+                IconButton(onClick = { snapMenu = field }, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = "More location options for " +
+                        if (field == Field.START) "start" else "next stop")
                 }
                 DropdownMenu(expanded = snapMenu == field, onDismissRequest = { snapMenu = null }) {
-                    DropdownMenuItem(
-                        text = { Text(if (status.running) "My real location (last known)" else "My real location") },
-                        onClick = { snapReal(field) },
-                    )
                     if (allowSimulated && status.running) {
                         DropdownMenuItem(
                             text = { Text("Current simulated position") },
@@ -848,7 +887,7 @@ fun MapScreen(
                     if (!keyboardSearch) SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
                         PlanMode.entries.forEachIndexed { i, m ->
                             SegmentedButton(selected = vm.planMode == m,
-                                onClick = { cancelDictation(); Conversation.clearPlannerFeedback(); done(); vm.choosePlanMode(m); syncBoxes() },
+                                onClick = { cancelLocationRequest(); cancelDictation(); Conversation.clearPlannerFeedback(); done(); vm.choosePlanMode(m); syncBoxes() },
                                 shape = SegmentedButtonDefaults.itemShape(index = i, count = PlanMode.entries.size),
                                 label = { Text(m.label(), fontSize = 13.sp) })
                         }
@@ -869,7 +908,10 @@ fun MapScreen(
                                 clearTag = "plannerClearStart",
                                 label = "Start",
                                 inputTag = "plannerStartInput",
-                                showActions = startQuery != startLabel || (speech.active && speech.target == Field.START),
+                                currentTag = "plannerCurrentStart",
+                                currentLabel = if (status.running) "Last real location" else "Current location",
+                                locating = locatingField == Field.START,
+                                onCurrent = { snapReal(Field.START) },
                                 compact = keyboardSearch,
                                 savedTag = "plannerSavedStart",
                                 onSaved = { openSavedPlaces(Field.START) },
@@ -905,7 +947,10 @@ fun MapScreen(
                                 PlanMode.ITINERARY -> "Next stop"
                             },
                             inputTag = "plannerDestinationInput",
-                            showActions = endQuery != endLabel || (speech.active && speech.target == Field.END),
+                            currentTag = "plannerCurrentEnd",
+                            currentLabel = if (status.running) "Last real location" else "Current location",
+                            locating = locatingField == Field.END,
+                            onCurrent = { snapReal(Field.END) },
                             compact = keyboardSearch,
                             savedTag = if (vm.planMode == PlanMode.ITINERARY) "plannerSavedStop" else "plannerSavedDestination",
                             onSaved = { openSavedPlaces(Field.END) },
@@ -1257,7 +1302,7 @@ fun MapScreen(
     })
 }
 
-/** One full-width editable field; secondary place actions appear while editing. */
+/** Full-width entry with explicit location and saved-place actions, also above the keyboard. */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 internal fun LocationBox(
@@ -1275,7 +1320,10 @@ internal fun LocationBox(
     inputTag: String,
     savedTag: String,
     onSaved: () -> Unit,
-    showActions: Boolean = false,
+    currentTag: String,
+    currentLabel: String,
+    locating: Boolean,
+    onCurrent: () -> Unit,
     compact: Boolean = false,
 ) {
     val bringIntoView = remember { BringIntoViewRequester() }
@@ -1304,7 +1352,7 @@ internal fun LocationBox(
                 trailingIcon = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         microphone()
-                        if (compact && value.isNotBlank()) IconButton(onClick = onClear,
+                        if (value.isNotBlank()) IconButton(onClick = onClear,
                             modifier = Modifier.size(48.dp).testTag(clearTag)) {
                             Icon(Icons.Filled.Close, contentDescription = "Clear ${label.lowercase()} entry", modifier = Modifier.size(20.dp))
                         }
@@ -1312,24 +1360,24 @@ internal fun LocationBox(
                 },
                 modifier = Modifier.weight(1f).testTag(inputTag).onFocusChanged { focused = it.isFocused; onFocus(it.isFocused) },
             )
-            TextButton(onClick = onSaved, contentPadding = PaddingValues(4.dp),
-                modifier = Modifier.size(56.dp).testTag(savedTag)
-                    .semantics { contentDescription = "Saved places for ${label.lowercase()}" }) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Filled.Bookmark, contentDescription = null, modifier = Modifier.size(20.dp))
-                    Text("Saved", style = MaterialTheme.typography.labelSmall)
-                }
-            }
         }
-        if (!compact && (focused || showActions)) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            trailing()
-            Spacer(Modifier.weight(1f))
-            if (value.isNotBlank()) TextButton(onClick = onClear,
-                modifier = Modifier.heightIn(min = 48.dp).testTag(clearTag)
-                    .semantics { contentDescription = "Clear ${label.lowercase()} entry" }) {
-                Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(4.dp)); Text("Clear")
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onCurrent, enabled = !locating,
+                contentPadding = PaddingValues(horizontal = 6.dp),
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag(currentTag)
+                    .semantics { contentDescription = currentLabel + " for " + label.lowercase() }) {
+                if (locating) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                else Icon(Icons.Filled.MyLocation, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(if (locating) "Finding location…" else currentLabel)
             }
+            TextButton(onClick = onSaved, contentPadding = PaddingValues(horizontal = 6.dp),
+                modifier = Modifier.heightIn(min = 48.dp).testTag(savedTag)
+                    .semantics { contentDescription = "Saved places for " + label.lowercase() }) {
+                Icon(Icons.Filled.Bookmark, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(4.dp)); Text("Saved")
+            }
+            trailing()
         }
     }
 }

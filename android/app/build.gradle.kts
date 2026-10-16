@@ -30,8 +30,8 @@ android {
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         minSdk = 26
         targetSdk = 34
-        versionCode = 45
-        versionName = "0.19.0"
+        versionCode = 46
+        versionName = "0.19.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
         buildConfigField("String", "MAPS_API_KEY", "\"$mapsApiKey\"")
