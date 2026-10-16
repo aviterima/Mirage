@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
@@ -40,6 +41,8 @@ internal fun ReorderableStopList(
     val scroll = parentScroll ?: ownScroll
     val latestParentViewport by rememberUpdatedState(parentViewport)
     var listTop by remember { mutableFloatStateOf(0f) }
+    val handleCoordinates = remember(stops) { mutableMapOf<Int, LayoutCoordinates>() }
+    var pointerRootY by remember(stops) { mutableFloatStateOf(Float.NaN) }
     val heights = remember(stops) { mutableStateMapOf<Int, Int>() }
     var dragging by remember(stops) { mutableIntStateOf(-1) }
     var distance by remember(stops) { mutableFloatStateOf(0f) }
@@ -60,9 +63,11 @@ internal fun ReorderableStopList(
         if (dragging < 0) return@LaunchedEffect
         while (true) {
             val visibleHeight = if (parentScroll == null) viewport.toFloat() else latestParentViewport.height
-            val y = if (parentScroll == null) center(dragging) + distance - initialScroll
-                else listTop + center(dragging) + distance + scroll.value - initialScroll - latestParentViewport.top
-            if (visibleHeight > 0f) when {
+            val viewportTop = if (parentScroll == null) listTop else latestParentViewport.top
+            // Use the finger, not the row center: handles sit near the top of tall
+            // rows. Root coordinates stay fixed while the content scrolls beneath it.
+            val y = pointerRootY - viewportTop
+            if (y.isFinite() && visibleHeight > 0f) when {
                 y < edge -> scroll.scrollBy(-speed)
                 y > visibleHeight - edge -> scroll.scrollBy(speed)
             }
@@ -89,18 +94,26 @@ internal fun ReorderableStopList(
                             if (index > 0) add(CustomAccessibilityAction("Move up") { onMove(index, index - 1); true })
                             if (index < stops.lastIndex) add(CustomAccessibilityAction("Move down") { onMove(index, index + 1); true })
                         }
-                    }.pointerInput(stops, index) {
+                    }.onGloballyPositioned { handleCoordinates[index] = it }.pointerInput(stops, index) {
                         detectDragGestures(
-                            onDragStart = { dragging = index; distance = 0f; initialScroll = scroll.value },
-                            onDragCancel = { dragging = -1; distance = 0f },
+                            onDragStart = { position ->
+                                pointerRootY = handleCoordinates[index]?.takeIf { it.isAttached }?.localToRoot(position)?.y ?: Float.NaN
+                                dragging = index; distance = 0f; initialScroll = scroll.value
+                            },
+                            onDragCancel = { dragging = -1; distance = 0f; pointerRootY = Float.NaN },
                             onDragEnd = {
                                 val destination = stops.indices.minByOrNull {
                                     abs(center(it) - (center(index) + distance + scroll.value - initialScroll))
                                 } ?: index
-                                dragging = -1; distance = 0f
+                                dragging = -1; distance = 0f; pointerRootY = Float.NaN
                                 onMove(index, destination)
                             },
-                            onDrag = { change, amount -> change.consume(); distance += amount.y },
+                            onDrag = { change, amount ->
+                                // Read before updating the translated row. The first event
+                                // already includes touch slop in change.position.
+                                pointerRootY = handleCoordinates[index]?.takeIf { it.isAttached }?.localToRoot(change.position)?.y ?: Float.NaN
+                                change.consume(); distance += amount.y
+                            },
                         )
                     }
                     row(index, stop, handle)

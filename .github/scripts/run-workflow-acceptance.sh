@@ -9,9 +9,10 @@ if [ "${MIRAGE_EXPERIMENTAL_MODEL:-false}" = "true" ]; then
     connectedDebugAndroidTest
   test_result=$?
 else
-  # Fail early on the two live paused-status regressions before running all journeys.
+  # Fail early on paused status, drag order and compact keyboard layout before
+  # running all journeys. Keep the established evidence names and JSON schema.
   ./gradlew --no-daemon -PexperimentalLanguageModel=false \
-    -Pandroid.testInstrumentationRunnerArguments.class=com.mirage.spike.ContinuationUiAcceptanceTest#addingSnapAfterCurrentStopDoesNotResumePausedSimulation,com.mirage.spike.ContinuationUiAcceptanceTest#savedItineraryAddsAllStopsAndPreservesItsStaysAndOriginal \
+    -Pandroid.testInstrumentationRunnerArguments.class=com.mirage.spike.ContinuationUiAcceptanceTest#addingSnapAfterCurrentStopDoesNotResumePausedSimulation,com.mirage.spike.ContinuationUiAcceptanceTest#savedItineraryAddsAllStopsAndPreservesItsStaysAndOriginal,com.mirage.spike.WorkflowUiAcceptanceTest#dragStopThenSaveAndReloadPreservesNewOrder,com.mirage.spike.PlannerVoiceUiAcceptanceTest#compactPlannerKeepsNextStopAndSearchResultAboveFooterWithKeyboard \
     connectedDebugAndroidTest > ../acceptance-evidence/paused-preflight.log 2>&1
   test_result=$?
   cat ../acceptance-evidence/paused-preflight.log
@@ -29,10 +30,14 @@ for path in pathlib.Path('app/build/outputs/androidTest-results').rglob('*.xml')
                       'error': case.find('error') is not None,
                       'skipped': case.find('skipped') is not None})
 pathlib.Path('../acceptance-evidence/paused-preflight.json').write_text(json.dumps(cases, indent=2))
-expected = {'addingSnapAfterCurrentStopDoesNotResumePausedSimulation',
-            'savedItineraryAddsAllStopsAndPreservesItsStaysAndOriginal'}
-assert {case['name'] for case in cases} == expected, 'Focused test selection did not run both expected journeys'
-assert not any(case[key] for case in cases for key in ('failure', 'error', 'skipped')), 'Focused paused checks failed'
+expected = {
+    ('com.mirage.spike.ContinuationUiAcceptanceTest', 'addingSnapAfterCurrentStopDoesNotResumePausedSimulation'),
+    ('com.mirage.spike.ContinuationUiAcceptanceTest', 'savedItineraryAddsAllStopsAndPreservesItsStaysAndOriginal'),
+    ('com.mirage.spike.WorkflowUiAcceptanceTest', 'dragStopThenSaveAndReloadPreservesNewOrder'),
+    ('com.mirage.spike.PlannerVoiceUiAcceptanceTest', 'compactPlannerKeepsNextStopAndSearchResultAboveFooterWithKeyboard'),
+}
+assert len(cases) == len(expected) and {(case['class'], case['name']) for case in cases} == expected, 'Focused test selection did not run exactly the four expected journeys'
+assert not any(case[key] for case in cases for key in ('failure', 'error', 'skipped')), 'Focused regression checks failed'
 PY
   preflight_record_result=$?
   if [ "$preflight_record_result" -ne 0 ]; then test_result="$preflight_record_result"; fi

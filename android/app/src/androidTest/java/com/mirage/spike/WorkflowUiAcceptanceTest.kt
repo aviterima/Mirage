@@ -300,17 +300,22 @@ class WorkflowUiAcceptanceTest {
         compose.onNodeWithContentDescription("Load Fixture day").performScrollTo().performClick()
         val first = compose.onNodeWithContentDescription("Reorder stop 1: First")
         val second = compose.onNodeWithContentDescription("Reorder stop 2: Second")
-        // The editor now places next-stop entry above the itinerary. Bring the
-        // two real drag targets into view before measuring their touch positions.
-        second.performScrollTo().assertIsDisplayed()
+        val third = compose.onNodeWithContentDescription("Reorder stop 3: Third")
+        // Bring the third handle into view so the first-to-second gesture has
+        // a full row below its destination and does not request edge scrolling.
+        third.performScrollTo().assertIsDisplayed()
         first.assertIsDisplayed()
+        second.assertIsDisplayed()
+        screenshot("itinerary-before-drag")
         val dy = second.fetchSemanticsNode().boundsInRoot.center.y - first.fetchSemanticsNode().boundsInRoot.center.y
         first.performTouchInput { swipe(center, center + androidx.compose.ui.geometry.Offset(0f, dy), 600) }
-        compose.onNodeWithContentDescription("Reorder stop 1: Second").assertIsDisplayed()
-        compose.onNodeWithContentDescription("Reorder stop 2: First").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Reorder stop 1: Second").assertExists().assertIsDisplayed()
+        val movedFirst = compose.onNodeWithContentDescription("Reorder stop 2: First").assertExists()
+        compose.onNodeWithContentDescription("Reorder stop 3: Third").assertExists()
+        movedFirst.performScrollTo().assertIsDisplayed()
         screenshot("itinerary-dragged")
         // The same handle offers a tap menu for people who prefer buttons to dragging.
-        compose.onNodeWithContentDescription("Reorder stop 2: First").performClick()
+        movedFirst.performClick()
         compose.onNodeWithText("Move up").assertIsDisplayed()
         compose.onNodeWithText("Move down").performClick()
         compose.onNodeWithContentDescription("Reorder stop 3: First").performScrollTo().assertIsDisplayed()

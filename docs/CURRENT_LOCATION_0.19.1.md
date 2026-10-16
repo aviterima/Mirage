@@ -12,6 +12,8 @@ Explicit selection synchronizes editable text even when the selected name is unc
 
 The current release preserves offline dictation, saved data, signing identity and the 0.19.0 Android Auto behavior. Wireless Android Auto still needs Wi-Fi; no forced Wi-Fi toggle is added. Physical phone and car acceptance remain open.
 
+Stop reordering now uses the finger's actual position to trigger edge scrolling. A handle near the top of a tall row no longer triggers scrolling merely because the row's center enters the lower edge band. Row-center drop targeting and the alternative Move up / Move down controls are preserved.
+
 ## Verification
 
 Candidate version 0.19.1, versionCode 46. Automated validation is pending. The previous verified release remains 0.19.0 until this candidate passes build, emulator, signed-upgrade and exact-installer checks.
@@ -19,3 +21,5 @@ Candidate version 0.19.1, versionCode 46. Automated validation is pending. The p
 The regression suite covers visible idle Start/Destination actions, keyboard access, permission help without losing entered text, cached-real selection for both endpoints with same-label unfinished input, itinerary append, and asynchronous lookup guards. The existing physical 360×640dp / 1.3× text emulator test continues to require the input, microphone and complete first search result above the real keyboard/footer, now also requiring the direct location action.
 
 Local Android execution is unavailable because this workstation has no Android toolchain/device. The CI upgrade baseline is the exact verified 0.19.0 acceptance APK (run 38652149784), SHA-256 `df3e29beac92b2fabf5c10c7a546cebd0c6cae3d5eaf26d0eb7196edc336a68d`. No physical GPS, microphone acoustics or wireless car test is claimed.
+
+Initial candidate `b5724d79ce07fe07310a4bb4d73dc08129e3d580`: build 38912888672 passed; independently parsed XML records 285 JVM passes. Acceptance 38912888420 recorded 59 Android cases, 58 passed and one drag-order failure, zero errors/skips. All four current-location tests and the compact keyboard test passed. The drag screenshot showed First moved two positions instead of one. The follow-up corrects pointer-based edge scrolling and gives the single-slot test destination a full-row margin from the edge; exact intermediate and saved-order assertions remain. Four focused preflight journeys now precede the complete suite. The initial live-trail job also failed after external HTTP 504/502 errors; its evidence is retained separately.

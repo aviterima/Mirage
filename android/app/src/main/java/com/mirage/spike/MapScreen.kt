@@ -108,6 +108,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -577,7 +578,7 @@ fun MapScreen(
             plannerEntryPrefixes[Field.END] = endQuery.takeUnless { it == endLabel || (interpretationEnabled && planReview.candidate != null && it == planReview.input) }.orEmpty().trim()
         }
         var snapMenu by remember { mutableStateOf<Field?>(null) }
-        var locationRequest by remember { mutableStateOf(0L) }
+        var locationRequest by remember { mutableLongStateOf(0L) }
         val latestEntries by rememberUpdatedState(startQuery to endQuery)
         val cancelLocationRequest = { locationRequest++; locatingField = null }
         var savedPlaceTarget by remember { mutableStateOf<Field?>(null) }

@@ -386,6 +386,10 @@ class PlannerVoiceUiAcceptanceTest {
     }
 
     @Test fun currentLocationLookupBlocksActionsAndLateFixCannotReplaceNewSelection() {
+        // This fixture enables the real map location layer even though endpoint
+        // resolution is injected. Do not depend on another test granting access.
+        device.executeShellCommand("pm grant com.mirage.app android.permission.ACCESS_FINE_LOCATION")
+        device.executeShellCommand("pm grant com.mirage.app android.permission.ACCESS_COARSE_LOCATION")
         val fixes = listOf(CompletableDeferred<LatLng?>(), CompletableDeferred<LatLng?>())
         val requested = AtomicInteger()
         val returned = AtomicInteger()
