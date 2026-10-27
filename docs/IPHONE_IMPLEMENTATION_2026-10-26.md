@@ -4,7 +4,7 @@ Date: 26 October 2026. Owner authorized specification followed by implementation
 
 ## Product and delivery
 
-Build a native SwiftUI iPhone application alongside Android in `ios/`, using the existing repository and preserved worktree. Target iOS 17 or later for the UI; this minimum is not a promise that developer-service output works on every supported UI OS. The owner identified an iPhone 16 Pro Max; the supplied About screenshot shows iOS 26.6.1. Signing access and transport compatibility on that exact OS remain to be established. The intended product operates on the phone after initial pairing; a permanently connected computer is not the default architecture.
+Build a native SwiftUI iPhone application alongside Android in `ios/`, using the existing repository and preserved worktree. Target iOS 17 or later for the UI; this minimum is not a promise that developer-service output works on every supported UI OS. The owner identified an iPhone 16 Pro Max; the supplied About screenshot shows iOS 26.6.1. The owner confirmed Mac access. Signing access and transport compatibility on that exact OS remain to be established. The intended product operates on the phone after initial pairing; a permanently connected computer is not the default architecture.
 
 The first executable milestone is a device proof with Connect, Set test point, Play synthetic route, Pause/Resume, Hold and Stop. It includes a map, separate planned/sent/observed coordinates, a capability report and an honest recovery state. Native planning and credential-free Android backup interchange can be developed alongside this proof. Full parity and release remain gated on physical output verification; an app animation or successful transport write cannot close that gate.
 
@@ -18,7 +18,7 @@ The first executable milestone is a device proof with Connect, Set test point, P
 
 ## Playback requirements
 
-Coordinates must be finite and inside latitude/longitude bounds. Route points, duration, dwell and timestamps are validated before playback. Use elapsed monotonic time, deterministic interpolation and injected test time. Pause freezes route progress; resume continues from the same position. Arrival and Hold retain the endpoint until explicit Stop. Do not infer supported speed/course/altitude/accuracy from a coordinate-only transport.
+Coordinates must be finite and inside latitude/longitude bounds. Route points, duration, dwell and timestamps are validated before playback. Use elapsed monotonic time, deterministic interpolation and injected test time. Pause freezes route progress; resume continues from the same position. Arrival retains the endpoint; Hold retains the current point until explicit Stop. Do not infer supported speed/course/altitude/accuracy from a coordinate-only transport.
 
 No new Start may race a pending connection, write or clear. Serialize device commands. Ignore stale callbacks after state changes. Failure after a possible write leaves a recovery-needed state. Stop attempts clear even after connection/write failure, and successful clear remains “awaiting real location” until a fresh, non-simulated observation arrives. Missing simulation-source metadata must not be treated as proof of real location. Background suspension, termination and tunnel loss must not leave a green valid-output claim; retain a recovery-needed marker across app launch.
 

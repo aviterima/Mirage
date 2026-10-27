@@ -13,9 +13,14 @@ Rust 1.90.0 is the development toolchain. No moving Git branch, prebuilt third-p
 binary, GPL/AGPL application source, JIT control or obfuscation feature is used.
 See [the upstream license](https://github.com/jkcoxson/idevice/blob/26a28f6a46b5d85a28043c2e62febfa394c8b0a6/LICENSE.txt)
 and `THIRD-PARTY-NOTICES.txt`. The locked iPhone normal/build graph was audited:
-**134 dependencies, 116 distinct notice texts, no unknown or unsupported license
-identifiers**. `LICENSE-AUDIT.json` records versions, source revisions, license
+**144 dependencies, 127 distinct notice texts, no unknown or unsupported Cargo
+manifest license identifiers**. `LICENSE-AUDIT.json` records versions, source revisions, license
 expressions and notice hashes. Ring's nested once_cell and Fiat notices are included.
+The audit also includes the actual bundled **OpenSSL 3.6.3 Apache-2.0 license**,
+not just the `openssl-src` Rust wrapper's licenses. Its bundled Text-Template 1.56
+Perl build helper offers GPL version 1 or later or the Artistic License; the
+Artistic alternative and original full notice are recorded. That helper runs
+during the build and is not linked into the iPhone app.
 
 Two provenance gaps remain explicit: `ns-keyed-archive` 0.1.5 declares
 `MIT OR Apache-2.0`, and `plist-macro` 0.1.6 declares `MIT`, but neither published
@@ -46,7 +51,8 @@ The original Rust bridge uses these upstream APIs in order:
    imported credentials. The convenience `connect()` is deliberately unused
    because it falls back to full pairing. There is no PIN callback or legacy route.
 3. `create_tcp_listener()` returns a port on the supplied endpoint; a second TCP
-   connection uses `connect_tls_psk_tunnel_native(stream, client.encryption_key())`.
+   connection uses Mirage's `tls_tunnel::connect(stream, client.encryption_key())`.
+   This authenticates TLS 1.2 PSK with static OpenSSL and checks CDTunnel framing.
    Its negotiated client/server addresses, MTU and RSD port configure the software
    `Adapter`. `adapter.connect(port)` and `RsdHandshake::new(stream)` discover services.
 4. `RemoteServerClient::connect_rsd(&mut adapter, &mut handshake)` and
@@ -55,7 +61,7 @@ The original Rust bridge uses these upstream APIs in order:
    `clear()` use the DVT location service.
 
 The [pinned Remote Pairing implementation](https://github.com/jkcoxson/idevice/blob/26a28f6a46b5d85a28043c2e62febfa394c8b0a6/idevice/src/remote_pairing/mod.rs),
-[native tunnel helper](https://github.com/jkcoxson/idevice/blob/26a28f6a46b5d85a28043c2e62febfa394c8b0a6/idevice/src/remote_pairing/tunnel.rs)
+[OpenSSL protocol configuration](https://github.com/jkcoxson/idevice/blob/26a28f6a46b5d85a28043c2e62febfa394c8b0a6/idevice/src/remote_pairing/tunnel.rs)
 and [location implementation](https://github.com/jkcoxson/idevice/blob/26a28f6a46b5d85a28043c2e62febfa394c8b0a6/idevice/src/services/dvt/location_simulation.rs)
 provide this path. The location API
 accepts coordinates only and requires a maintained connection. Speed, course,
@@ -63,6 +69,24 @@ altitude and accuracy are therefore reported unsupported. A dedicated OS thread
 owns a current-thread Tokio runtime, software TCP adapter, remote server and its
 borrowed location channel for the entire connection. A Swift actor or serial
 dispatch queue alone would not guarantee the native handles' thread affinity.
+
+`src/tls_tunnel.rs` bypasses the pinned upstream custom native TLS helper. Review
+found that helper accepted mismatched Finished data, subtracted untrusted CBC
+padding without checking its size, and sliced an untrusted CDTunnel response
+length. Mirage leaves the pinned upstream source unchanged and does not call that
+helper. OpenSSL verifies TLS records, padding, MACs and Finished authentication.
+The local adapter permits TLS 1.2 PSK suites only, requires the complete 32-byte
+pair-verify secret, and fails when callback buffers cannot hold it. There is no
+unauthenticated or certificate-suite fallback. Disabling certificate checks is
+appropriate to these PSK-only suites: peer authentication comes from the secret
+and the verified TLS handshake, not an X.509 certificate.
+
+The original CDTunnel reader accepts a 1–16 KiB body after an exact 10-byte header,
+requires `serverHandshakeResponse`, validates distinct unicast IPv6 addresses,
+MTU 1280–16000, and RSD port 1–65535 before narrowing integers. Fragmented frames
+are read completely; bytes after the frame remain available for tunnel packets.
+All TLS/parser errors are reduced to the fixed connection failure status. This
+hardening and the synthetic tests do not establish physical-device compatibility.
 
 Tunnel establishment, RSD/DVT establishment, channel creation, and each set/clear
 are separately bounded by a 10-second timeout.
@@ -175,6 +199,46 @@ on 26.6.1. After preparation, configure the phone's loopback VPN endpoint and it
 current Remote Pairing service port in Mirage. A pairing success over USB does
 not prove the later loopback tunnel or location service works.
 
+### External loopback and service discovery
+
+This is a source-backed setup candidate, unexecuted on the owner's phone.
+[LocalDevVPN](https://github.com/jkcoxson/LocalDevVPN) links its
+[official App Store listing](https://apps.apple.com/us/app/localdevvpn/id6755608044).
+On the phone, install/open it, tap Connect and approve the requested VPN
+configuration. Keep Wi-Fi enabled, as required by the
+[StikDebug setup instructions](https://github.com/StikDebug/StikDebug).
+In LocalDevVPN Settings → Network Configuration, use **Device IP** as Mirage's
+host, omitting the subnet suffix. The upstream
+[constants](https://github.com/jkcoxson/LocalDevVPN/blob/main/LocalDevVPN/Constants.swift)
+default to Device IP `10.7.0.1/32` and Tunnel IP `10.7.1.1/32`; Mirage needs
+`10.7.0.1`, not the tunnel's other address. Respect the actual installed settings.
+
+With the intended phone and Mac on the same local Wi-Fi network, use Bonjour to
+find the current Remote Pairing port. The service type is used by
+[StikDebug's discovery code](https://github.com/StikDebug/StikDebug/blob/main/StikDebug/Device/JITEnableContext.swift);
+[Apple's Bonjour guidance](https://developer.apple.com/forums/thread/687897)
+documents the `dns-sd` browse/resolve commands:
+
+```sh
+dns-sd -B _remotepairing._tcp. local.
+```
+
+Note the intended iPhone's service instance, then press Control-C. Resolve that
+exact instance (replace the placeholder while retaining quotes):
+
+```sh
+dns-sd -L 'YOUR_IPHONE_SERVICE_INSTANCE' _remotepairing._tcp. local.
+```
+
+Read the resolved port, then press Control-C. Enter that port in Mirage beside
+LocalDevVPN's Device IP. Do not use a similarly named phone or assume that the
+example port `49152` has been discovered. If no service appears or the intended
+device cannot be identified, the endpoint prerequisite is unresolved. A VPN
+connected indicator and a Bonjour resolution are preliminary checks only; the
+physical matrix must still verify RemotePairing, DVT output and restoration on
+iPhone 16 Pro Max / iOS 26.6.1. No VPN installation or owner-device connection was
+performed by this project.
+
 The app supplies an app-private, excluded-from-backup, protected local pairing
 file. It must never be included in saved-plan exports. Swift reads at most 1 MiB,
 passes bytes directly, and overwrites its temporary Data buffer. The Rust input
@@ -187,8 +251,8 @@ not a claim that every internal crypto/protocol allocation is zeroized on drop.
 
 ## Build and Xcode integration
 
-On a Mac with full Xcode and its iOS SDK, install Rust 1.90.0 with rustup and the
-chosen target. From the repository root:
+On a Mac with full Xcode and its iOS SDK, Perl, and make, install Rust 1.90.0 with
+rustup and the chosen target. From the repository root:
 
 ```sh
 rustup toolchain install 1.90.0 --profile minimal
@@ -204,6 +268,16 @@ substitutes a stub. Artifacts are placed in ignored
 validating the linked Swift branch in Simulator. Simulator output is not hardware
 acceptance. These are single-platform archives; do not link an iPhone archive
 into a simulator target.
+
+`openssl` 0.10.81 with its `vendored` feature locks `openssl-src`
+300.6.1+3.6.3, which builds OpenSSL 3.6.3 as static libraries. The build script
+exports the selected `SDKROOT`, `IPHONEOS_DEPLOYMENT_TARGET=17.0`,
+`OPENSSL_NO_VENDOR=0`, and `OPENSSL_STATIC=1`. The locked openssl-src build code
+maps `aarch64-apple-ios` to `ios64-cross`, supports both simulator targets, and
+derives OpenSSL's `CROSS_TOP`/`CROSS_SDK` from the compiler's iOS sysroot. The final
+Rust static archive incorporates its native static dependency objects; the Xcode
+target should not link a host OpenSSL dylib. The actual iOS build/link passed in
+the exact-source CI run recorded below.
 
 For the explicit device build configuration with `SRCROOT` at `ios/`:
 
@@ -243,8 +317,15 @@ Cargo feature. That feature was added without changing the lock graph.
 passed all **4 Rust host tests**, the **ARM64 iPhone native archive build** and
 the **iPhone app compile/link with the native bridge enabled** at `88c0cb4`.
 That run predates the Remote Pairing replacement and cannot validate its code.
-The current bridge has **9 host tests**, including synthetic XML/binary records,
+The current bridge has **14 host tests**, including synthetic XML/binary records,
 key/type/length validation, mixed legacy rejection, static tracing suppression,
-and fixed prerequisite errors. Current CI results belong in the top-level iPhone
-verification record. No host test exercises a real device. Signing and physical
-iPhone checks require their separately recorded results.
+fixed prerequisite errors, exact PSK callback lengths, matching and mismatched
+PSK handshakes through in-memory duplex streams, malformed/truncated tunnel
+frames, bounded fields, and fragmented framing that preserves subsequent bytes.
+All **14 host tests**, the ARM64 archive and the unsigned device app compile/link
+passed at `08e4ab19ed80b350ca84c182920be145109aeed7` in
+[run 40434352309](https://github.com/aviterima/Mirage/actions/runs/40434352309).
+The [top-level iPhone validation record](../../docs/IPHONE_VALIDATION_2026-10-26.md)
+retains exact artifacts and the separate simulator test results. No host test
+exercises a real device. Signing and physical iPhone checks require their
+separately recorded results.

@@ -1,6 +1,6 @@
 # Mirage iPhone engineering validation — 26 October 2026
 
-Status: RemotePairing implementation candidate for the owner's iPhone 16 Pro Max (About screenshot: iOS 26.6.1). Exact-candidate compilation and behavioral validation are in progress. No iPhone release, signed installer or feature-parity claim.
+Status: Engineering checks passed for the RemotePairing implementation candidate targeting the owner's iPhone 16 Pro Max (About screenshot: iOS 26.6.1). **74 tests passed**, with zero failures or skips, and both simulator and unsigned ARM64 device app builds passed. Signing, installation and physical output acceptance remain unrun. No iPhone release or feature-parity claim.
 
 ## Source and preservation
 
@@ -16,17 +16,40 @@ Validation snapshots use the isolated `codex/iphone-implementation-20261026` bra
 | Local JSON fixture parsing | Passed for synthetic three-item backup |
 | Local whitespace check | Passed |
 | Local Swift / Xcode execution | Unavailable on this Windows host |
-| Swift core behavioral tests | Pending macOS CI |
-| Rust transport host tests | Pending macOS CI |
-| Simulator app compilation | Pending macOS CI |
-| ARM64 device bridge and app compilation | Pending macOS CI |
-| Native UI tests and screenshot inspection | Pending macOS CI |
+| Owner Mac availability | Confirmed in chat; signing and execution access not connected to this task |
+| Swift core behavioral tests | 42 passed; XML independently counted |
+| Rust transport host tests | 14 passed; downloaded test log independently checked |
+| Simulator app compilation | Passed |
+| ARM64 device bridge and app compilation | Passed, unsigned |
+| Native app state and pairing validation tests | 16 passed |
+| Native UI tests and screenshot inspection | 2 passed; four exported screenshots inspected |
 | Signing and iPhone installation | Unrun; signing identity and connected physical-test access unavailable |
 | Paired device output and consumer verification | Unrun |
 | Background/lock/network/low-power/termination recovery | Unrun |
 | Full Android feature parity and CarPlay | Not complete |
 
 The optional local YAML parse attempt could not run because PyYAML is not installed. Project/workflow parsing is delegated to the actual macOS/GitHub build tools, not counted as passed locally.
+
+## Exact candidate and retained evidence
+
+Tested source: `08e4ab19ed80b350ca84c182920be145109aeed7` on `codex/iphone-implementation-20261026`. [Run 40434352309](https://github.com/aviterima/Mirage/actions/runs/40434352309) completed successfully in both jobs: Swift/simulator `121960306523` and device bridge `121960306746`. Subsequent delivery documentation changes do not change tested code.
+
+The native result bundle independently reports **18 passed, zero failed, zero skipped and zero expected failures**: 16 app unit tests and two UI tests. Combined with 42 core tests and 14 Rust tests, that is 74 passed. The Rust tests include real synthetic TLS handshakes with correct and incorrect PSKs and bounded tunnel-framing cases; they do not contact an owner device.
+
+Toolchain: Xcode 16.4 build 16F6, Swift 6.1.2, iOS 18.5 SDK, Rust 1.90.0. Native tests ran on the **iPhone 16 Pro Max simulator with iOS 26.2, build 23C54, arm64**. This is distinct from the owner's physical iOS 26.6.1. The simulator runtime selection report is retained with the results.
+
+Both downloaded artifact ZIPs match GitHub's recorded byte size and SHA-256; archive CRC checks passed. Retained locally under `C:/Users/arman/OneDrive/Documents/ChatGPT/Mirage/builds/iphone-0.1.0/evidence-08e4ab1/`:
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `iphone-simulator-evidence.zip` (12704480675) | 8,824,942 | `5a10ba45cd91a641729242b8d6ede78d3f374ea84015e1c433a0fa7c92d5a947` |
+| `iphone-device-build-evidence.zip` (12703388880) | 20,286,807 | `d935061c4fe5574e471a2cbbbdfb7739246210088dff5ac37cae4d2c49419eeb` |
+
+The directory includes sanitized artifact metadata, independent verification results, extracted XML/xcresult summaries, build/test logs, simulator configuration and screenshots. The device archive is unsigned build evidence, not an installable signed delivery.
+
+Four exact-candidate screenshots were inspected: explicit preview, Saved, Setup and coordinate entry with the real software keyboard. Inspected text and controls are readable; preview is labeled, Setup correctly reports the simulator transport unavailable, and an invalid latitude is guarded after dismissing the keyboard. The keyboard occludes part of the next field and lower controls; scrolling and Done are required. These images do not establish complete keyboard ergonomics, large Dynamic Type, landscape, small-phone layout or physical-device usability.
+
+Build warnings remain: three Core Location delegate isolation warnings under the configured Swift 5 language mode, an interface-orientation warning, and skipped App Intents metadata extraction because no App Intents dependency is present. This is not a warning-free build or Swift 6 language-mode acceptance.
 
 ## Superseded build history
 
@@ -42,6 +65,8 @@ Core backup tests use synthetic Android-shaped records. They verify field preser
 
 Third-party notices and the exact Cargo dependency audit are under `ios/DeviceBridge/`. Two upstream crates lack published notice files; those provenance gaps remain documented and must be resolved before distribution acceptance. Source compilation and a successful protocol write do not establish consumer-app location or real-location restoration.
 
+The final path bypasses the problematic upstream native TLS helper. OpenSSL authenticates the RemotePairing-derived shared secret; the imported record does not pin the remote device's public key. That upstream device-identity trust limitation remains explicit in the bridge documentation. The owner must supply the intended trusted local endpoint during the physical proof.
+
 ## Remaining product work
 
-Complete the eight-case physical proof in the parity specification before device-output acceptance. Then finish native planning/provider integrations, scheduled itinerary behavior, hiking, offline voice and physical UI ergonomics. Current saved-template interchange preserves those fields, but preservation does not mean the proof player executes all their semantics. No online speech substitution or external deployment is enabled.
+Use the [Mac signing and installation guide](IPHONE_MAC_SETUP.md), then complete the eight-case physical proof in the parity specification before device-output acceptance. The owner has confirmed access to a Mac; this Windows task has no connected Mac, signing identity or physical phone. Then finish native planning/provider integrations, scheduled itinerary behavior, hiking, offline voice and physical UI ergonomics. Current saved-template interchange preserves those fields, but preservation does not mean the proof player executes all their semantics. No online speech substitution or external deployment is enabled.
