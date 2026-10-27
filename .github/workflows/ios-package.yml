@@ -1,0 +1,50 @@
+name: iPhone unsigned engineering package
+
+on:
+  push:
+    paths:
+      - "ios/scripts/package-device-app.sh"
+      - ".github/workflows/ios-package.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  unsigned-iphone-package:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Download the verified native library
+        uses: actions/download-artifact@v4
+        with:
+          name: iphone-device-build-evidence
+          path: ios
+          run-id: 40434352309
+          github-token: ${{ github.token }}
+      - name: Verify frozen source and native library checksum before linking
+        run: bash ios/scripts/package-device-app.sh --verify-inputs
+      - name: Generate project with the existing pinned XcodeGen
+        run: bash ios/scripts/generate-project.sh
+      - name: Build unsigned device-enabled iPhone application
+        run: bash ios/scripts/build-device-app.sh
+      - name: Package and validate the complete iPhone app bundle
+        run: bash ios/scripts/package-device-app.sh
+      - name: Upload unsigned IPA, checksums, and provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mirage-iPhone-unsigned-engineering-package
+          path: ios/build/Package
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload package build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iphone-package-build-log
+          path: ios/build/device-build.log
+          if-no-files-found: ignore
