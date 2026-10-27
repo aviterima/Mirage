@@ -13,7 +13,7 @@ permissions:
   contents: read
 concurrency:
   group: iphone-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   swift-and-simulator:
     runs-on: macos-15
@@ -25,7 +25,9 @@ jobs:
           xcodebuild -version
           swift --version
       - name: Core behavior tests
-        run: swift test --package-path ios/MirageCore --parallel
+        run: |
+          mkdir -p ios/build
+          swift test --package-path ios/MirageCore --parallel --xunit-output "$PWD/ios/build/core-tests.xml"
       - name: Generate native project with pinned XcodeGen
         run: bash ios/scripts/generate-project.sh
       - name: Compile iPhone simulator app
@@ -48,6 +50,7 @@ jobs:
         run: |
           if [[ -d ios/build/UITests.xcresult ]]; then
             xcrun xcresulttool export attachments --path ios/build/UITests.xcresult --output-path ios/build/screenshots
+            xcrun xcresulttool get test-results summary --path ios/build/UITests.xcresult > ios/build/native-test-summary.json
           fi
       - uses: actions/upload-artifact@v4
         if: always()
@@ -56,6 +59,8 @@ jobs:
           path: |
             ios/build/UITests.xcresult
             ios/build/screenshots
+            ios/build/core-tests.xml
+            ios/build/native-test-summary.json
             ios/DerivedData/Build/Products/Debug-iphonesimulator/Mirage.app
   device-bridge:
     runs-on: macos-15
@@ -65,7 +70,10 @@ jobs:
       - name: Install pinned Rust toolchain
         run: rustup toolchain install 1.90.0 --profile minimal
       - name: Bridge host tests
-        run: cargo +1.90.0 test --locked --manifest-path ios/DeviceBridge/Cargo.toml
+        run: |
+          set -o pipefail
+          mkdir -p ios/build
+          cargo +1.90.0 test --locked --manifest-path ios/DeviceBridge/Cargo.toml 2>&1 | tee ios/build/bridge-tests.log
       - name: Build ARM64 iPhone bridge
         run: |
           rustup target add --toolchain 1.90.0 aarch64-apple-ios
@@ -82,3 +90,4 @@ jobs:
             ios/DeviceBridge/build
             ios/DeviceBridge/Cargo.lock
             ios/build/device-build.log
+            ios/build/bridge-tests.log

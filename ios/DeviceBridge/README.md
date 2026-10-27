@@ -12,7 +12,30 @@ coordinate. A clear reply does not establish restoration of real location.
 Rust 1.90.0 is the development toolchain. No moving Git branch, prebuilt third-party
 binary, GPL/AGPL application source, JIT control or obfuscation feature is used.
 See [the upstream license](https://github.com/jkcoxson/idevice/blob/26a28f6a46b5d85a28043c2e62febfa394c8b0a6/LICENSE.txt)
-and `THIRD-PARTY-NOTICES.txt`. Transitive license review remains a distribution gate.
+and `THIRD-PARTY-NOTICES.txt`. The locked iPhone normal/build graph was audited:
+**88 dependencies, 83 distinct notice texts, no unknown or unsupported license
+identifiers**. `LICENSE-AUDIT.json` records versions, source revisions, license
+expressions and notice hashes. Ring's nested once_cell and Fiat notices are included.
+
+Two provenance gaps remain explicit: `ns-keyed-archive` 0.1.5 declares
+`MIT OR Apache-2.0`, and `plist-macro` 0.1.6 declares `MIT`, but neither published
+crate nor its exact upstream source revision includes a license/copyright file.
+The notices retain the declared license and author attribution without inventing
+copyright years or missing license terms. These gaps require resolution before
+distribution acceptance. The Rust standard library/toolchain and Apple SDK sit
+outside Cargo.lock and are not claimed covered by this dependency audit.
+
+Reproduce the audit with Python's standard library (no extra package needed):
+
+```sh
+cargo +1.90.0 metadata --locked --format-version 1 --filter-platform aarch64-apple-ios \
+  --manifest-path ios/DeviceBridge/Cargo.toml > ios/DeviceBridge/build/license-metadata.json
+python3 ios/DeviceBridge/scripts/generate-notices.py ios/DeviceBridge/build/license-metadata.json
+```
+
+The generator traverses normal and build dependency edges, preserves available
+license/NOTICE/AUTHORS texts, deduplicates identical texts by SHA-256 and reports
+missing notices. An unexpected license identifier or missing notice fails the audit.
 
 The original Rust bridge uses these upstream APIs in order:
 
@@ -97,8 +120,8 @@ For the explicit device build configuration with `SRCROOT` at `ios/`:
 | `LIBRARY_SEARCH_PATHS` | `$(SRCROOT)/DeviceBridge/build/aarch64-apple-ios` |
 | `OTHER_LDFLAGS` | `-lmirage_device_bridge -framework Security -framework SystemConfiguration` |
 
-Include this notice in a distributed app's resources, complete the transitive
-dependency license review, and verify the final archive's native linker
+Include these notices in a distributed app's resources, resolve the recorded
+notice provenance gaps, and verify the final archive's native linker
 requirements. The ordinary simulator configuration omits the flag and library;
 `DeviceTransport.isAvailable` is false and Connect/Send/Clear throw an actionable
 error. It never returns fake device success.
@@ -118,7 +141,12 @@ parsed/formatted the Rust source. Tool archives were downloaded from
 `static.rust-lang.org` and their published SHA-256 checksums matched; tools remain
 under ignored `build/tools/`, with no system PATH or default toolchain changes.
 The initial checksum check rejected a PowerShell byte-array/text mismatch; the
-archive was subsequently decoded and verified before use. Native compile/test,
-Apple archive linking, signing and physical iPhone checks require their recorded
-CI/hardware results. The included Rust tests cover argument validation, malformed
-pairing and honest disconnected failures; they do not exercise a real device.
+archive was subsequently decoded and verified before use. The first CI compile
+failed because the DVT location module also requires the `location_simulation`
+Cargo feature. That feature was added without changing the lock graph.
+[CI run 40432134888](https://github.com/aviterima/Mirage/actions/runs/40432134888)
+passed all **4 Rust host tests**, the **ARM64 iPhone native archive build** and
+the **iPhone app compile/link with the native bridge enabled** at `88c0cb4`.
+The tests cover argument validation, malformed pairing and honest disconnected
+failures; they do not exercise a real device. Signing and physical iPhone checks
+require their separately recorded results.

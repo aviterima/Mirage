@@ -1,3 +1,7 @@
+# iPhone engineering candidate — 26 October 2026
+
+The owner authorized an iPhone edition with device output. Native proof code, a portable Swift core, Android backup interchange and a pinned experimental developer-service transport are under `ios/`. See the [specification](docs/IPHONE_IMPLEMENTATION_2026-10-26.md), [build instructions](ios/README.md) and [validation record](docs/IPHONE_VALIDATION_2026-10-26.md). This is not a signed iPhone release or complete Android feature parity. The iPhone-view-only statements in historical sections describe the earlier Android scope.
+
 # Mirage 0.19.1 — direct current-location selection
 
 Current location and Saved are visible beneath Start, Destination and Next stop, including while the keyboard is open. During simulation, the physical-location action says Last real location. Selecting it clears unfinished text correctly; pending fixes block Save/Start and cannot replace a newer edit.

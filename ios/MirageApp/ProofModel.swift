@@ -32,19 +32,35 @@ final class ProofModel: ObservableObject {
     private var playback: RoutePlayback?
     private var loop: Task<Void, Never>?
     private var store: ScenarioStore?
+    private var libraryRevision: UInt64 = 0
     private var isConfiguredPreview = false
     private let defaults: UserDefaults
+    private let deviceOutputFactory: (() throws -> any LocationOutput)?
+    private let observationClock: @Sendable () -> Date
     private static let recoveryKey = "deviceOutputMayNeedRecovery"
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard,
+         deviceOutputFactory: (() throws -> any LocationOutput)? = nil,
+         scenarioStore: ScenarioStore? = nil,
+         observationClock: @escaping @Sendable () -> Date = { Date() }) {
         self.defaults = defaults
+        self.deviceOutputFactory = deviceOutputFactory
+        self.observationClock = observationClock
+        recoveryNeeded = defaults.bool(forKey: Self.recoveryKey)
         host = defaults.string(forKey: "deviceTunnelHost") ?? "10.7.0.1"
         port = defaults.string(forKey: "deviceTunnelPort") ?? "62078"
-        recoveryNeeded = defaults.bool(forKey: Self.recoveryKey)
         if recoveryNeeded { status = "Previous device output needs recovery. Connect, then Stop and verify real location." }
-        pairingImported = (try? PrivateFiles.pairingURL()).map { FileManager.default.fileExists(atPath: $0.path) } ?? false
-        do { store = ScenarioStore(fileURL: try PrivateFiles.directory().appendingPathComponent("saved-plans.json")) }
-        catch { status = "Local storage is unavailable" }
+        if deviceOutputFactory != nil {
+            pairingImported = true
+            store = scenarioStore
+        } else {
+            pairingImported = (try? PrivateFiles.pairingURL()).map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+            do {
+                if let scenarioStore { store = scenarioStore }
+                else { store = ScenarioStore(fileURL: try PrivateFiles.directory().appendingPathComponent("saved-plans.json")) }
+            }
+            catch { status = "Local storage is unavailable" }
+        }
         Task { await reloadSaved() }
     }
 
@@ -73,18 +89,20 @@ final class ProofModel: ObservableObject {
             if session == nil {
                 if mode == .preview {
                     guard !recoveryNeeded else { status = "Clear the previous device output before previewing"; return }
-                    session = LocationOutputSession(output: PreviewLocationOutput())
+                    session = LocationOutputSession(output: PreviewLocationOutput(), now: observationClock)
                     lastSnapshotRevision = 0
                     isConfiguredPreview = true
                 } else {
-                    guard DeviceTransport.isAvailable else {
+                    guard DeviceTransport.isAvailable || deviceOutputFactory != nil else {
                         status = "This build supports preview only. Use a device-enabled build for iPhone output."
                         return
                     }
                     guard pairingImported else { status = "Import this iPhone's pairing record in Setup first"; return }
                     guard let number = UInt16(port), number > 0 else { status = "Enter a valid developer-service port"; return }
-                    let device = try DeviceTransport(pairingRecordURL: PrivateFiles.pairingURL(), host: host, port: number)
-                    session = LocationOutputSession(output: device, recoveryNeeded: recoveryNeeded)
+                    let device: any LocationOutput
+                    if let deviceOutputFactory { device = try deviceOutputFactory() }
+                    else { device = try DeviceTransport(pairingRecordURL: PrivateFiles.pairingURL(), host: host, port: number) }
+                    session = LocationOutputSession(output: device, recoveryNeeded: recoveryNeeded, now: observationClock)
                     lastSnapshotRevision = 0
                     isConfiguredPreview = false
                 }
@@ -253,6 +271,7 @@ final class ProofModel: ObservableObject {
         guard !libraryBusy, let point = coordinate, !savedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               savedName.count <= 160, let store else { status = "Enter a name and valid coordinates before saving"; return }
         libraryBusy = true
+        libraryRevision &+= 1
         defer { libraryBusy = false }
         let item = SavedScenario(id: UUID().uuidString, name: savedName, kind: .place,
             createdAt: Int64(Date().timeIntervalSince1970 * 1000), dest: point, destName: savedName)
@@ -274,6 +293,7 @@ final class ProofModel: ObservableObject {
     func importBackup(from url: URL) async {
         guard !libraryBusy, let store else { status = "Local storage is busy or unavailable"; return }
         libraryBusy = true
+        libraryRevision &+= 1
         defer { libraryBusy = false }
         let access = url.startAccessingSecurityScopedResource()
         defer { if access { url.stopAccessingSecurityScopedResource() } }
@@ -318,7 +338,12 @@ final class ProofModel: ObservableObject {
     }
 
     private func reloadSaved() async {
-        do { saved = try await store?.load() ?? [] }
-        catch { status = "Saved library cannot be read. It has been preserved; import a valid backup to replace it." }
+        let revision = libraryRevision
+        do {
+            let items = try await store?.load() ?? []
+            if revision == libraryRevision { saved = items }
+        } catch {
+            if revision == libraryRevision { status = "Saved library cannot be read. It has been preserved; import a valid backup to replace it." }
+        }
     }
 }

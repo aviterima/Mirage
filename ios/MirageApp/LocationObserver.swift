@@ -7,6 +7,7 @@ final class LocationObserver: NSObject, ObservableObject, CLLocationManagerDeleg
     @Published var status = "Location permission not requested"
     @Published var latest: CLLocation?
     @Published var lastReal: CLLocation?
+    @Published var sampleInterval: TimeInterval?
     var onObservation: ((LocationObservation) -> Void)?
     private let manager = CLLocationManager()
 
@@ -36,6 +37,7 @@ final class LocationObserver: NSObject, ObservableObject, CLLocationManagerDeleg
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let fix = locations.last, fix.horizontalAccuracy >= 0,
               abs(fix.timestamp.timeIntervalSinceNow) <= 10 else { return }
+        if let latest, fix.timestamp > latest.timestamp { sampleInterval = fix.timestamp.timeIntervalSince(latest.timestamp) }
         latest = fix
         let simulated = fix.sourceInformation?.isSimulatedBySoftware
         if simulated == false { lastReal = fix }
@@ -50,4 +52,3 @@ final class LocationObserver: NSObject, ObservableObject, CLLocationManagerDeleg
         status = "Location observation unavailable. Check permission and GPS reception."
     }
 }
-

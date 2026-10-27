@@ -121,4 +121,4 @@ These are upstream documentation/source claims inspected on 22 October 2026, not
 - [idevice pair-host OS-specific setup, inspected source revision](https://github.com/jkcoxson/idevice/blob/26a28f6a46b5d85a28043c2e62febfa394c8b0a6/tools/src/pair_host.rs)
 - [Apple CarPlay entitlements](https://developer.apple.com/documentation/carplay/requesting-carplay-entitlements)
 
-This record is local and uncommitted. It does not change the Android release identity or certify an iPhone release.
+This record was originally local and uncommitted on 22 October. It is now retained in the iPhone implementation branch. It does not change the Android release identity or certify an iPhone release.

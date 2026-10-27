@@ -1,3 +1,9 @@
+# iPhone engineering candidate — 26 October 2026
+
+Continue in the existing mapped `planner-saved-places` worktree. The preserved worktree branch remains `codex/contextual-voice-input-20261012`; iPhone validation snapshots are on `codex/iphone-implementation-20261026`. The working iPhone files intentionally remain uncommitted relative to the older worktree branch, while the isolated snapshot branch retains their reviewed commits. Do not clean them or replace the Android source.
+
+Read [iPhone implementation specification](docs/IPHONE_IMPLEMENTATION_2026-10-26.md), [validation and remaining gates](docs/IPHONE_VALIDATION_2026-10-26.md) and [native build instructions](ios/README.md). Device model/OS, signing and physical output acceptance remain unresolved. The proof distinguishes preview, sent and observed location; it is not full Android parity.
+
 # Mirage 0.19.1 — direct current-location selection
 
 Current location and Saved are visible beneath Start, Destination and Next stop, including while the keyboard is open. During simulation, the physical-location action says Last real location. Selecting it clears unfinished text correctly; pending fixes block Save/Start and cannot replace a newer edit.

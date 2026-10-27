@@ -34,6 +34,18 @@ targets:
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
         CODE_SIGN_STYLE: Automatic
+  MirageAppTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: MirageAppTests
+    dependencies:
+      - target: Mirage
+      - package: MirageCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mirage.iphone.apptests
+        GENERATE_INFOPLIST_FILE: YES
   MirageUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -50,8 +62,9 @@ schemes:
     build:
       targets:
         Mirage: all
+        MirageAppTests: [test]
         MirageUITests: [test]
     test:
       targets:
+        - MirageAppTests
         - MirageUITests
-

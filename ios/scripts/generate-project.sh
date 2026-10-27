@@ -11,4 +11,3 @@ git -C "$TOOL" checkout --quiet --detach "$PIN"
 test "$(git -C "$TOOL" rev-parse HEAD)" = "$PIN"
 swift build --package-path "$TOOL" --configuration release --product xcodegen
 "$TOOL/.build/release/xcodegen" generate --spec "$ROOT/project.yml" --project "$ROOT"
-

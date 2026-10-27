@@ -101,7 +101,10 @@ struct MirageRootView: View {
                     Button(model.connected ? "Connected" : "Connect") { Task { await model.connect() } }
                         .buttonStyle(.borderedProminent).disabled(model.busy || model.running || model.connected)
                         .accessibilityIdentifier("connect-output")
-                    Button("Stop / Clear") { Task { await model.stop(); observer.request() } }
+                    Button("Stop / Clear") { Task {
+                        await model.stop()
+                        if model.mode == .device && model.recoveryNeeded { observer.request() }
+                    } }
                         .buttonStyle(.bordered).disabled(!model.canStop)
                         .accessibilityIdentifier("stop-output")
                     if model.busy { ProgressView().accessibilityLabel("Output operation in progress") }
@@ -148,12 +151,25 @@ struct MirageRootView: View {
                     coordinateRow(model.mode == .preview ? "Preview position" : "Transport sent", point: model.sent)
                     coordinateRow("Core Location", point: observer.latest.map { Coordinate(lat: $0.coordinate.latitude, lng: $0.coordinate.longitude) })
                     Text(observer.status).font(.caption).frame(maxWidth: .infinity, alignment: .leading)
+                    if let fix = observer.latest {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Observed at \(fix.timestamp.formatted(date: .omitted, time: .standard))")
+                            Text("Accuracy: \(fix.horizontalAccuracy, specifier: "%.1f") m")
+                            Text(fix.speed >= 0 ? String(format: "Observed speed: %.2f m/s", fix.speed) : "Observed speed: unavailable")
+                            Text(fix.course >= 0 ? String(format: "Observed course: %.1f°", fix.course) : "Observed course: unavailable")
+                            Text(fix.verticalAccuracy >= 0 ? String(format: "Observed altitude: %.1f m", fix.altitude) : "Observed altitude: unavailable")
+                            if let interval = observer.sampleInterval { Text("Sample interval: \(interval, specifier: "%.2f") s") }
+                        }.font(.caption.monospacedDigit()).frame(maxWidth: .infinity, alignment: .leading)
+                    }
                     Button("Observe iPhone location") { observer.request() }.buttonStyle(.bordered)
                     Text("A transport acknowledgement does not prove another app used the location. Verify Google Maps on the phone separately.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 if model.connected && !model.running {
-                    Button("Clear connection and change output") { Task { await model.resetConnection(); observer.request() } }
+                    Button("Clear connection and change output") { Task {
+                        await model.resetConnection()
+                        if model.mode == .device && model.recoveryNeeded { observer.request() }
+                    } }
                         .disabled(model.busy)
                 }
             }.padding()
