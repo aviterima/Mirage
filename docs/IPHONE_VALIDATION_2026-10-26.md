@@ -16,7 +16,7 @@ Validation snapshots use the isolated `codex/iphone-implementation-20261026` bra
 | Local JSON fixture parsing | Passed for synthetic three-item backup |
 | Local whitespace check | Passed |
 | Local Swift / Xcode execution | Unavailable on this Windows host |
-| Owner Mac availability | Confirmed in chat; signing and execution access not connected to this task |
+| Owner hardware | Corrected 27 October: no Mac; iPad and Windows Surface. Hosted macOS CI is separate |
 | Swift core behavioral tests | 42 passed; XML independently counted |
 | Rust transport host tests | 14 passed; downloaded test log independently checked |
 | Simulator app compilation | Passed |
@@ -69,4 +69,4 @@ The final path bypasses the problematic upstream native TLS helper. OpenSSL auth
 
 ## Remaining product work
 
-Use the [Mac signing and installation guide](IPHONE_MAC_SETUP.md), then complete the eight-case physical proof in the parity specification before device-output acceptance. The owner has confirmed access to a Mac; this Windows task has no connected Mac, signing identity or physical phone. Then finish native planning/provider integrations, scheduled itinerary behavior, hiking, offline voice and physical UI ergonomics. Current saved-template interchange preserves those fields, but preservation does not mean the proof player executes all their semantics. No online speech substitution or external deployment is enabled.
+Establish a signing/install/device-preparation route for the owner's Windows Surface and iPad, with no owner Mac, then complete the eight-case physical proof in the parity specification before device-output acceptance. This is the owner's explicit correction of 27 October 2026. The [macOS guide](IPHONE_MAC_SETUP.md) remains only a conditional build-host reference. This Windows task has no connected Mac, signing identity or physical phone. Then finish native planning/provider integrations, scheduled itinerary behavior, hiking, offline voice and physical UI ergonomics. Current saved-template interchange preserves those fields, but preservation does not mean the proof player executes all their semantics. No online speech substitution or external deployment is enabled.

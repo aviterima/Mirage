@@ -1,8 +1,8 @@
-# Mirage iPhone proof — Mac setup
+# Mirage iPhone proof — conditional macOS build-host reference
 
-Owner target: iPhone 16 Pro Max; the supplied About screenshot shows iOS 26.6.1. The owner confirmed access to a Mac. The signed installation, Remote Pairing preparation and physical output checks below have **not** been performed by this project. Passing CI does not establish compatibility with that phone/OS.
+Owner target: iPhone 16 Pro Max; the supplied About screenshot shows iOS 26.6.1. The owner corrected the hardware context on 27 October 2026: no Mac; available devices are an iPad and a Windows Surface. These local Xcode instructions do not describe the owner's equipment or their next step. A signing, installation and device-preparation route compatible with that equipment remains to be established. Hosted macOS CI does not imply owner Mac access. The signed installation, Remote Pairing preparation and physical output checks below have **not** been performed by this project. Passing CI does not establish compatibility with that phone/OS.
 
-## Get the candidate and build prerequisites
+## Optional macOS host prerequisites
 
 Use full Xcode with an iOS SDK/device-support setup that recognizes the target phone, Xcode command-line tools, Rust/rustup, Git, Perl and make. In Xcode Settings → Accounts, sign in directly to the Apple account that will sign the app. Connect the unlocked iPhone by USB, trust the Mac and enable [Developer Mode](https://developer.apple.com/documentation/xcode/enabling-developer-mode-on-a-device). Keep Apple credentials and device pairing files out of chat and the repository.
 

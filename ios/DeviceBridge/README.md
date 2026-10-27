@@ -101,6 +101,13 @@ bytes, and rejects configuration replacement while a connection is alive.
 
 ## Device setup
 
+Owner equipment correction, 27 October 2026: **no Mac; iPad and Windows Surface**.
+The Mac commands below are conditional reference procedures for a separately
+available build/setup host, not the owner's default workflow. A signing,
+installation and developer-service setup path compatible with the owner's
+equipment remains to be established. Successful hosted macOS CI does not close
+that gap.
+
 The identified acceptance target is **iPhone 16 Pro Max on iOS 26.6.1**. This is an
 unverified target, not a support claim. The sole device path is verified Remote
 Pairing over a reachable loopback VPN endpoint. The app accepts a numeric IPv4/IPv6

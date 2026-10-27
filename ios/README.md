@@ -4,7 +4,7 @@ Native iOS 17+ engineering candidate, developed alongside the delivered Android 
 
 ## Build on macOS
 
-The owner confirmed Mac access. Engineering checks passed: 74 tests and both unsigned app build variants. Follow the [Mac signing and installation guide](../docs/IPHONE_MAC_SETUP.md); it distinguishes the unsigned CI build from an actual installed device proof.
+The owner corrected the hardware context on 27 October 2026: no Mac; available devices are an iPad and a Windows Surface. Engineering checks passed: 74 tests and both unsigned app build variants. A signing, installation and device-preparation route compatible with that equipment remains to be established. Hosted macOS CI does not imply owner Mac access. The [macOS reference](../docs/IPHONE_MAC_SETUP.md) applies only to an available build host; do not present its local Xcode steps as the owner's workflow.
 
 Install full Xcode, its command line tools and Rust (Cargo/rustup). No Apple credentials are required for the unsigned validation builds.
 
