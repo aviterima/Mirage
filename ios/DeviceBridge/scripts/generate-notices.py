@@ -17,6 +17,15 @@ from pathlib import Path
 NOTICE_NAME = re.compile(r"^(licen[cs]e|copying|notice|copyright|unlicense|authors)(?:$|[._-])", re.I)
 ALLOWED_IDENTIFIERS = {"MIT", "Apache-2.0", "ISC", "BSD-2-Clause", "BSD-3-Clause", "Unicode-3.0", "Unlicense"}
 MISSING_EXPECTED = {("ns-keyed-archive", "0.1.5"), ("plist-macro", "0.1.6")}
+BUNDLED_COMPONENTS = [
+    {"owner": "openssl-src", "name": "OpenSSL", "version": "3.6.3",
+     "license": "Apache-2.0", "scope": "statically-linked-library",
+     "notice": "openssl/LICENSE.txt"},
+    {"owner": "openssl-src", "name": "Text-Template", "version": "1.56",
+     "license": "GNU GPL version 1 or later OR Artistic License (upstream wording)",
+     "selected_license": "Artistic License", "scope": "Perl build helper; not linked into the app",
+     "notice": "openssl/external/perl/Text-Template-1.56/LICENSE"},
+]
 
 
 def main() -> None:
@@ -40,7 +49,7 @@ def main() -> None:
     packages = sorted((p for p in metadata["packages"] if p["id"] in reachable and p["id"] != root),
                       key=lambda p: (p["name"], p["version"]))
     texts: dict[str, str] = {}
-    entries, unknown, missing = [], [], []
+    entries, unknown, missing, bundled = [], [], [], []
     rendered = [
         "Mirage iPhone native device bridge — third-party notices",
         "Generated from Cargo.lock and Cargo metadata filtered for aarch64-apple-ios.",
@@ -99,6 +108,12 @@ def main() -> None:
                  "authors": package.get("authors", []), "status": status,
                  "files": records, "published_vcs": vcs}
         entries.append(entry)
+        for component in BUNDLED_COMPONENTS:
+            if component["owner"] == name:
+                record = next((r for r in records if r["path"] == component["notice"]), None)
+                if record is None:
+                    raise SystemExit("Required bundled source notice missing: " + component["notice"])
+                bundled.append({**component, "sha256": record["sha256"]})
         rendered += [f"PACKAGE: {name} {version}", f"Declared license: {expression}",
                      f"Source: {package['source']}", f"Repository: {package.get('repository') or 'not declared'}"]
         if entry["authors"]:
@@ -113,6 +128,14 @@ def main() -> None:
                          "or copyright file. Manifest license and named author are recorded above.",
                          "No copyright year or license notice has been invented for this package."]
         rendered.append("")
+    rendered += ["BUNDLED COMPONENTS", "==================", ""]
+    for component in bundled:
+        rendered += [f"Component: {component['name']} {component['version']} (inside {component['owner']})",
+                     f"License: {component['license']}", f"Scope: {component['scope']}",
+                     f"Notice: {component['notice']} — SHA256 {component['sha256']}"]
+        if "selected_license" in component:
+            rendered.append("License alternative used: " + component["selected_license"])
+        rendered.append("")
     rendered += ["FULL NOTICE TEXTS", "=================", ""]
     for digest, text in sorted(texts.items()):
         normalized = "\n".join(line.rstrip() for line in text.splitlines()).rstrip("\n")
@@ -121,7 +144,7 @@ def main() -> None:
     audit = {"target": "aarch64-apple-ios", "scope": "normal-and-build-dependencies",
              "cargo_lock_sha256": lock_hash, "dependency_count": len(entries),
              "unique_notice_text_count": len(texts), "unknown_or_unsupported_license_identifiers": unknown,
-             "missing_upstream_notices": missing, "packages": entries}
+             "missing_upstream_notices": missing, "bundled_components": bundled, "packages": entries}
     (bridge / "THIRD-PARTY-NOTICES.txt").write_text("\n".join(rendered), encoding="utf-8", newline="\n")
     (bridge / "LICENSE-AUDIT.json").write_text(json.dumps(audit, indent=2, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
     print(json.dumps({key: value for key, value in audit.items() if key != "packages"}, indent=2))

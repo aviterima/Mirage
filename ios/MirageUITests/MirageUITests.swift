@@ -11,16 +11,19 @@ final class MirageUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Connected"].waitForExistence(timeout: 5))
         app.buttons["set-test-point"].tap()
         XCTAssertTrue(app.staticTexts["Preview only. No device output."].waitForExistence(timeout: 5))
-        let capture = XCTAttachment(screenshot: app.screenshot())
-        capture.name = "Explicit preview output"
-        capture.lifetime = .keepAlways
-        add(capture)
+        capture(app, name: "Explicit preview output")
         app.buttons["stop-output"].tap()
         XCTAssertTrue(app.staticTexts["Preview stopped. No device output was changed."].waitForExistence(timeout: 5))
         app.segmentedControls.buttons["iPhone output"].tap()
         app.buttons["connect-output"].tap()
         XCTAssertTrue(app.staticTexts["This build supports preview only. Use a device-enabled build for iPhone output."].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["set-test-point"].isEnabled)
+        app.tabBars.buttons["Saved"].tap()
+        XCTAssertTrue(app.buttons["Import backup…"].waitForExistence(timeout: 5))
+        capture(app, name: "Saved library and backup controls")
+        app.tabBars.buttons["Setup"].tap()
+        XCTAssertTrue(app.buttons["Import Remote Pairing file…"].waitForExistence(timeout: 5))
+        capture(app, name: "Remote Pairing setup")
     }
 
     func testInvalidCoordinatesBlockOutput() {
@@ -32,8 +35,16 @@ final class MirageUITests: XCTestCase {
         app.buttons["Clear latitude"].tap()
         latitude.tap()
         latitude.typeText("999")
+        capture(app, name: "Coordinate entry with keyboard")
         app.buttons["Done"].tap()
         XCTAssertFalse(app.buttons["set-test-point"].isEnabled)
         XCTAssertFalse(app.buttons["play-synthetic-route"].isEnabled)
+    }
+
+    private func capture(_ app: XCUIApplication, name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 }

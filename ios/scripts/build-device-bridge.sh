@@ -16,7 +16,7 @@ if [[ "$(uname -s)" != Darwin ]]; then
   printf '%s\n' 'A Mac with the full Xcode iOS SDK is required.' >&2
   exit 2
 fi
-for command in cargo rustup xcrun xcodebuild; do
+for command in cargo rustup xcrun xcodebuild perl make; do
   command -v "$command" >/dev/null || { printf 'Missing required tool: %s\n' "$command" >&2; exit 2; }
 done
 rustup target list --toolchain 1.90.0 --installed | grep -Fx "$target" >/dev/null || {
@@ -31,6 +31,13 @@ sdk_path="$(xcrun --sdk "$sdk" --show-sdk-path)"
 }
 
 export IPHONEOS_DEPLOYMENT_TARGET=17.0
+export SDKROOT="$sdk_path"
+# openssl-src 300.6.1+3.6.3 supports all targets above and obtains its iOS
+# CROSS_TOP/CROSS_SDK from cc's SDK sysroot. Force the locked vendored static
+# build so a developer's unrelated OPENSSL_NO_VENDOR setting cannot select a
+# host or system OpenSSL library instead.
+export OPENSSL_NO_VENDOR=0
+export OPENSSL_STATIC=1
 export BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$sdk_path"
 export CARGO_TARGET_DIR="$bridge_dir/target"
 cargo +1.90.0 build --manifest-path "$bridge_dir/Cargo.toml" --locked --release --target "$target"

@@ -5,9 +5,7 @@
 use idevice::{
     IdeviceError, RsdService,
     dvt::{location_simulation::LocationSimulationClient, remote_server::RemoteServerClient},
-    remote_pairing::{
-        RemotePairingClient, RpPairingFile, RpPairingSocket, connect_tls_psk_tunnel_native,
-    },
+    remote_pairing::{RemotePairingClient, RpPairingFile, RpPairingSocket},
     rsd::RsdHandshake,
 };
 use sha2::{Digest, Sha256};
@@ -21,6 +19,8 @@ use std::{
 };
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use zeroize::Zeroizing;
+
+mod tls_tunnel;
 
 const OK: i32 = 0;
 const INVALID_ARGUMENT: i32 = 1;
@@ -206,30 +206,11 @@ async fn connected(
             tokio::net::TcpStream::connect(SocketAddr::new(provider.address, tunnel_port))
                 .await
                 .map_err(|_| CONNECTION_FAILED)?;
-        let tunnel = connect_tls_psk_tunnel_native(tunnel_stream, client.encryption_key())
-            .await
-            .map_err(|_| CONNECTION_FAILED)?;
-        let client_ip: IpAddr = tunnel
-            .info
-            .client_address
-            .parse()
-            .map_err(|_| CONNECTION_FAILED)?;
-        let server_ip: IpAddr = tunnel
-            .info
-            .server_address
-            .parse()
-            .map_err(|_| CONNECTION_FAILED)?;
-        let mtu = tunnel.info.mtu as usize;
-        let rsd_port = tunnel.info.server_rsd_port;
-        if mtu <= 60 || rsd_port == 0 {
-            return Err(CONNECTION_FAILED);
-        }
-        let mut adapter = idevice::tcp::adapter::Adapter::new(
-            Box::new(tunnel.into_inner()),
-            client_ip,
-            server_ip,
-        );
-        adapter.set_mss(mtu.min(8192) - 60);
+        let (tunnel, info) = tls_tunnel::connect(tunnel_stream, client.encryption_key()).await?;
+        let rsd_port = info.rsd_port;
+        let mut adapter =
+            idevice::tcp::adapter::Adapter::new(Box::new(tunnel), info.client_ip, info.server_ip);
+        adapter.set_mss(info.mtu.min(8192) - 60);
         Ok((adapter.to_async_handle(), rsd_port))
     })
     .await;
