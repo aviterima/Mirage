@@ -125,6 +125,8 @@ struct MirageRootView: View {
 
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Route playback").font(.title3.bold())
+                    Text(model.playbackStatus).font(.subheadline.bold()).accessibilityIdentifier("playback-status")
+                    if model.running { ProgressView(value: model.playbackProgress).accessibilityLabel("Route progress") }
                     Text("Synthetic routes are test geometry, not road directions. Arrival holds the endpoint until Stop.")
                         .font(.caption).foregroundStyle(.secondary)
                     TextField("Duration in seconds", text: $model.duration)

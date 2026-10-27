@@ -18,6 +18,8 @@ final class ProofModel: ObservableObject {
     @Published var running = false
     @Published var paused = false
     @Published var canPause = false
+    @Published var playbackStatus = "Stopped"
+    @Published var playbackProgress = 0.0
     @Published var recoveryNeeded: Bool
     @Published var planned: Coordinate?
     @Published var sent: Coordinate?
@@ -155,6 +157,7 @@ final class ProofModel: ObservableObject {
             var candidate = try RoutePlayback(points: points, duration: seconds)
             try candidate.start(at: ProcessInfo.processInfo.systemUptime)
             playback = candidate
+            updatePlaybackStatus()
             running = true
             paused = false
             canPause = true
@@ -163,7 +166,9 @@ final class ProofModel: ObservableObject {
                     guard let self, let session = self.session, self.playback != nil else { return }
                     do {
                         try self.playback?.advance(to: ProcessInfo.processInfo.systemUptime)
-                        self.canPause = self.playback?.state == .playing || self.playback?.state == .dwelling || self.playback?.state == .paused
+                        self.updatePlaybackStatus()
+                        let pauseAvailable = self.playback?.state == .playing || self.playback?.state == .dwelling || self.playback?.state == .paused
+                        if self.canPause != pauseAvailable { self.canPause = pauseAvailable }
                         if let point = self.playback?.snapshot.coordinate {
                             self.persistPossibleWrite()
                             let snapshot = await session.send(point)
@@ -172,6 +177,7 @@ final class ProofModel: ObservableObject {
                                 self.running = false
                                 self.paused = false
                                 self.canPause = false
+                                self.playbackStatus = "Interrupted; recovery required"
                                 self.playback = nil
                                 return
                             }
@@ -193,12 +199,13 @@ final class ProofModel: ObservableObject {
             else { try playback?.pause(at: ProcessInfo.processInfo.systemUptime) }
             paused = playback?.state == .paused
             canPause = playback?.state == .playing || playback?.state == .dwelling || playback?.state == .paused
+            updatePlaybackStatus()
         } catch { status = "Playback timing changed; Stop and reconnect" }
     }
 
     func hold() {
         guard running, !busy, !stopping else { return }
-        do { try playback?.hold(at: ProcessInfo.processInfo.systemUptime); paused = false; canPause = false }
+        do { try playback?.hold(at: ProcessInfo.processInfo.systemUptime); paused = false; canPause = false; updatePlaybackStatus() }
         catch { status = "Unable to hold this route; use Stop" }
     }
 
@@ -216,6 +223,7 @@ final class ProofModel: ObservableObject {
         running = false
         paused = false
         canPause = false
+        playbackStatus = "Stopped"
         if let snapshot = await clearing.value, let stoppingSession { update(snapshot, from: stoppingSession) }
         else { status = recoveryNeeded ? "Connect to clear the previous device output" : "Stopped" }
         connected = false
@@ -233,6 +241,7 @@ final class ProofModel: ObservableObject {
         running = false
         paused = false
         canPause = false
+        playbackStatus = "Interrupted; recovery required"
         playback = nil
         connected = false
     }
@@ -246,19 +255,38 @@ final class ProofModel: ObservableObject {
     private func update(_ snapshot: LocationOutputSnapshot, from source: LocationOutputSession) {
         guard source === session, snapshot.revision > lastSnapshotRevision else { return }
         lastSnapshotRevision = snapshot.revision
-        status = snapshot.message
-        planned = snapshot.plannedCoordinate
-        sent = snapshot.sentCoordinate
+        if status != snapshot.message { status = snapshot.message }
+        if planned != snapshot.plannedCoordinate { planned = snapshot.plannedCoordinate }
+        if sent != snapshot.sentCoordinate { sent = snapshot.sentCoordinate }
         // Active device output also needs cleanup after process death, but should not block its next write.
-        recoveryNeeded = snapshot.state == .recoveryNeeded || snapshot.state == .awaitingRealLocation
-        if recoveryNeeded { connected = false }
-        else if snapshot.state == .ready || snapshot.state == .active { connected = true }
-        else if snapshot.state == .disconnected || snapshot.state == .restored { connected = false }
-        if !isConfiguredPreview { defaults.set(snapshot.recoveryNeeded, forKey: Self.recoveryKey) }
+        let needsRecovery = snapshot.state == .recoveryNeeded || snapshot.state == .awaitingRealLocation
+        if recoveryNeeded != needsRecovery { recoveryNeeded = needsRecovery }
+        if recoveryNeeded && connected { connected = false }
+        else if (snapshot.state == .ready || snapshot.state == .active) && !connected { connected = true }
+        else if (snapshot.state == .disconnected || snapshot.state == .restored) && connected { connected = false }
+        if !isConfiguredPreview, defaults.bool(forKey: Self.recoveryKey) != snapshot.recoveryNeeded {
+            defaults.set(snapshot.recoveryNeeded, forKey: Self.recoveryKey)
+        }
     }
 
     private func persistPossibleWrite() {
-        if !isConfiguredPreview { defaults.set(true, forKey: Self.recoveryKey) }
+        if !isConfiguredPreview, !defaults.bool(forKey: Self.recoveryKey) { defaults.set(true, forKey: Self.recoveryKey) }
+    }
+
+    private func updatePlaybackStatus() {
+        guard let playback else { return }
+        if playbackProgress != playback.snapshot.progress { playbackProgress = playback.snapshot.progress }
+        let nextStatus: String
+        switch playback.state {
+        case .ready: nextStatus = "Ready"
+        case .playing: nextStatus = "Playing"
+        case .paused: nextStatus = "Paused"
+        case .dwelling: nextStatus = "Staying at destination"
+        case .arrived: nextStatus = "Arrived · holding endpoint"
+        case .holding: nextStatus = "Holding current point"
+        case .stopped: nextStatus = "Stopped"
+        }
+        if playbackStatus != nextStatus { playbackStatus = nextStatus }
     }
 
     func use(_ point: Coordinate) {
