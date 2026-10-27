@@ -88,6 +88,7 @@ struct MirageRootView: View {
                 Picker("Output", selection: $model.mode) {
                     ForEach(ProofModel.Mode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }.pickerStyle(.segmented).disabled(!model.canChangeSetup)
+                    .onChange(of: model.mode) { _, _ in model.outputModeChanged() }
 
                 Text(model.status).font(.callout).accessibilityIdentifier("output-status")
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -136,8 +137,8 @@ struct MirageRootView: View {
                     }
                     HStack {
                         Button(model.paused ? "Resume" : "Pause") { model.pauseOrResume() }
-                            .disabled(!model.canPause || model.busy || model.stopping).accessibilityIdentifier("pause-resume")
-                        Button("Hold here") { model.hold() }.disabled(!model.running || model.busy)
+                            .disabled(!model.running || !model.canPause || model.busy || model.stopping).accessibilityIdentifier("pause-resume")
+                        Button("Hold here") { model.hold() }.disabled(!model.running || model.busy || model.stopping)
                     }.buttonStyle(.bordered)
                 }
 
@@ -152,7 +153,7 @@ struct MirageRootView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 if model.connected && !model.running {
-                    Button("Clear connection and change output") { Task { await model.resetConnection() } }
+                    Button("Clear connection and change output") { Task { await model.resetConnection(); observer.request() } }
                         .disabled(model.busy)
                 }
             }.padding()

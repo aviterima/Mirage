@@ -28,6 +28,7 @@ final class ProofModel: ObservableObject {
     @Published var pairingImported = false
     @Published var routeName = "Synthetic test route"
     private var session: LocationOutputSession?
+    private var lastSnapshotRevision: UInt64 = 0
     private var playback: RoutePlayback?
     private var loop: Task<Void, Never>?
     private var store: ScenarioStore?
@@ -62,10 +63,18 @@ final class ProofModel: ObservableObject {
         busy = true
         defer { busy = false }
         do {
+            if session != nil, isConfiguredPreview != (mode == .preview) {
+                guard !recoveryNeeded else { status = "Recover the previous device output first"; return }
+                session = nil
+                lastSnapshotRevision = 0
+                planned = nil
+                sent = nil
+            }
             if session == nil {
                 if mode == .preview {
                     guard !recoveryNeeded else { status = "Clear the previous device output before previewing"; return }
                     session = LocationOutputSession(output: PreviewLocationOutput())
+                    lastSnapshotRevision = 0
                     isConfiguredPreview = true
                 } else {
                     guard DeviceTransport.isAvailable else {
@@ -76,14 +85,14 @@ final class ProofModel: ObservableObject {
                     guard let number = UInt16(port), number > 0 else { status = "Enter a valid developer-service port"; return }
                     let device = try DeviceTransport(pairingRecordURL: PrivateFiles.pairingURL(), host: host, port: number)
                     session = LocationOutputSession(output: device, recoveryNeeded: recoveryNeeded)
+                    lastSnapshotRevision = 0
                     isConfiguredPreview = false
                 }
             }
             guard let session else { return }
             persistPossibleWrite()
             let snapshot = await session.connect()
-            update(snapshot)
-            connected = snapshot.state == .ready
+            update(snapshot, from: session)
         } catch {
             status = "Device setup is incomplete. Import a pairing file, start the loopback tunnel, and use a device-enabled build."
         }
@@ -93,16 +102,17 @@ final class ProofModel: ObservableObject {
         guard !busy, !stopping, !running, !recoveryNeeded else { return }
         busy = true
         defer { busy = false }
-        if let session { update(await session.stop()) }
+        if let session { update(await session.stop(), from: session) }
         guard !recoveryNeeded else { connected = false; return }
         session = nil
+        lastSnapshotRevision = 0
         connected = false
         status = "Choose output and connect"
     }
 
     func setPoint() async {
         guard canRun, let coordinate else { return }
-        await beginPlayback(points: [coordinate, coordinate], seconds: 1)
+        beginPlayback(points: [coordinate, coordinate], seconds: 1)
     }
 
     func playSynthetic() async {
@@ -112,20 +122,17 @@ final class ProofModel: ObservableObject {
         let east = start.lng > 179.99 ? start.lng - 0.001 : start.lng + 0.001
         route = [start, Coordinate(lat: north, lng: start.lng), Coordinate(lat: north, lng: east)]
         routeName = "Synthetic test route"
-        await startRoute(seconds: seconds)
+        beginPlayback(points: route, seconds: seconds)
     }
 
     func playLoadedRoute() async {
         guard canRun, route.count >= 2, let seconds = Double(duration), seconds.isFinite,
               (1...3600).contains(seconds) else { status = "Load saved geometry and set a duration from 1 to 3,600 seconds"; return }
-        await startRoute(seconds: seconds)
+        beginPlayback(points: route, seconds: seconds)
     }
 
-    private func startRoute(seconds: Double) async {
-        await beginPlayback(points: route, seconds: seconds)
-    }
-
-    private func beginPlayback(points: [Coordinate], seconds: Double) async {
+    private func beginPlayback(points: [Coordinate], seconds: Double) {
+        guard canRun else { return }
         do {
             var candidate = try RoutePlayback(points: points, duration: seconds)
             try candidate.start(at: ProcessInfo.processInfo.systemUptime)
@@ -142,9 +149,11 @@ final class ProofModel: ObservableObject {
                         if let point = self.playback?.snapshot.coordinate {
                             self.persistPossibleWrite()
                             let snapshot = await session.send(point)
-                            self.update(snapshot)
+                            self.update(snapshot, from: session)
                             if snapshot.state == .recoveryNeeded {
                                 self.running = false
+                                self.paused = false
+                                self.canPause = false
                                 self.playback = nil
                                 return
                             }
@@ -170,7 +179,7 @@ final class ProofModel: ObservableObject {
     }
 
     func hold() {
-        guard running, !busy else { return }
+        guard running, !busy, !stopping else { return }
         do { try playback?.hold(at: ProcessInfo.processInfo.systemUptime); paused = false; canPause = false }
         catch { status = "Unable to hold this route; use Stop" }
     }
@@ -179,7 +188,8 @@ final class ProofModel: ObservableObject {
         guard !stopping else { return }
         stopping = true
         defer { stopping = false }
-        let clearing = Task { await session?.stop() }
+        let stoppingSession = session
+        let clearing = Task { await stoppingSession?.stop() }
         loop?.cancel()
         await loop?.value
         loop = nil
@@ -188,7 +198,7 @@ final class ProofModel: ObservableObject {
         running = false
         paused = false
         canPause = false
-        if let snapshot = await clearing.value { update(snapshot) }
+        if let snapshot = await clearing.value, let stoppingSession { update(snapshot, from: stoppingSession) }
         else { status = recoveryNeeded ? "Connect to clear the previous device output" : "Stopped" }
         connected = false
     }
@@ -197,12 +207,14 @@ final class ProofModel: ObservableObject {
         guard running || connected || busy || recoveryNeeded || sent != nil else { return }
         if isConfiguredPreview { await stop(); return }
         if let session {
-            update(await session.markInterrupted("App entered the background; device output is unverified. Return and Stop to recover."))
+            update(await session.markInterrupted("App entered the background; device output is unverified. Return and Stop to recover."), from: session)
         }
         loop?.cancel()
         await loop?.value
         loop = nil
         running = false
+        paused = false
+        canPause = false
         playback = nil
         connected = false
     }
@@ -210,16 +222,20 @@ final class ProofModel: ObservableObject {
     func observe(_ observation: LocationObservation) async {
         guard let session else { return }
         await session.observe(observation)
-        update(await session.snapshot())
+        update(await session.snapshot(), from: session)
     }
 
-    private func update(_ snapshot: LocationOutputSnapshot) {
+    private func update(_ snapshot: LocationOutputSnapshot, from source: LocationOutputSession) {
+        guard source === session, snapshot.revision > lastSnapshotRevision else { return }
+        lastSnapshotRevision = snapshot.revision
         status = snapshot.message
         planned = snapshot.plannedCoordinate
         sent = snapshot.sentCoordinate
         // Active device output also needs cleanup after process death, but should not block its next write.
         recoveryNeeded = snapshot.state == .recoveryNeeded || snapshot.state == .awaitingRealLocation
         if recoveryNeeded { connected = false }
+        else if snapshot.state == .ready || snapshot.state == .active { connected = true }
+        else if snapshot.state == .disconnected || snapshot.state == .restored { connected = false }
         if !isConfiguredPreview { defaults.set(snapshot.recoveryNeeded, forKey: Self.recoveryKey) }
     }
 
@@ -288,7 +304,17 @@ final class ProofModel: ObservableObject {
         defaults.set(host, forKey: "deviceTunnelHost")
         defaults.set(port, forKey: "deviceTunnelPort")
         session = nil
+        lastSnapshotRevision = 0
         connected = false
+    }
+
+    func outputModeChanged() {
+        guard canChangeSetup else { return }
+        session = nil
+        lastSnapshotRevision = 0
+        planned = nil
+        sent = nil
+        status = mode == .preview ? "Preview selected. Connect to begin; device location will not change." : "iPhone output selected. Connect with device setup to begin."
     }
 
     private func reloadSaved() async {

@@ -17,6 +17,10 @@ final class MirageUITests: XCTestCase {
         add(capture)
         app.buttons["stop-output"].tap()
         XCTAssertTrue(app.staticTexts["Preview stopped. No device output was changed."].waitForExistence(timeout: 5))
+        app.segmentedControls.buttons["iPhone output"].tap()
+        app.buttons["connect-output"].tap()
+        XCTAssertTrue(app.staticTexts["This build supports preview only. Use a device-enabled build for iPhone output."].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["set-test-point"].isEnabled)
     }
 
     func testInvalidCoordinatesBlockOutput() {

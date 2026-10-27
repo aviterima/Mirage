@@ -46,6 +46,8 @@ public struct LocationObservation: Equatable, Sendable {
 }
 
 public struct LocationOutputSnapshot: Equatable, Sendable {
+    /// Strictly increasing within one session; consumers reject older asynchronous results.
+    public let revision: UInt64
     public let state: LocationOutputState
     public let message: String
     public let capabilities: LocationOutputCapabilities
@@ -69,6 +71,7 @@ public actor LocationOutputSession {
     private var observedLocation: LocationObservation?
     private var needsRecovery: Bool
     private var generation: UInt64 = 0
+    private var snapshotRevision: UInt64 = 0
     private var clearCompletedAt: Date?
     private var commandLocked = false
     private var commandWaiters: [CheckedContinuation<Void, Never>] = []
@@ -82,9 +85,11 @@ public actor LocationOutputSession {
     }
 
     public func snapshot() -> LocationOutputSnapshot {
-        LocationOutputSnapshot(state: state, message: message, capabilities: output.capabilities,
-                               plannedCoordinate: plannedCoordinate, sentCoordinate: sentCoordinate,
-                               observedLocation: observedLocation, recoveryNeeded: needsRecovery)
+        snapshotRevision += 1
+        return LocationOutputSnapshot(revision: snapshotRevision, state: state, message: message,
+                                      capabilities: output.capabilities,
+                                      plannedCoordinate: plannedCoordinate, sentCoordinate: sentCoordinate,
+                                      observedLocation: observedLocation, recoveryNeeded: needsRecovery)
     }
 
     @discardableResult public func connect() async -> LocationOutputSnapshot {

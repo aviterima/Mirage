@@ -56,6 +56,29 @@ private final class TestDateClock: @unchecked Sendable {
 final class LocationOutputTests: XCTestCase {
     private let point = Coordinate(lat: 32.2, lng: -110.9)
 
+    func testSnapshotRevisionsOrderCommandsAndObservationsWithinSession() async {
+        let clock = TestDateClock()
+        let session = LocationOutputSession(output: ControlledOutput(), now: { clock.now() })
+        let initial = await session.snapshot()
+        let reread = await session.snapshot()
+        let connected = await session.connect()
+        let sent = await session.send(point)
+        let stopped = await session.stop()
+        clock.set(102)
+        await session.observe(LocationObservation(coordinate: point, timestamp: Date(timeIntervalSince1970: 101),
+                                                  isSimulatedBySoftware: false, horizontalAccuracy: 1))
+        let restored = await session.snapshot()
+        let revisions = [initial.revision, reread.revision, connected.revision, sent.revision,
+                         stopped.revision, restored.revision]
+        XCTAssertEqual(initial.revision, 1)
+        for index in 1..<revisions.count {
+            XCTAssertGreaterThan(revisions[index], revisions[index - 1])
+        }
+        XCTAssertEqual(stopped.state, .awaitingRealLocation)
+        XCTAssertEqual(restored.state, .restored)
+        XCTAssertFalse(restored.recoveryNeeded)
+    }
+
     func testPreviewNeverClaimsDeviceRestoration() async {
         let session = LocationOutputSession(output: PreviewLocationOutput())
         let connected = await session.connect()
