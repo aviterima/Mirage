@@ -135,10 +135,11 @@ struct MirageRootView: View {
                     Button("Play synthetic route") { Task { await model.playSynthetic() } }
                         .buttonStyle(.borderedProminent).disabled(!model.canRun || model.running)
                         .accessibilityIdentifier("play-synthetic-route")
-                    if model.routeName != "Synthetic test route" {
+                    if model.hasLoadedGeometry {
                         Text(model.routeName).font(.subheadline)
                         Button("Play loaded geometry") { Task { await model.playLoadedRoute() } }
                             .disabled(!model.canRun || model.running)
+                            .accessibilityIdentifier("play-loaded-geometry")
                     }
                     HStack {
                         Button(model.paused ? "Resume" : "Pause") { model.pauseOrResume() }

@@ -76,6 +76,7 @@ final class ProofModelTests: XCTestCase {
         XCTAssertTrue(model.connected)
         await model.setPoint()
         await fulfillment(of: [firstSend], timeout: 3)
+        await waitUntil("Device coordinate is acknowledged before Stop") { model.sent != nil }
         await model.stop()
         XCTAssertTrue(model.recoveryNeeded)
         await restore(context)
@@ -235,6 +236,44 @@ final class ProofModelTests: XCTestCase {
         XCTAssertTrue(model.recoveryNeeded)
         let events = await output.log()
         XCTAssertEqual(events, ["connect.begin", "connect.end", "send.begin", "send.end", "clear.begin", "clear.end"])
+    }
+
+    func testImportedSyntheticNameStillExposesAndPlaysItsArchivedGeometry() async throws {
+        let output = FixtureDeviceOutput()
+        let context = try makeContext(output: output)
+        defer { context.cleanDefaults() }
+        let model = context.model
+        model.mode = .preview
+        model.outputModeChanged()
+        let points = [Coordinate(lat: 32.2, lng: -110.9), Coordinate(lat: 32.201, lng: -110.902)]
+        let item = SavedScenario(id: "name-collision", name: "Synthetic test route", kind: .route,
+            start: points[0], dest: points[1],
+            frozenRoute: ArchivedRoute(points: points, distance: 210, seconds: 60))
+        let imported = try XCTUnwrap(BackupCodec.decode(BackupCodec.encode([item])).first)
+
+        model.load(imported)
+        XCTAssertTrue(model.hasLoadedGeometry, "The playback control uses explicit state, not the imported name")
+        XCTAssertEqual(model.routeName, "Synthetic test route")
+        XCTAssertEqual(model.route, points)
+        XCTAssertFalse(model.running, "Loading a template must not start playback")
+        await model.connect()
+        await model.playLoadedRoute()
+        XCTAssertTrue(model.running)
+        XCTAssertEqual(model.route, points, "Loaded playback must not regenerate synthetic geometry")
+        await waitUntil("Loaded archived geometry emits a preview point") { model.sent != nil }
+        await model.stop()
+        XCTAssertTrue(model.hasLoadedGeometry, "Stop preserves the loaded geometry for replay")
+
+        model.load(SavedScenario(id: "place", name: "Sample place", kind: .place, dest: points[0]))
+        XCTAssertFalse(model.hasLoadedGeometry)
+        model.load(imported)
+        await model.connect()
+        await model.playSynthetic()
+        XCTAssertFalse(model.hasLoadedGeometry, "Generating a synthetic route clears loaded-geometry state")
+        XCTAssertNotEqual(model.route, points)
+        await model.stop()
+        let events = await output.log()
+        XCTAssertTrue(events.isEmpty, "This regression uses preview only")
     }
 
     private struct Context {

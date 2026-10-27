@@ -29,6 +29,7 @@ final class ProofModel: ObservableObject {
     @Published var savedName = "Test point"
     @Published var pairingImported = false
     @Published var routeName = "Synthetic test route"
+    @Published private(set) var hasLoadedGeometry = false
     private var session: LocationOutputSession?
     private var lastSnapshotRevision: UInt64 = 0
     private var playback: RoutePlayback?
@@ -142,11 +143,12 @@ final class ProofModel: ObservableObject {
         let east = start.lng > 179.99 ? start.lng - 0.001 : start.lng + 0.001
         route = [start, Coordinate(lat: north, lng: start.lng), Coordinate(lat: north, lng: east)]
         routeName = "Synthetic test route"
+        hasLoadedGeometry = false
         beginPlayback(points: route, seconds: seconds)
     }
 
     func playLoadedRoute() async {
-        guard canRun, route.count >= 2, let seconds = Double(duration), seconds.isFinite,
+        guard canRun, hasLoadedGeometry, route.count >= 2, let seconds = Double(duration), seconds.isFinite,
               (1...3600).contains(seconds) else { status = "Load saved geometry and set a duration from 1 to 3,600 seconds"; return }
         beginPlayback(points: route, seconds: seconds)
     }
@@ -313,8 +315,10 @@ final class ProofModel: ObservableObject {
     func load(_ item: SavedScenario) {
         guard !running, !busy, !recoveryNeeded else { return }
         if item.kind == .place, let dest = item.dest {
+            hasLoadedGeometry = false
             use(dest); route = []; routeName = "Synthetic test route"; status = "Saved place loaded; press Set test point to send it"
         } else if let archived = item.frozenRoute, !archived.points.isEmpty {
+            hasLoadedGeometry = true
             use(archived.points[0]); route = archived.points; routeName = item.name
             duration = String(Int(min(3600, max(1, archived.seconds))))
             status = "Saved geometry loaded for proof playback. Scheduling and realism are not applied in this proof."

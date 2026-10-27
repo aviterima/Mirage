@@ -4,7 +4,7 @@ Date: 26 October 2026. Owner authorized specification followed by implementation
 
 ## Product and delivery
 
-Build a native SwiftUI iPhone application alongside Android in `ios/`, using the existing repository and branch. Target iOS 17 or later for the UI; this minimum is not a promise that developer-service output works on every supported UI OS. The target phone model/OS and signing route remain to be established. The intended product operates on the phone after initial pairing; a permanently connected computer is not the default architecture.
+Build a native SwiftUI iPhone application alongside Android in `ios/`, using the existing repository and preserved worktree. Target iOS 17 or later for the UI; this minimum is not a promise that developer-service output works on every supported UI OS. The owner identified an iPhone 16 Pro Max; the supplied About screenshot shows iOS 26.6.1. Signing access and transport compatibility on that exact OS remain to be established. The intended product operates on the phone after initial pairing; a permanently connected computer is not the default architecture.
 
 The first executable milestone is a device proof with Connect, Set test point, Play synthetic route, Pause/Resume, Hold and Stop. It includes a map, separate planned/sent/observed coordinates, a capability report and an honest recovery state. Native planning and credential-free Android backup interchange can be developed alongside this proof. Full parity and release remain gated on physical output verification; an app animation or successful transport write cannot close that gate.
 
@@ -24,7 +24,7 @@ No new Start may race a pending connection, write or clear. Serialize device com
 
 ## Planner and persistence requirements
 
-Use explicit selected coordinates; unfinished input and pending selection block Save/Start. Preserve the draft when switching Map/Edit. Save and Start are different actions. Saved places, routes, stop order, dwell/leave rules, modes, arrival metadata and frozen routes use Android `mirage-backup` version 1, at most 2 MiB and 1,000 items. Validate all imported items before replacing storage. Preserve the existing store on malformed input, unsupported versions or write failure. Never import/export credentials or pairing material. Template load never starts playback.
+Use explicit selected coordinates; unfinished input and pending selection block Save/Start. Preserve the draft when switching Map/Edit. Save and Start are different actions. Saved places, routes, stop order, dwell/leave rules, modes, arrival metadata and frozen routes use Android `mirage-backup` version 1, at most 2 MiB and 1,000 items. Validate all imported items before replacing storage. Preserve the existing store on malformed input, unsupported versions or write failure. Plan backups never import or export credentials or pairing material; Setup imports pairing records separately into protected local storage. Template load never starts playback.
 
 Full provider routing, hiking, offline dictation, live itinerary continuation and vehicle behavior remain required parity work. A first proof must not show unsupported controls as completed features or silently substitute a direct line for a road route. Synthetic routes must be labeled as such. No hosted speech or conversational model is introduced.
 
