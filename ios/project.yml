@@ -19,7 +19,7 @@ targets:
     platform: iOS
     sources:
       - path: MirageApp
-      - path: DeviceBridge/THIRD_PARTY_NOTICES.md
+      - path: DeviceBridge/THIRD-PARTY-NOTICES.txt
         buildPhase: resources
     dependencies:
       - package: MirageCore
