@@ -1,0 +1,163 @@
+{
+  "format": "mirage-backup",
+  "version": 1,
+  "items": [
+    {
+      "id": "synthetic-place",
+      "name": "Sample lookout",
+      "kind": "SNAP",
+      "createdAt": 1793000000000,
+      "startIsReal": true,
+      "startName": "Current location",
+      "destLat": 33.1,
+      "destLng": -112.1,
+      "destName": "Lookout",
+      "travelMode": "WALK",
+      "speeds": { "WALK": 3.5 },
+      "realism": "CONSTANT",
+      "stops": [],
+      "destAddress": "Synthetic address",
+      "destPlaceId": "synthetic-place-id",
+      "favorite": true,
+      "lastUsedAt": 1793000000100,
+      "aliases": ["Lookout", "Sample view"],
+      "defaultStayMinutes": 45,
+      "arrivalActivity": "OUTDOOR",
+      "entranceLat": 33.1001,
+      "entranceLng": -112.1001,
+      "stayUntilLeave": true
+    },
+    {
+      "id": "synthetic-route",
+      "name": "Synthetic archived route",
+      "kind": "ROUTE",
+      "createdAt": 1793000000200,
+      "startIsReal": false,
+      "startLat": 33.0,
+      "startLng": -112.0,
+      "startName": "Sample start",
+      "destLat": 33.002,
+      "destLng": -112.002,
+      "destName": "Sample finish",
+      "travelMode": "BIKE",
+      "speeds": { "DRIVE": 45.0, "BIKE": 12.5, "WALK": 3.0, "TRANSIT": 20.0, "FLY": 500.0 },
+      "realism": "BUSY",
+      "transitPref": "LESS_WALKING",
+      "stops": [],
+      "destAddress": "Synthetic route finish",
+      "destPlaceId": "synthetic-route-place-id",
+      "favorite": false,
+      "lastUsedAt": 1793000000300,
+      "aliases": ["Sample ride"],
+      "frozenRoute": {
+        "points": [[33.0, -112.0], [33.001, -112.001], [33.002, -112.002]],
+        "distance": 290.5,
+        "seconds": 85.25,
+        "fetched": 1792999999000,
+        "segments": [
+          {
+            "points": [[33.0, -112.0], [33.001, -112.001]],
+            "distance": 145.25,
+            "seconds": 40.0,
+            "instruction": "Continue to the synthetic turn",
+            "maneuver": "straight"
+          },
+          {
+            "points": [],
+            "distance": 0.0,
+            "seconds": 5.25,
+            "instruction": "Synthetic wait",
+            "maneuver": ""
+          },
+          {
+            "points": [[33.001, -112.001], [33.002, -112.002]],
+            "distance": 145.25,
+            "seconds": 40.0,
+            "instruction": "Arrive at the sample finish",
+            "maneuver": "turn-right"
+          }
+        ]
+      },
+      "defaultStayMinutes": 20,
+      "departureMillis": 1793100000000,
+      "arrivalActivity": "PARKED",
+      "entranceLat": 33.0021,
+      "entranceLng": -112.0021,
+      "stayUntilLeave": false
+    },
+    {
+      "id": "synthetic-itinerary",
+      "name": "Synthetic two-stop plan",
+      "kind": "ITINERARY",
+      "createdAt": 1793000000400,
+      "startIsReal": false,
+      "startLat": 33.0,
+      "startLng": -112.0,
+      "startName": "Sample origin",
+      "destName": "",
+      "travelMode": "TRANSIT",
+      "speeds": { "TRANSIT": 20.5 },
+      "realism": "REALISTIC",
+      "transitPref": "FEWER_TRANSFERS",
+      "stops": [
+        {
+          "name": "Sample first stop",
+          "lat": 33.001,
+          "lng": -112.001,
+          "dwell": 35,
+          "mode": "DRIVE",
+          "avgMph": 40.25,
+          "address": "Synthetic first address",
+          "placeId": "synthetic-first-id",
+          "routingRealism": "BUSY",
+          "routingTransitPref": "LESS_WALKING",
+          "ownRoutingPreferences": true,
+          "frozenRoute": {
+            "points": [[33.0, -112.0], [33.001, -112.001]],
+            "distance": 145.25,
+            "seconds": 30.5,
+            "fetched": 1792999999100,
+            "segments": [
+              {
+                "points": [[33.0, -112.0], [33.001, -112.001]],
+                "distance": 145.25,
+                "seconds": 30.5,
+                "instruction": "Synthetic first leg",
+                "maneuver": "depart"
+              }
+            ]
+          },
+          "arriveByMillis": 1793100300000,
+          "arrivalActivity": "OFFICE",
+          "entranceLat": 33.0011,
+          "entranceLng": -112.0011,
+          "stayUntilLeave": false
+        },
+        {
+          "name": "Sample second stop",
+          "lat": 33.002,
+          "lng": -112.002,
+          "dwell": 0,
+          "mode": "FLY",
+          "avgMph": 450.0,
+          "address": "Synthetic second address",
+          "placeId": "synthetic-second-id",
+          "routingRealism": "CONSTANT",
+          "ownRoutingPreferences": false,
+          "arriveByMillis": 1793102400000,
+          "arrivalActivity": "CONFERENCE",
+          "stayUntilLeave": true
+        }
+      ],
+      "destAddress": "",
+      "destPlaceId": "",
+      "favorite": true,
+      "lastUsedAt": 1793000000500,
+      "aliases": ["Sample itinerary"],
+      "defaultStayMinutes": 15,
+      "departureMillis": 1793100000000,
+      "arrivalActivity": "BUILDING",
+      "stayUntilLeave": false
+    }
+  ]
+}

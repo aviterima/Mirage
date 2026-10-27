@@ -1,3 +1,7 @@
+# iPhone implementation — 26 October 2026
+
+The owner authorized specification followed by code for an iPhone app with the same functionality as Android, including location output on the iPhone itself. See [implementation specification](docs/IPHONE_IMPLEMENTATION_2026-10-26.md), [parity requirements](docs/IPHONE_PARITY_2026-10-22.md) and [validation status](docs/IPHONE_VALIDATION_2026-10-26.md). A native engineering proof, portable core, backup interchange and pinned experimental device transport are in development. Signing and physical-device acceptance remain unrun; no feature parity is claimed. The earlier iPhone-view-only restriction below describes historical Android release scope.
+
 # Mirage 0.19.1 — direct current-location selection
 
 Current location and Saved are visible beneath Start, Destination and Next stop, including while the keyboard is open. During simulation, the physical-location action says Last real location. Selecting it clears unfinished text correctly; pending fixes block Save/Start and cannot replace a newer edit.

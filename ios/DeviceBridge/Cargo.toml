@@ -1,0 +1,20 @@
+[package]
+name = "mirage-device-bridge"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+idevice = { git = "https://github.com/jkcoxson/idevice", rev = "26a28f6a46b5d85a28043c2e62febfa394c8b0a6", default-features = false, features = ["ring", "tcp", "core_device_proxy", "tunnel_tcp_stack", "rsd", "dvt"] }
+tokio = { version = "1", features = ["rt", "net", "sync", "time", "macros"] }
+zeroize = "1.8"
+sha2 = "0.10"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"

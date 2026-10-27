@@ -1,0 +1,4 @@
+module MirageDeviceBridge {
+    header "MirageDeviceBridge.h"
+    export *
+}

@@ -1,0 +1,84 @@
+name: iPhone engineering validation
+on:
+  push:
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios.yml"
+  pull_request:
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: iphone-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  swift-and-simulator:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain identity
+        run: |
+          xcodebuild -version
+          swift --version
+      - name: Core behavior tests
+        run: swift test --package-path ios/MirageCore --parallel
+      - name: Generate native project with pinned XcodeGen
+        run: bash ios/scripts/generate-project.sh
+      - name: Compile iPhone simulator app
+        run: >-
+          xcodebuild -project ios/Mirage.xcodeproj -scheme Mirage
+          -sdk iphonesimulator -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath ios/DerivedData CODE_SIGNING_ALLOWED=NO build
+      - name: Select available iPhone simulator
+        run: |
+          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for xs in d["devices"].values() for x in xs if x["isAvailable"] and "iPhone" in x["name"]))')
+          echo "MIRAGE_SIMULATOR=$DEVICE_ID" >> "$GITHUB_ENV"
+      - name: Native UI acceptance
+        run: >-
+          xcodebuild -project ios/Mirage.xcodeproj -scheme Mirage
+          -destination "platform=iOS Simulator,id=$MIRAGE_SIMULATOR"
+          -derivedDataPath ios/DerivedData -resultBundlePath ios/build/UITests.xcresult
+          CODE_SIGNING_ALLOWED=NO test
+      - name: Export UI evidence
+        if: always()
+        run: |
+          if [[ -d ios/build/UITests.xcresult ]]; then
+            xcrun xcresulttool export attachments --path ios/build/UITests.xcresult --output-path ios/build/screenshots
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iphone-simulator-evidence
+          path: |
+            ios/build/UITests.xcresult
+            ios/build/screenshots
+            ios/DerivedData/Build/Products/Debug-iphonesimulator/Mirage.app
+  device-bridge:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.90.0 --profile minimal
+      - name: Bridge host tests
+        run: cargo +1.90.0 test --locked --manifest-path ios/DeviceBridge/Cargo.toml
+      - name: Build ARM64 iPhone bridge
+        run: |
+          rustup target add --toolchain 1.90.0 aarch64-apple-ios
+          bash ios/scripts/build-device-bridge.sh aarch64-apple-ios
+      - name: Generate native project
+        run: bash ios/scripts/generate-project.sh
+      - name: Compile device-enabled app without signing
+        run: bash ios/scripts/build-device-app.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iphone-device-build-evidence
+          path: |
+            ios/DeviceBridge/build
+            ios/DeviceBridge/Cargo.lock
+            ios/build/device-build.log

@@ -1,0 +1,57 @@
+name: Mirage
+options:
+  bundleIdPrefix: com.mirage
+  deploymentTarget:
+    iOS: "17.0"
+packages:
+  MirageCore:
+    path: MirageCore
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  Mirage:
+    type: application
+    platform: iOS
+    sources:
+      - path: MirageApp
+      - path: DeviceBridge/THIRD_PARTY_NOTICES.md
+        buildPhase: resources
+    dependencies:
+      - package: MirageCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mirage.iphone
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Mirage
+        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: Mirage reads location to compare device output and verify real-location recovery after Stop.
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: Mirage connects to this iPhone's paired developer service through your configured local tunnel.
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+        CODE_SIGN_STYLE: Automatic
+  MirageUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: MirageUITests
+    dependencies:
+      - target: Mirage
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mirage.iphone.uitests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  Mirage:
+    build:
+      targets:
+        Mirage: all
+        MirageUITests: [test]
+    test:
+      targets:
+        - MirageUITests
+
