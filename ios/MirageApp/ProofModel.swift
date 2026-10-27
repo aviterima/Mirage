@@ -230,7 +230,10 @@ final class ProofModel: ObservableObject {
     }
 
     func backgrounded() async {
-        guard running || connected || busy || recoveryNeeded || sent != nil else { return }
+        // A retained sent coordinate is history, not an outstanding device effect.
+        // Once Stop and fresh real-location evidence finish recovery, backgrounding
+        // must preserve the stopped state instead of announcing a new interruption.
+        guard running || connected || busy || recoveryNeeded else { return }
         if isConfiguredPreview { await stop(); return }
         if let session {
             update(await session.markInterrupted("App entered the background; device output is unverified. Return and Stop to recover."), from: session)

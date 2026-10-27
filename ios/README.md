@@ -19,8 +19,9 @@ The project generator is pinned to XcodeGen 2.44.1 at `21ac9944b0ab546a07422dbed
 For the actual native developer-service transport:
 
 ```sh
-cargo test --locked --manifest-path ios/DeviceBridge/Cargo.toml
-rustup target add aarch64-apple-ios
+rustup toolchain install 1.90.0 --profile minimal
+cargo +1.90.0 test --locked --manifest-path ios/DeviceBridge/Cargo.toml
+rustup target add --toolchain 1.90.0 aarch64-apple-ios
 bash ios/scripts/build-device-bridge.sh aarch64-apple-ios
 bash ios/scripts/build-device-app.sh
 ```
