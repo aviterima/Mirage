@@ -1,9 +1,9 @@
 {
   "target": "aarch64-apple-ios",
   "scope": "normal-and-build-dependencies",
-  "cargo_lock_sha256": "3d21045d349ce0f9013591dd65418fd47d3ab44845d429c1fa0c3c44ec67e4b3",
-  "dependency_count": 88,
-  "unique_notice_text_count": 83,
+  "cargo_lock_sha256": "6ab4b8cd0bc9bbec45260581e54cec5276e8d83ecafd3f58d3ed007bd9b3a1f6",
+  "dependency_count": 134,
+  "unique_notice_text_count": 116,
   "unknown_or_unsupported_license_identifiers": [],
   "missing_upstream_notices": [
     {
@@ -20,6 +20,60 @@
     }
   ],
   "packages": [
+    {
+      "name": "aead",
+      "version": "0.5.2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/RustCrypto/traits",
+      "license": "MIT OR Apache-2.0",
+      "authors": [
+        "RustCrypto Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "b1cf9a3333ca78152b859012cd4a804156e5243e9ca20ad1df7327ba5ea7405c"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "949ab7b3e7140fee216f06fe3a2bd67d68dd511f8ea73c1e01c98cb348e9c8ae"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "1ae238c527c204dd9590e3abc406cfbb342d46ea"
+        },
+        "path_in_vcs": "aead"
+      }
+    },
+    {
+      "name": "aes",
+      "version": "0.8.4",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/RustCrypto/block-ciphers",
+      "license": "MIT OR Apache-2.0",
+      "authors": [
+        "RustCrypto Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "f7e8ab639afef15573680c97f796166835cbeb3865175882fea41c60d106b733"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "f2dbee516b4d0cf4cb4f3045d09e35b5fd80087b"
+        },
+        "path_in_vcs": "aes"
+      }
+    },
     {
       "name": "async-stream",
       "version": "0.3.6",
@@ -65,6 +119,61 @@
           "sha1": "b0b2f22df8e87b7fed7b2fa234509797adbff7db"
         },
         "path_in_vcs": "async-stream-impl"
+      }
+    },
+    {
+      "name": "autocfg",
+      "version": "1.5.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/cuviper/autocfg",
+      "license": "Apache-2.0 OR MIT",
+      "authors": [
+        "Josh Stone <cuviper@gmail.com>"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "27995d58ad5c1145c1a8cd86244ce844886958a35eb2b78c6b772748669999ac"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "2799b09c24e6632f8e653c5cd8fc303e85a906ba"
+        },
+        "path_in_vcs": ""
+      }
+    },
+    {
+      "name": "base64",
+      "version": "0.21.7",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/marshallpierce/rust-base64",
+      "license": "MIT OR Apache-2.0",
+      "authors": [
+        "Alice Maz <alice@alicemaz.com>",
+        "Marshall Pierce <marshall@mpierce.org>"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "0dd882e53de11566d50f8e8e2d5a651bcf3fabee4987d70f306233cf39094ba7"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "9652c787730e58515ce7b44fcafd2430ab424628"
+        },
+        "path_in_vcs": ""
       }
     },
     {
@@ -122,6 +231,33 @@
       }
     },
     {
+      "name": "base64ct",
+      "version": "1.8.3",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/RustCrypto/formats",
+      "license": "Apache-2.0 OR MIT",
+      "authors": [
+        "RustCrypto Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "2d1c57bff28344b9e698f51063bc8509799cc4c99a4e0cf2aa3f7e7c3e1f9a9d"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "9adf88fe3e6e0fb9f8cf20b54747aff67a3eca6e"
+        },
+        "path_in_vcs": "base64ct"
+      }
+    },
+    {
       "name": "block-buffer",
       "version": "0.10.4",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -149,6 +285,33 @@
       }
     },
     {
+      "name": "block-padding",
+      "version": "0.3.3",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/RustCrypto/utils",
+      "license": "MIT OR Apache-2.0",
+      "authors": [
+        "RustCrypto Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "d5c22aa3118d240e877ad41c5d9fa232f9c77d757d4aac0c2f943afc0a95e0ef"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "c1e32c58ca814c0b6265725002f4d853c3272bef"
+        },
+        "path_in_vcs": "block-padding"
+      }
+    },
+    {
       "name": "bytes",
       "version": "1.12.1",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -170,6 +333,33 @@
           "sha1": "76c0fbb54ed4336caf9d2311658a2f4a5627c21d"
         },
         "path_in_vcs": ""
+      }
+    },
+    {
+      "name": "cbc",
+      "version": "0.1.2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/RustCrypto/block-modes",
+      "license": "MIT OR Apache-2.0",
+      "authors": [
+        "RustCrypto Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "63af4bea227c94d021e99427f6ca3a4b8efddadcca93ab6130f708cf6138cf68"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "5781d3f8d8667426fedc21d74f45f92b371bce2c"
+        },
+        "path_in_vcs": "cbc"
       }
     },
     {
@@ -252,6 +442,114 @@
       }
     },
     {
+      "name": "chacha20",
+      "version": "0.9.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/RustCrypto/stream-ciphers",
+      "license": "Apache-2.0 OR MIT",
+      "authors": [
+        "RustCrypto Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "b6f6f01b03ee7e93c0ae96d62ed39527e98a120fb951afc9de456a741ef3f204"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "b5d39c45c45df97335f4b6effb853cde97810de1"
+        },
+        "path_in_vcs": "chacha20"
+      }
+    },
+    {
+      "name": "chacha20poly1305",
+      "version": "0.10.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/RustCrypto/AEADs/tree/master/chacha20poly1305",
+      "license": "Apache-2.0 OR MIT",
+      "authors": [
+        "RustCrypto Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "3c0dfa33fd2e6976038555b52095699452653b1fcabe113074f14e0848a6b11e"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "746f70a5f6c7371e723dc64e04f2115b56f24d27"
+        },
+        "path_in_vcs": "chacha20poly1305"
+      }
+    },
+    {
+      "name": "cipher",
+      "version": "0.4.4",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/RustCrypto/traits",
+      "license": "MIT OR Apache-2.0",
+      "authors": [
+        "RustCrypto Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "5c7bd92d1f096f12203dc1b601e3cb17484fa1b023e30b6b8edcc80e416237ec"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "0af93f6076a76757c65cb2ef6f6abd9756440478"
+        },
+        "path_in_vcs": "cipher"
+      }
+    },
+    {
+      "name": "const-oid",
+      "version": "0.9.6",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/RustCrypto/formats/tree/master/const-oid",
+      "license": "Apache-2.0 OR MIT",
+      "authors": [
+        "RustCrypto Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "bada9e7ed8dc00d63502053c455d7c8d7575dfb7e8277a2a832531844d900682"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "4432bcc0b2b721865740517e609e166e01726ccc"
+        },
+        "path_in_vcs": "const-oid"
+      }
+    },
+    {
       "name": "cpufeatures",
       "version": "0.2.17",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -306,6 +604,57 @@
       }
     },
     {
+      "name": "curve25519-dalek",
+      "version": "4.1.3",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/dalek-cryptography/curve25519-dalek/tree/main/curve25519-dalek",
+      "license": "BSD-3-Clause",
+      "authors": [
+        "Isis Lovecruft <isis@patternsinthevoid.net>",
+        "Henry de Valence <hdevalence@hdevalence.ca>"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE",
+          "sha256": "cca0bd3c4fcdba74145ef9d49c62337e2c9fbf9368288f11d0547f1b0273219f"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "5312a0311ec40df95be953eacfa8a11b9a34bc54"
+        },
+        "path_in_vcs": "curve25519-dalek"
+      }
+    },
+    {
+      "name": "der",
+      "version": "0.7.10",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/RustCrypto/formats/tree/master/der",
+      "license": "Apache-2.0 OR MIT",
+      "authors": [
+        "RustCrypto Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "ad64fcb9589f162720f3cc5010ad76ca6ad3764e11861f9192c489df176bb71d"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "b7a60edfc7cb0d657e6b3d7b4f7fb0ceeed2e4e6"
+        },
+        "path_in_vcs": "der"
+      }
+    },
+    {
       "name": "deranged",
       "version": "0.5.9",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -357,6 +706,58 @@
           "sha1": "344389411fd9718a0742435152e933a9e71461ee"
         },
         "path_in_vcs": "digest"
+      }
+    },
+    {
+      "name": "ed25519",
+      "version": "2.2.3",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/RustCrypto/signatures/tree/master/ed25519",
+      "license": "Apache-2.0 OR MIT",
+      "authors": [
+        "RustCrypto Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "78779d420019e6b4630376af8e86b6b335ee8a2f89ede6e0411e0469a326aaa4"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "b3470648aff02beb36d7a53240fc9260ed80ed93bd43bace6b67d7ef7336ee33"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "07b095c32a3527ee47da5c4878bf203557b36e5e"
+        },
+        "path_in_vcs": "ed25519"
+      }
+    },
+    {
+      "name": "ed25519-dalek",
+      "version": "2.2.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/dalek-cryptography/curve25519-dalek/tree/main/ed25519-dalek",
+      "license": "BSD-3-Clause",
+      "authors": [
+        "isis lovecruft <isis@patternsinthevoid.net>",
+        "Tony Arcieri <bascule@gmail.com>",
+        "Michael Rosenberg <michael@mrosenberg.pub>"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE",
+          "sha256": "7a313964a6e050794d2ad57f4863c11f6bbe055c0ae6ce2cf3b9fc45150bada3"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "8016d6d9b9cdbaa681f24147e0b9377cc8cef934"
+        },
+        "path_in_vcs": "ed25519-dalek"
       }
     },
     {
@@ -765,6 +1166,60 @@
       }
     },
     {
+      "name": "hkdf",
+      "version": "0.12.4",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/RustCrypto/KDFs/",
+      "license": "MIT OR Apache-2.0",
+      "authors": [
+        "RustCrypto Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "59013a5c8d3a19c26a457579105915a5d51bb0c09d579f8cdedf12e4203c3018"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "d288f9c9b4590446ec18c22ead8f8b5a12a3d4025b68f62dc9015063eb9cca69"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "1ac16e8b9d4ee7a67613c9396c6cc1327652eaba"
+        },
+        "path_in_vcs": "hkdf"
+      }
+    },
+    {
+      "name": "hmac",
+      "version": "0.12.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/RustCrypto/MACs",
+      "license": "MIT OR Apache-2.0",
+      "authors": [
+        "RustCrypto Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "9e0dfd2dd4173a530e238cb6adb37aa78c34c6bc7444e0e10c1ab5d8881f63ba"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "46797e3b44973a30edb9d7f3a3ebb41810061d90"
+        },
+        "path_in_vcs": "hmac"
+      }
+    },
+    {
       "name": "idevice",
       "version": "0.1.68",
       "source": "git+https://github.com/jkcoxson/idevice?rev=26a28f6a46b5d85a28043c2e62febfa394c8b0a6#26a28f6a46b5d85a28043c2e62febfa394c8b0a6",
@@ -781,6 +1236,33 @@
         }
       ],
       "published_vcs": null
+    },
+    {
+      "name": "idevice-srp",
+      "version": "0.6.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/RustCrypto/PAKEs",
+      "license": "MIT OR Apache-2.0",
+      "authors": [
+        "RustCrypto Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "9e0dfd2dd4173a530e238cb6adb37aa78c34c6bc7444e0e10c1ab5d8881f63ba"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "5f9e56017f60a6eac95b7e19876409ca3c914f2f"
+        },
+        "path_in_vcs": ""
+      }
     },
     {
       "name": "indexmap",
@@ -805,6 +1287,33 @@
           "sha1": "41a870887c4c77adf665886e63df08f406bfe37a"
         },
         "path_in_vcs": ""
+      }
+    },
+    {
+      "name": "inout",
+      "version": "0.1.4",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/RustCrypto/utils",
+      "license": "MIT OR Apache-2.0",
+      "authors": [
+        "RustCrypto Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "304b898acad7f02e03d6d8832d682a3b43ee729ab5d3a069af5a36979083b6b4"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "784ff3c76c907f80363ada7dc69c1d5831d4789f"
+        },
+        "path_in_vcs": "inout"
       }
     },
     {
@@ -859,6 +1368,33 @@
       }
     },
     {
+      "name": "lazy_static",
+      "version": "1.5.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/rust-lang-nursery/lazy-static.rs",
+      "license": "MIT OR Apache-2.0",
+      "authors": [
+        "Marvin Löbel <loebel.marvin@gmail.com>"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "4c1b9a170c157d679592e2682b13cc780c1db814"
+        },
+        "path_in_vcs": ""
+      }
+    },
+    {
       "name": "libc",
       "version": "0.2.191",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -881,6 +1417,32 @@
           "sha1": "ccc2ff4aaab962f7fde7b8edda7379c045b1ca12"
         },
         "path_in_vcs": ""
+      }
+    },
+    {
+      "name": "libm",
+      "version": "0.2.16",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/rust-lang/compiler-builtins",
+      "license": "MIT",
+      "authors": [
+        "Alex Crichton <alex@alexcrichton.com>",
+        "Amanieu d'Antras <amanieu@gmail.com>",
+        "Jorge Aparicio <japaricious@gmail.com>",
+        "Trevor Gross <tg@trevorgross.com>"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE.txt",
+          "sha256": "3823dda7cf046602f4b4e77ec8e227863dc4736037cc85bb33d9f19febe16bb7"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "dfd2203a4d6110820ad7bb65cafe1bf331a03a3d"
+        },
+        "path_in_vcs": "libm"
       }
     },
     {
@@ -1013,6 +1575,61 @@
       }
     },
     {
+      "name": "num-bigint",
+      "version": "0.4.8",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/rust-num/num-bigint",
+      "license": "MIT OR Apache-2.0",
+      "authors": [
+        "The Rust Project Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "65330056d6c00def4c6cda78c87453f4c2a76913"
+        },
+        "path_in_vcs": ""
+      }
+    },
+    {
+      "name": "num-bigint-dig",
+      "version": "0.8.6",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/dignifiedquire/num-bigint",
+      "license": "MIT/Apache-2.0",
+      "authors": [
+        "dignifiedquire <dignifiedquire@gmail.com>",
+        "The Rust Project Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "1eb690d9170870c186a2795071482cfa472a170a"
+        },
+        "path_in_vcs": ""
+      }
+    },
+    {
       "name": "num-conv",
       "version": "0.2.2",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -1035,6 +1652,87 @@
       "published_vcs": {
         "git": {
           "sha1": "b022fe87ac3ad5b0d7606ea7465549eaa92efe97"
+        },
+        "path_in_vcs": ""
+      }
+    },
+    {
+      "name": "num-integer",
+      "version": "0.1.47",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/rust-num/num-integer",
+      "license": "MIT OR Apache-2.0",
+      "authors": [
+        "The Rust Project Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "765fd9b3eb9397471d41b9f613e530f6d9d6383f"
+        },
+        "path_in_vcs": ""
+      }
+    },
+    {
+      "name": "num-iter",
+      "version": "0.1.46",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/rust-num/num-iter",
+      "license": "MIT OR Apache-2.0",
+      "authors": [
+        "The Rust Project Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "6bfec7678bae3f4a38d1eeeab20532ac0bae7c9c"
+        },
+        "path_in_vcs": ""
+      }
+    },
+    {
+      "name": "num-traits",
+      "version": "0.2.19",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/rust-num/num-traits",
+      "license": "MIT OR Apache-2.0",
+      "authors": [
+        "The Rust Project Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "7ec3d41d39b28190ec1d42db38021107b3951f3a"
         },
         "path_in_vcs": ""
       }
@@ -1067,6 +1765,60 @@
       }
     },
     {
+      "name": "opaque-debug",
+      "version": "0.3.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/RustCrypto/utils",
+      "license": "MIT OR Apache-2.0",
+      "authors": [
+        "RustCrypto Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "f59f5a78193597e04fd932ee9af86254d14d08be5c9d0e003ab888feccce2161"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "dd4adddf8b716bb51eb8ccb8c73e47bff1e358aa"
+        },
+        "path_in_vcs": "opaque-debug"
+      }
+    },
+    {
+      "name": "pem-rfc7468",
+      "version": "0.7.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/RustCrypto/formats/tree/master/pem-rfc7468",
+      "license": "Apache-2.0 OR MIT",
+      "authors": [
+        "RustCrypto Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "90c503b61dee04e1449c323ec34c229dfb68d7adcb96c7e140ee55f70fce2d8e"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "66e782b01d58aeea7dd57213c2e262211e98a9c0"
+        },
+        "path_in_vcs": "pem-rfc7468"
+      }
+    },
+    {
       "name": "pin-project-lite",
       "version": "0.2.17",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -1089,6 +1841,60 @@
           "sha1": "3bdf763446aa78f90e3bdac1ef583e014832ab4c"
         },
         "path_in_vcs": ""
+      }
+    },
+    {
+      "name": "pkcs1",
+      "version": "0.7.5",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/RustCrypto/formats/tree/master/pkcs1",
+      "license": "Apache-2.0 OR MIT",
+      "authors": [
+        "RustCrypto Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "c995204cc6bad2ed67dd41f7d89bb9f1a9d48e0edd745732b30640d7912089a4"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "750ae946d284810f582a9c9ad428549561b1ee03"
+        },
+        "path_in_vcs": "pkcs1"
+      }
+    },
+    {
+      "name": "pkcs8",
+      "version": "0.10.2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/RustCrypto/formats/tree/master/pkcs8",
+      "license": "Apache-2.0 OR MIT",
+      "authors": [
+        "RustCrypto Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "ad64fcb9589f162720f3cc5010ad76ca6ad3764e11861f9192c489df176bb71d"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "7736dd21389b8820dfeb396e8c4c932de93d3ddf"
+        },
+        "path_in_vcs": "pkcs8"
       }
     },
     {
@@ -1130,6 +1936,33 @@
           "sha1": "d1d48559ddc8e9bd263f36180bbe1d4f2a3d55e5"
         },
         "path_in_vcs": ""
+      }
+    },
+    {
+      "name": "poly1305",
+      "version": "0.8.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/RustCrypto/universal-hashes",
+      "license": "Apache-2.0 OR MIT",
+      "authors": [
+        "RustCrypto Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "6d99fffea918d1f7dfe567029c7bd21d6fcaf310ad28c44e6511a0e1f68c79ea"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "47a72962e8898fc70ab79d4ab40949efe61a23d2"
+        },
+        "path_in_vcs": "poly1305"
       }
     },
     {
@@ -1296,6 +2129,38 @@
     },
     {
       "name": "rand",
+      "version": "0.8.8",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/rust-random/rand",
+      "license": "MIT OR Apache-2.0",
+      "authors": [
+        "The Rand Project Developers",
+        "The Rust Project Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "COPYRIGHT",
+          "sha256": "90eb64f0279b0d9432accfa6023ff803bc4965212383697eee27a0f426d5f8d5"
+        },
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "35242e7a83f69875e6edeff02291e688c97caafe2f8902e4e19b49d3e78b4cab"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "209fbbe0ad52d9235e37badf9cadfe4dbdc87203179c0899e738b39ade42177b"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "572d3b0c176085c485b8fa7818a04b769097bd72"
+        },
+        "path_in_vcs": ""
+      }
+    },
+    {
+      "name": "rand",
       "version": "0.9.5",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "repository": "https://github.com/rust-random/rand",
@@ -1324,6 +2189,38 @@
           "sha1": "3474ec047279e5de32676c50154ff7d76d12a94e"
         },
         "path_in_vcs": ""
+      }
+    },
+    {
+      "name": "rand_chacha",
+      "version": "0.3.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/rust-random/rand",
+      "license": "MIT OR Apache-2.0",
+      "authors": [
+        "The Rand Project Developers",
+        "The Rust Project Developers",
+        "The CryptoCorrosion Contributors"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "COPYRIGHT",
+          "sha256": "90eb64f0279b0d9432accfa6023ff803bc4965212383697eee27a0f426d5f8d5"
+        },
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "aaff376532ea30a0cd5330b9502ad4a4c8bf769c539c87ffe78819d188a18ebf"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "209fbbe0ad52d9235e37badf9cadfe4dbdc87203179c0899e738b39ade42177b"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "98a0339f99ecfe0467b2829c329bd8b7525a1c21"
+        }
       }
     },
     {
@@ -1388,6 +2285,38 @@
           "sha1": "5cd7df496d0bff1d95534ac8b66a2610f5bf7808"
         },
         "path_in_vcs": ""
+      }
+    },
+    {
+      "name": "rand_core",
+      "version": "0.6.4",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/rust-random/rand",
+      "license": "MIT OR Apache-2.0",
+      "authors": [
+        "The Rand Project Developers",
+        "The Rust Project Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "COPYRIGHT",
+          "sha256": "90eb64f0279b0d9432accfa6023ff803bc4965212383697eee27a0f426d5f8d5"
+        },
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "6df43f6f4b5d4587f3d8d71e45532c688fd168afa5fe89d571cb32fa09c4ef51"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "209fbbe0ad52d9235e37badf9cadfe4dbdc87203179c0899e738b39ade42177b"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "89a1336b934c68ddce548127c6f8afd910b35a18"
+        },
+        "path_in_vcs": "rand_core"
       }
     },
     {
@@ -1465,6 +2394,59 @@
       }
     },
     {
+      "name": "rsa",
+      "version": "0.9.10",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/RustCrypto/RSA",
+      "license": "MIT OR Apache-2.0",
+      "authors": [
+        "RustCrypto Developers",
+        "dignifiedquire <dignifiedquire@gmail.com>"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "769f80b5bcb42ed0af4e4d2fd74e1ac9bf843cb80c5a29219d1ef3544428a6bb"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "30fefc3a7d6a0041541858293bcbea2dde4caa4c0a5802f996a7f7e8c0085652"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "da2af9a0ff814762957c428460e4098720f394a6"
+        },
+        "path_in_vcs": ""
+      }
+    },
+    {
+      "name": "rustc_version",
+      "version": "0.4.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/djc/rustc-version-rs",
+      "license": "MIT OR Apache-2.0",
+      "authors": [],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "c9a75f18b9ab2927829a208fc6aa2cf4e63b8420887ba29cdb265d6619ae82d5"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "eeca449cca83e24150e46739e797aa82e9142809"
+        },
+        "path_in_vcs": ""
+      }
+    },
+    {
       "name": "rustls",
       "version": "0.23.46",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -1535,6 +2517,33 @@
       "published_vcs": {
         "git": {
           "sha1": "8ecdcc76f56b68fda67a6adf7976f5eed5006a4c"
+        },
+        "path_in_vcs": ""
+      }
+    },
+    {
+      "name": "semver",
+      "version": "1.0.28",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/dtolnay/semver",
+      "license": "MIT OR Apache-2.0",
+      "authors": [
+        "David Tolnay <dtolnay@gmail.com>"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "7625c7aa3f0e8ba21e099d1765bcebcb72aa8816"
         },
         "path_in_vcs": ""
       }
@@ -1649,6 +2658,33 @@
       }
     },
     {
+      "name": "sha1",
+      "version": "0.10.7",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/RustCrypto/hashes",
+      "license": "MIT OR Apache-2.0",
+      "authors": [
+        "RustCrypto Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "b4eb00df6e2a4d22518fcaa6a2b4646f249b3a3c9814509b22bd2091f1392ff1"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "0b32162344ab2bbc3749889370927ae49137d4ae"
+        },
+        "path_in_vcs": "sha1"
+      }
+    },
+    {
       "name": "sha2",
       "version": "0.10.9",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -1708,6 +2744,64 @@
       }
     },
     {
+      "name": "signature",
+      "version": "2.2.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/RustCrypto/traits/tree/master/signature",
+      "license": "Apache-2.0 OR MIT",
+      "authors": [
+        "RustCrypto Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "b3470648aff02beb36d7a53240fc9260ed80ed93bd43bace6b67d7ef7336ee33"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "5adcd4819b380b4aaec2b57c6bf3f2239a109060"
+        },
+        "path_in_vcs": "signature"
+      }
+    },
+    {
+      "name": "siphasher",
+      "version": "1.0.4",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/jedisct1/rust-siphash",
+      "license": "MIT OR Apache-2.0",
+      "authors": [
+        "Frank Denis <github@pureftpd.org>"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "COPYING",
+          "sha256": "c962ee4d1d05ddc138b202b2540219ebc57893fcf97b364852094a9a94ce1365"
+        },
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "f9c4c77baa3828004ee54b8a4f2db2e88ed44a6237a493965bf551fac0fcb62d"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "ed028f01a16205b0819fa83b0cdc052e2d5ac3b7"
+        },
+        "path_in_vcs": ""
+      }
+    },
+    {
       "name": "slab",
       "version": "0.4.12",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -1726,6 +2820,33 @@
       "published_vcs": {
         "git": {
           "sha1": "a1e4346070a48c936d808de75191dee5d01e433c"
+        },
+        "path_in_vcs": ""
+      }
+    },
+    {
+      "name": "smallvec",
+      "version": "1.16.4",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/servo/rust-smallvec",
+      "license": "MIT OR Apache-2.0",
+      "authors": [
+        "The Servo Project Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "0b28172679e0009b655da42797c03fd163a3379d5cfa67ba1f1655e974a2a1a9"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "eab77462eda2767d2386f1d251928f474827e1c7"
         },
         "path_in_vcs": ""
       }
@@ -1756,6 +2877,58 @@
           "sha1": "239dd83a4ced08e514d2c38942aab99791119f0d"
         },
         "path_in_vcs": ""
+      }
+    },
+    {
+      "name": "spin",
+      "version": "0.9.9",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/mvdnes/spin-rs.git",
+      "license": "MIT",
+      "authors": [
+        "Mathijs van de Nes <git@mathijs.vd-nes.nl>",
+        "John Ericson <git@JohnEricson.me>",
+        "Joshua Barretto <joshua.s.barretto@gmail.com>"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE",
+          "sha256": "6ac8711fb340c62ce0a4ecd463342d3fa0e8e70de697c863a2e1c0c53006003c"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "d882207a7befa5dd74981306e9c2cc2c3ef21cd7"
+        },
+        "path_in_vcs": ""
+      }
+    },
+    {
+      "name": "spki",
+      "version": "0.7.3",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/RustCrypto/formats/tree/master/spki",
+      "license": "Apache-2.0 OR MIT",
+      "authors": [
+        "RustCrypto Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "c995204cc6bad2ed67dd41f7d89bb9f1a9d48e0edd745732b30640d7912089a4"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "15ea461dc3484d48710deed932e4d3d9052c1f9b"
+        },
+        "path_in_vcs": "spki"
       }
     },
     {
@@ -2182,6 +3355,33 @@
       }
     },
     {
+      "name": "universal-hash",
+      "version": "0.5.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/RustCrypto/traits",
+      "license": "MIT OR Apache-2.0",
+      "authors": [
+        "RustCrypto Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "6b50510a0400c72172355cc5d2ba0f2c5c2eb33149b8f96539dc345fdc484920"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "742af86f821d7f79e76962d302c819b14622a485"
+        },
+        "path_in_vcs": "universal-hash"
+      }
+    },
+    {
       "name": "untrusted",
       "version": "0.9.0",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -2260,6 +3460,31 @@
       }
     },
     {
+      "name": "x25519-dalek",
+      "version": "2.0.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/dalek-cryptography/curve25519-dalek/tree/main/x25519-dalek",
+      "license": "BSD-3-Clause",
+      "authors": [
+        "Isis Lovecruft <isis@patternsinthevoid.net>",
+        "DebugSteven <debugsteven@gmail.com>",
+        "Henry de Valence <hdevalence@hdevalence.ca>"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE",
+          "sha256": "bebc725b8cb1ba1ed1798cb505cf31bf9bce4cbe942baf358b642666ba8186bd"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "4ac84dd0668b1d2e51654fcdffe4ae6a687bef00"
+        },
+        "path_in_vcs": "x25519-dalek"
+      }
+    },
+    {
       "name": "zerocopy",
       "version": "0.8.63",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -2313,6 +3538,33 @@
           "sha1": "34a6ebcb9b920ec7ae5809e470fce94fe7c0cb55"
         },
         "path_in_vcs": "zeroize"
+      }
+    },
+    {
+      "name": "zeroize_derive",
+      "version": "1.5.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/RustCrypto/utils",
+      "license": "Apache-2.0 OR MIT",
+      "authors": [
+        "The RustCrypto Project Developers"
+      ],
+      "status": "notice-files-collected",
+      "files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "b8c6939380a400f53e11923d50fcc4dd2fa1ba8339fd9d04cda38a0251b6c9b0"
+        }
+      ],
+      "published_vcs": {
+        "git": {
+          "sha1": "1ea42bb68f560a2909c856b20aa3c62901f6305c"
+        },
+        "path_in_vcs": "zeroize_derive"
       }
     },
     {

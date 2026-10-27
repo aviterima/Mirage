@@ -13,7 +13,7 @@ permissions:
   contents: read
 concurrency:
   group: iphone-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   swift-and-simulator:
     runs-on: macos-15
@@ -22,8 +22,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Toolchain identity
         run: |
-          xcodebuild -version
-          swift --version
+          mkdir -p ios/build
+          xcodebuild -version | tee ios/build/toolchain.txt
+          swift --version | tee -a ios/build/toolchain.txt
       - name: Core behavior tests
         run: |
           mkdir -p ios/build
@@ -37,7 +38,9 @@ jobs:
           -derivedDataPath ios/DerivedData CODE_SIGNING_ALLOWED=NO build
       - name: Select available iPhone simulator
         run: |
-          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for xs in d["devices"].values() for x in xs if x["isAvailable"] and "iPhone" in x["name"]))')
+          xcrun simctl list devices available -j > ios/build/available-simulators.json
+          DEVICE_ID=$(python3 ios/scripts/select-simulator.py ios/build/available-simulators.json ios/build/simulator.json)
+          cat ios/build/simulator.json
           echo "MIRAGE_SIMULATOR=$DEVICE_ID" >> "$GITHUB_ENV"
       - name: Native UI acceptance
         run: >-
@@ -61,6 +64,8 @@ jobs:
             ios/build/screenshots
             ios/build/core-tests.xml
             ios/build/native-test-summary.json
+            ios/build/toolchain.txt
+            ios/build/simulator.json
             ios/DerivedData/Build/Products/Debug-iphonesimulator/Mirage.app
   device-bridge:
     runs-on: macos-15

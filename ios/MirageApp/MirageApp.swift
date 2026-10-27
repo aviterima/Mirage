@@ -79,7 +79,7 @@ struct MirageRootView: View {
                         .font(.headline)
                     Text("Test location output and recovery before the full iPhone planner is released.")
                         .font(.subheadline).foregroundStyle(.secondary)
-                    Text(model.mode == .preview ? "PREVIEW ONLY · does not change iPhone location" : "IPHONE OUTPUT · pairing and a local tunnel required")
+                    Text(model.mode == .preview ? "PREVIEW ONLY · does not change iPhone location" : "IPHONE OUTPUT · Remote Pairing and a local tunnel required")
                         .font(.caption.bold()).accessibilityIdentifier("output-mode-banner")
                 }
                 .padding().frame(maxWidth: .infinity, alignment: .leading)
@@ -229,21 +229,23 @@ struct MirageRootView: View {
     private var setup: some View {
         Form {
             Section("Device output") {
-                LabeledContent("Transport", value: DeviceTransport.isAvailable ? "Pinned developer-service bridge" : "Not included in this build")
+                LabeledContent("Transport", value: DeviceTransport.isAvailable ? "Pinned Remote Pairing bridge" : "Not included in this build")
                 Text("This proof sets latitude and longitude only. Speed, course, altitude and accuracy are not supplied by this transport.")
                     .font(.caption)
-                TextField("Tunnel host", text: $model.host).textInputAutocapitalization(.never).autocorrectionDisabled()
+                Text(model.setupNotice).font(.caption)
+                TextField("Remote Pairing endpoint host", text: $model.host).textInputAutocapitalization(.never).autocorrectionDisabled()
                     .disabled(!model.canEditDeviceSetup).onChange(of: model.host) { _, _ in model.setupChanged() }
-                TextField("Developer-service port", text: $model.port).keyboardType(.numberPad).disabled(!model.canEditDeviceSetup)
+                TextField("Remote Pairing service port", text: $model.port).keyboardType(.numberPad).disabled(!model.canEditDeviceSetup)
                     .onChange(of: model.port) { _, _ in model.setupChanged() }
-                Button(model.pairingImported ? "Replace pairing file…" : "Import pairing file…") { importingPairing = true }
+                Button(model.pairingImported ? "Replace Remote Pairing file…" : "Import Remote Pairing file…") { importingPairing = true }
                     .disabled(!model.canEditDeviceSetup)
-                Text(model.pairingImported ? "Pairing record is stored privately and excluded from backups." : "Select the pairing record on this phone. Do not paste it into messages.")
+                Text(model.pairingImported ? "Remote Pairing file is stored privately and excluded from backups." : "Select the Remote Pairing plist prepared for this phone. Classic lockdown records are unsupported. Do not paste credentials into messages.")
                     .font(.caption)
             }
             Section("Before the device proof") {
-                Text("Use an owner-controlled iPhone with Developer Mode, a valid pairing record, the required developer services and a working loopback tunnel. Exact OS compatibility remains unverified.")
-                Text("The current app does not install a VPN profile or pair a phone. The bridge must be included in a signed device build; a simulator preview cannot validate device output.")
+                Text("Target: iPhone 16 Pro Max running iOS 26.6.1. Physical-device compatibility remains unverified.")
+                Text("Prepare Developer Mode, this iPhone's Remote Pairing file, the matching cryptex developer image and a working loopback tunnel. Use the Remote Pairing endpoint supplied by that tunnel.")
+                Text("Mirage verifies existing Remote Pairing. It does not start PIN pairing, prepare a developer image or install a VPN profile. The bridge must be included in a signed device build; a simulator preview cannot validate device output.")
                 Text("The proof pauses its driving loop when backgrounded and requires recovery. Background operation, lock-screen behavior and CarPlay still need physical-device tests.")
             }
             Section("Build status") {

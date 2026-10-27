@@ -52,6 +52,27 @@ final class ProofModelTests: XCTestCase {
     private let recoveryKey = "deviceOutputMayNeedRecovery"
     private let point = Coordinate(lat: 32.2, lng: -110.9)
 
+    func testRemotePairingDefaultsDoNotReuseLegacyEndpointPreferences() async throws {
+        let suiteName = "com.mirage.tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("legacy.fixture.invalid", forKey: "deviceTunnelHost")
+        defaults.set("62078", forKey: "deviceTunnelPort")
+        let output = FixtureDeviceOutput()
+        let model = ProofModel(defaults: defaults, deviceOutputFactory: { output })
+        XCTAssertEqual(model.host, "10.7.0.1")
+        XCTAssertEqual(model.port, "49152")
+        XCTAssertTrue(model.setupNotice.contains("are not used"))
+        XCTAssertEqual(defaults.string(forKey: "deviceTunnelPort"), "62078", "Preserve earlier explicit settings")
+        model.host = "fd00::1"
+        model.port = "55555"
+        model.setupChanged()
+        let reloaded = ProofModel(defaults: defaults, deviceOutputFactory: { output })
+        XCTAssertEqual(reloaded.host, "fd00::1")
+        XCTAssertEqual(reloaded.port, "55555")
+        XCTAssertEqual(defaults.string(forKey: "deviceTunnelPort"), "62078")
+    }
+
     func testChangingOutputModeUsesOnlyTheSelectedTransport() async throws {
         let firstSend = expectation(description: "Device fixture received its first coordinate")
         let output = FixtureDeviceOutput(onFirstSend: { firstSend.fulfill() })

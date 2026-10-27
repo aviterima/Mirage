@@ -10,7 +10,8 @@ final class ProofModel: ObservableObject {
     @Published var longitude = "-122.0090"
     @Published var duration = "60"
     @Published var host = "10.7.0.1"
-    @Published var port = "62078"
+    @Published var port = "49152"
+    @Published var setupNotice = "Use the Remote Pairing endpoint provided by your loopback tunnel. The service default is 49152."
     @Published var status = "Connect to begin the device proof"
     @Published var busy = false
     @Published var stopping = false
@@ -50,8 +51,12 @@ final class ProofModel: ObservableObject {
         self.deviceOutputFactory = deviceOutputFactory
         self.observationClock = observationClock
         recoveryNeeded = defaults.bool(forKey: Self.recoveryKey)
-        host = defaults.string(forKey: "deviceTunnelHost") ?? "10.7.0.1"
-        port = defaults.string(forKey: "deviceTunnelPort") ?? "62078"
+        host = defaults.string(forKey: "remotePairingHost") ?? "10.7.0.1"
+        port = defaults.string(forKey: "remotePairingPort") ?? "49152"
+        if defaults.string(forKey: "remotePairingPort") == nil,
+           defaults.string(forKey: "deviceTunnelPort") != nil {
+            setupNotice = "Previous developer-service settings are preserved but are not used. Enter this iPhone's Remote Pairing endpoint; the service default is 49152."
+        }
         if recoveryNeeded { status = "Previous device output needs recovery. Connect, then Stop and verify real location." }
         if deviceOutputFactory != nil {
             pairingImported = true
@@ -100,8 +105,8 @@ final class ProofModel: ObservableObject {
                         status = "This build supports preview only. Use a device-enabled build for iPhone output."
                         return
                     }
-                    guard pairingImported else { status = "Import this iPhone's pairing record in Setup first"; return }
-                    guard let number = UInt16(port), number > 0 else { status = "Enter a valid developer-service port"; return }
+                    guard pairingImported else { status = "Import this iPhone's Remote Pairing file in Setup first"; return }
+                    guard let number = UInt16(port), number > 0 else { status = "Enter a valid Remote Pairing service port"; return }
                     let device: any LocationOutput
                     if let deviceOutputFactory { device = try deviceOutputFactory() }
                     else { device = try DeviceTransport(pairingRecordURL: PrivateFiles.pairingURL(), host: host, port: number) }
@@ -115,7 +120,7 @@ final class ProofModel: ObservableObject {
             let snapshot = await session.connect()
             update(snapshot, from: session)
         } catch {
-            status = "Device setup is incomplete. Import a pairing file, start the loopback tunnel, and use a device-enabled build."
+            status = "Device setup is incomplete. Import a Remote Pairing file, prepare the cryptex developer image and loopback tunnel, and use a device-enabled build."
         }
     }
 
@@ -349,15 +354,16 @@ final class ProofModel: ObservableObject {
 
     func importPairing(from url: URL) {
         guard canEditDeviceSetup else { return }
-        do { try PrivateFiles.importPairing(from: url); pairingImported = true; setupChanged(); status = "Pairing file stored privately on this device" }
-        catch { status = "Pairing file could not be imported. Select a valid device pairing plist." }
+        do { try PrivateFiles.importPairing(from: url); pairingImported = true; setupChanged(); status = "Remote Pairing file stored privately on this device" }
+        catch let error as RemotePairingFileError { status = error.localizedDescription }
+        catch { status = "Remote Pairing file could not be imported. Select a readable file prepared for this iPhone." }
     }
 
     func setupChanged() {
         guard canEditDeviceSetup else { return }
         // Retain the durable recovery marker. A replacement session may connect only for clear.
-        defaults.set(host, forKey: "deviceTunnelHost")
-        defaults.set(port, forKey: "deviceTunnelPort")
+        defaults.set(host, forKey: "remotePairingHost")
+        defaults.set(port, forKey: "remotePairingPort")
         session = nil
         lastSnapshotRevision = 0
         connected = false

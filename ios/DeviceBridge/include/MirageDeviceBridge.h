@@ -14,7 +14,7 @@ typedef struct MirageDeviceBridge MirageDeviceBridge;
    Never destroy a handle while another caller is using it. */
 MirageDeviceBridge *mirage_device_create(void);
 int32_t mirage_device_connect(MirageDeviceBridge *handle, const char *numeric_host,
-                             uint16_t lockdown_port, const uint8_t *pairing_bytes,
+                             uint16_t remote_pairing_port, const uint8_t *pairing_bytes,
                              size_t pairing_size);
 int32_t mirage_device_set(MirageDeviceBridge *handle, double latitude, double longitude);
 int32_t mirage_device_clear(MirageDeviceBridge *handle);
@@ -31,7 +31,9 @@ enum {
     MIRAGE_DEVICE_CLEAR_FAILED = 6,
     MIRAGE_DEVICE_TIMED_OUT = 7,
     MIRAGE_DEVICE_ALREADY_CONNECTED = 8,
-    MIRAGE_DEVICE_WORKER_UNAVAILABLE = 9
+    MIRAGE_DEVICE_WORKER_UNAVAILABLE = 9,
+    MIRAGE_DEVICE_PAIRING_REJECTED = 10,
+    MIRAGE_DEVICE_DEVELOPER_SERVICE_UNAVAILABLE = 11
 };
 
 #ifdef __cplusplus
