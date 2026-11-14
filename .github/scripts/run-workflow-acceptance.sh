@@ -9,10 +9,10 @@ if [ "${MIRAGE_EXPERIMENTAL_MODEL:-false}" = "true" ]; then
     connectedDebugAndroidTest
   test_result=$?
 else
-  # Fail early on paused status, drag order and compact keyboard layout before
+  # Fail early on paused status, drag order and compact/large keyboard layouts before
   # running all journeys. Keep the established evidence names and JSON schema.
   ./gradlew --no-daemon -PexperimentalLanguageModel=false \
-    -Pandroid.testInstrumentationRunnerArguments.class=com.mirage.spike.ContinuationUiAcceptanceTest#addingSnapAfterCurrentStopDoesNotResumePausedSimulation,com.mirage.spike.ContinuationUiAcceptanceTest#savedItineraryAddsAllStopsAndPreservesItsStaysAndOriginal,com.mirage.spike.WorkflowUiAcceptanceTest#dragStopThenSaveAndReloadPreservesNewOrder,com.mirage.spike.PlannerVoiceUiAcceptanceTest#compactPlannerKeepsNextStopAndSearchResultAboveFooterWithKeyboard \
+    -Pandroid.testInstrumentationRunnerArguments.class=com.mirage.spike.ContinuationUiAcceptanceTest#addingSnapAfterCurrentStopDoesNotResumePausedSimulation,com.mirage.spike.ContinuationUiAcceptanceTest#savedItineraryAddsAllStopsAndPreservesItsStaysAndOriginal,com.mirage.spike.WorkflowUiAcceptanceTest#dragStopThenSaveAndReloadPreservesNewOrder,com.mirage.spike.PlannerVoiceUiAcceptanceTest#compactPlannerKeepsNextStopAndSearchResultAboveFooterWithKeyboard,com.mirage.spike.WorkflowUiAcceptanceTest#longItineraryAndLargerTextKeepAddFieldAbovePlaybackControls \
     connectedDebugAndroidTest > ../acceptance-evidence/paused-preflight.log 2>&1
   test_result=$?
   cat ../acceptance-evidence/paused-preflight.log
@@ -35,8 +35,9 @@ expected = {
     ('com.mirage.spike.ContinuationUiAcceptanceTest', 'savedItineraryAddsAllStopsAndPreservesItsStaysAndOriginal'),
     ('com.mirage.spike.WorkflowUiAcceptanceTest', 'dragStopThenSaveAndReloadPreservesNewOrder'),
     ('com.mirage.spike.PlannerVoiceUiAcceptanceTest', 'compactPlannerKeepsNextStopAndSearchResultAboveFooterWithKeyboard'),
+    ('com.mirage.spike.WorkflowUiAcceptanceTest', 'longItineraryAndLargerTextKeepAddFieldAbovePlaybackControls'),
 }
-assert len(cases) == len(expected) and {(case['class'], case['name']) for case in cases} == expected, 'Focused test selection did not run exactly the four expected journeys'
+assert len(cases) == len(expected) and {(case['class'], case['name']) for case in cases} == expected, 'Focused test selection did not run exactly the five expected journeys'
 assert not any(case[key] for case in cases for key in ('failure', 'error', 'skipped')), 'Focused regression checks failed'
 PY
   preflight_record_result=$?

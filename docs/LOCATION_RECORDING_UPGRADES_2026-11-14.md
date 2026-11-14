@@ -33,7 +33,35 @@ Keep the existing branch, signing identity, saved library, and uncommitted iPhon
 work intact. Preserve original output-provider acceptance and cancellation checks.
 Android real recording uses a user-started location foreground service; no hidden
 background start or automatic collection. Permissions are requested when needed.
+iPhone real recording requires any existing output connection to be stopped and
+cleared, with fresh real-location recovery, before collection begins. Its real,
+emulated and preview recordings remain separate. Saved-stop sequences on iPhone
+currently use straight segments; road routing and saved stay settings are not
+applied. The UI states these limits before playback.
 All-day battery and lock-screen behavior require physical-device validation.
+
+## Using the new controls
+
+- **Android map:** tap the target button to return to the current emitted
+  location, including while paused. The camera zooms in without changing the
+  simulated position. In Add stop, type a name, alias or address to see saved
+  matches immediately, or open Saved places with that same filter.
+- **Android recordings:** open Recordings from the map header, choose Record
+  real journey with simulation stopped, or Record emulated day. Stop and save
+  ends collection; closing the list does not. Saved rows provide Rename,
+  Delete and Replay. Replay opens a separate confirmation and speed choice.
+- **iPhone stops and map:** Plan stops offers local saved matches and a Saved
+  locations picker sharing the address filter. Choosing a saved place adds it to
+  the proposed sequence; Play sequence is a separate action. Device proof has
+  a zoom button for the current output or explicitly labeled preview position.
+- **iPhone recordings:** use the Recordings tab. Clear and recover an existing
+  output connection before Record real journey. Emulated and preview recordings
+  are labeled separately. Stop and save recording, Rename and Replay remain
+  explicit actions. Connect the selected output in Device proof before replay.
+
+Suggested names include the source and date/time. Recordings remain local to
+the phone. Speed choices are 1×, 2×, 5× and 10×; gaps hold the last known point
+until recorded locations resume.
 
 ## Acceptance
 
@@ -82,3 +110,37 @@ mark the interruption as a gap and can span subsequent foreground sessions. This
 does not claim continuous all-day iPhone emulation, full Android planning parity,
 or a signed/installable iPhone distribution. The owner uses Windows/iPad; validation
 uses hosted macOS, not owner-run Xcode.
+
+### Validation history retained
+
+- Android intermediate `d1c44efc1525833d270e832a85a1d9759761e84a`
+  passed 309 JVM tests and 67 of 68 interface tests. The remaining existing
+  large-text test expected Saved to discard its `Library` filter and show Home.
+  The corrected test verifies the inherited filter, changes it explicitly to
+  Home, and retains its layout and playback assertions. All nine new interface
+  and Android-storage tests passed in that intermediate run.
+- A subsequent recording regression on both platforms preserves the last
+  stationary observation before movement starts. This prevents early departure
+  or a false gap caused by compressed stationary samples. Its final-source
+  Android regression is included among 310 passing JVM tests.
+- The first iPhone attempt failed to compile a test that called Swift's
+  `isEmpty` property as a function; corrected before subsequent testing.
+- iPhone intermediate `5a1150c8cd1c2e9dce921eea62f25865ce3f7a8f`
+  passed native compilation and 23 native unit tests. Its recording interface
+  test reached Rename but could not locate the visible native text field:
+  UIKit exposed its `Recording name` placeholder instead of the SwiftUI
+  identifier and reported a different modal type. The corrected test locates
+  that exact placeholder and retains title, visibility, edited-value,
+  persistence and replay assertions. This interrupted run is not an interface
+  acceptance pass.
+- Inspection of that compiled unsigned iPhone app found generated version
+  `1.0`/build `1` and device family `[1,2]`. Explicit target/plist metadata now
+  sets `0.2.0`/build `2` and iPhone family `[1]`; simulator and device build
+  checks assert the actual compiled metadata and background-location capability.
+- Final iPhone source also guards against starting real recording with an idle
+  output connection. A native regression covers clearing, fresh real-location
+  recovery and continued real capture after backgrounding. Physical lock-screen
+  acceptance remains separate.
+
+Superseded runs and their failures remain recorded in private task evidence.
+No failed, cancelled or unrun check is treated as a pass, and no test was waived.

@@ -109,7 +109,13 @@ class WorkflowUiAcceptanceTest {
 
     private fun pickPlannerPlace(buttonTag: String, id: String, query: String? = null, expectedFilter: String? = null) {
         compose.onNodeWithTag(buttonTag).performScrollTo().performClick()
-        compose.onNodeWithTag("plannerSavedPlaces").assertIsDisplayed()
+        val sheet = compose.onNodeWithTag("plannerSavedPlaces")
+        // The IME and modal window can still be moving after Compose is idle.
+        // Require the actual sheet to become visible, not just its semantics node.
+        compose.waitUntil(10_000) {
+            try { sheet.assertIsDisplayed(); true } catch (_: AssertionError) { false }
+        }
+        sheet.assertIsDisplayed()
         compose.onNodeWithTag("plannerSavedPlace-fixture-route").assertDoesNotExist()
         if (expectedFilter != null) {
             compose.onNodeWithTag("plannerSavedPlaceSearch").assertTextContains(expectedFilter)
@@ -273,6 +279,11 @@ class WorkflowUiAcceptanceTest {
             compose.onNodeWithText("Start itinerary").assertIsDisplayed()
             screenshot("large-text-saved-stop-after-filter")
             assertFalse(MockState.status.value.running)
+        } catch (failure: Throwable) {
+            // Font restoration recreates the Activity, so preserve any failing
+            // large-text/IME layout before finally removes that evidence.
+            runCatching { screenshot("large-text-failure-before-font-reset") }
+            throw failure
         } finally {device.executeShellCommand("settings put system font_scale 1.0")}
     }
 
