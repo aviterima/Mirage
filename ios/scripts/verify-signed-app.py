@@ -166,7 +166,9 @@ def verify_ipa(ipa, team, method, certificate, recipient, source):
         entitlements = plistlib.loads(run("codesign", "--display", "--entitlements", ":-", str(app)))
         validate_entitlements(entitlements, profile, team)
         certificate_prefix = folder / "signer"
-        run("codesign", "--display", "--extract-certificates", str(certificate_prefix), str(app))
+        # The prefix is optional: bind it with '=' so it cannot be parsed as
+        # another code object (the no-prefix form defaults to ./codesign0).
+        run("codesign", "--display", f"--extract-certificates={certificate_prefix}", str(app))
         require((folder / "signer0").read_bytes() == certificate, "Exported app uses a different signing certificate.")
         executable = app / info["CFBundleExecutable"]
         require(run("xcrun", "lipo", "-archs", str(executable)).decode().strip() == "arm64", "Expected ARM64 device executable.")

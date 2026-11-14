@@ -27,7 +27,7 @@ Before recipient delivery, verify signing, exact downloaded bytes, sharing scope
 
 ## Current external prerequisites
 
-Repository secret names were inspected on 14 November 2026: no Apple signing secrets are configured. No Apple distribution integration was found in the plugin catalog. Membership/access and the recipient's phone/iOS are pending user information. No Apple enrollment purchase, agreement acceptance, device registration, TestFlight submission or public signed release has occurred.
+Repository secret names were inspected on 14 November 2026: no Apple signing secrets are configured. No Apple distribution integration was found in the plugin catalog. The owner confirmed there is no paid Apple Developer membership. The recipient has a Mac; phone/iOS and Mac details remain pending. The owner's own equipment is still Windows/iPad. No Apple enrollment purchase, agreement acceptance, device registration, TestFlight submission or public signed release has occurred.
 
 Implementation and executed validation results will be appended here. This document is a specification, not a declaration that an installable release exists.
 

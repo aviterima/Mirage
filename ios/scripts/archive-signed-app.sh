@@ -50,6 +50,13 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 ARCHIVE="$OUT/Mirage.xcarchive"
+# Xcode only emits recognized INFOPLIST_KEY_* settings. Supply our custom
+# native-build marker in an explicit base plist; generated standard app keys
+# still come from GENERATE_INFOPLIST_FILE and the existing project settings.
+python3 - "$PRIVATE/DeviceInfo.plist" <<'PY'
+import pathlib, plistlib, sys
+pathlib.Path(sys.argv[1]).write_bytes(plistlib.dumps({'MirageNativeDeviceBridge':'enabled'}))
+PY
 COMMON=( -project "$ROOT/Mirage.xcodeproj" -scheme Mirage -configuration Release
   -sdk iphoneos -destination 'generic/platform=iOS' -archivePath "$ARCHIVE"
   -derivedDataPath "$PRIVATE/DerivedData"
@@ -58,7 +65,7 @@ COMMON=( -project "$ROOT/Mirage.xcodeproj" -scheme Mirage -configuration Release
   "HEADER_SEARCH_PATHS=\$(inherited) \"$ROOT/DeviceBridge/include\""
   "LIBRARY_SEARCH_PATHS=\$(inherited) \"$ROOT/DeviceBridge/build/aarch64-apple-ios\""
   'OTHER_LDFLAGS=$(inherited) -lmirage_device_bridge -framework Security -framework SystemConfiguration'
-  INFOPLIST_KEY_MirageNativeDeviceBridge=enabled "CURRENT_PROJECT_VERSION=$BUILD_NUMBER"
+  "INFOPLIST_FILE=$PRIVATE/DeviceInfo.plist" GENERATE_INFOPLIST_FILE=YES "CURRENT_PROJECT_VERSION=$BUILD_NUMBER"
   STRIP_INSTALLED_PRODUCT=NO COPY_PHASE_STRIP=NO )
 if [[ "$METHOD" == dry-run ]]; then
   xcodebuild "${COMMON[@]}" CODE_SIGNING_ALLOWED=NO archive > "$OUT/dry-run-archive.log" 2>&1 || {
