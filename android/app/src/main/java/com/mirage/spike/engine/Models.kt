@@ -102,4 +102,6 @@ data class Fix(
     val progress: Float = -1f,
     /** Estimated seconds to the end of the current leg, or -1 when unknown. */
     val remainingSec: Int = -1,
+    /** Recorded samples keep their coordinates; do not add synthetic signal jitter. */
+    val preserveCoordinates: Boolean = false,
 )

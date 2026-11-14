@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.mirage.spike.engine.*
 import com.mirage.spike.store.SavedScenario
+import com.mirage.spike.store.savedItemSearch
 import com.mirage.spike.audit.*
 import kotlinx.coroutines.*
 
@@ -114,13 +115,19 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
         selectedSavedId=null; serial++; searchJob?.cancel(); previewJob?.cancel(); state = null
     }
     fun edit(open: Boolean) { state = state?.copy(editorOpen = open) }
+    /** The address box and Saved places use the same local query, even offline. */
+    val savedPlaceMatches: List<SavedScenario>
+        get() = savedItemSearch(vm.savedScenarios, state?.query.orEmpty(), "SNAP").filter { it.dest != null }
+
     fun source(value: DestinationSource) {
         val d = state ?: return
         selectedSavedId = null
         serial++; searchJob?.cancel(); previewJob?.cancel()
-        state = d.copy(source = value, query = "", hits = emptyList(), searching = false,
+        val query = if (d.stops.isEmpty()) d.query else ""
+        state = d.copy(source = value, query = query, hits = emptyList(), searching = false,
             stops = emptyList(), title = "", summary = "", savedOrigin = null, adaptedRealStart = false,
             points = emptyList(), ready = false, previewBusy = false, error = null)
+        if (value == DestinationSource.SEARCH) this.query(query)
     }
     fun placement(value: Placement) {
         val d = state ?: return
@@ -178,13 +185,19 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
     }
     fun query(text: String, immediate: Boolean = false) {
         val d = state ?: return
+        selectedSavedId = null
         serial++; val generation = serial
         searchJob?.cancel(); previewJob?.cancel()
         val q = text.trim()
-        state = d.copy(query = text, hits = emptyList(), searching = q.length >= 2,
+        val searchOnline = d.source == DestinationSource.SEARCH && q.length >= 2 && vm.hasKey
+        state = d.copy(query = text, hits = emptyList(), searching = searchOnline,
             stops = emptyList(), title = "", summary = "", savedOrigin = null, adaptedRealStart = false,
             points = emptyList(), ready = false, previewBusy = false, error = null)
-        if (q.length < 2) return
+        if (!searchOnline) {
+            if (d.source == DestinationSource.SEARCH && q.length >= 2 && !vm.hasKey && savedPlaceMatches.isEmpty())
+                state = state?.copy(error = "No saved places match. Add a Maps key in Setup to search other places.")
+            return
+        }
         searchJob = scope.launch {
             var operation: Long? = null
             var started = 0L
@@ -202,14 +215,15 @@ class ContinuationPlanner(private val vm: MirageViewModel, private val scope: Co
                 val hits = vm.placeSearch(vm.api, q, origin(d))
                 if (isActive && generation == serial) {
                     state = state?.copy(hits = hits, searching = false,
-                        error = if (hits.isEmpty()) "No matches. Try the full address and city." else null)
+                        error = if (hits.isEmpty() && savedPlaceMatches.isEmpty()) "No matches. Try the full address and city." else null)
                     result(AuditOutcome.SUCCEEDED, if (hits.isEmpty()) AuditReason.NO_RESULTS else AuditReason.NONE, hits.size)
                 } else result(AuditOutcome.IGNORED, AuditReason.STALE)
             } catch (e: CancellationException) { result(AuditOutcome.CANCELLED); throw e }
             catch (e: Exception) {
                 result(if (generation == serial) AuditOutcome.FAILED else AuditOutcome.IGNORED,
                     if (generation != serial) AuditReason.STALE else if (!vm.hasKey) AuditReason.NO_API else auditReason(e))
-                if (generation == serial) state = state?.copy(searching = false, error = e.message)
+                if (generation == serial) state = state?.copy(searching = false,
+                    error = if (savedPlaceMatches.isEmpty()) e.message else null)
             }
         }
     }

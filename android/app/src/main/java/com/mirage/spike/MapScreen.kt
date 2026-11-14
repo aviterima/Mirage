@@ -582,6 +582,7 @@ fun MapScreen(
         val latestEntries by rememberUpdatedState(startQuery to endQuery)
         val cancelLocationRequest = { locationRequest++; locatingField = null }
         var savedPlaceTarget by remember { mutableStateOf<Field?>(null) }
+        var savedPlaceInitialQuery by remember { mutableStateOf("") }
         var previousStopCount by remember { mutableStateOf(vm.stops.size) }
         var newestStop by remember { mutableStateOf<ItineraryStop?>(null) }
         LaunchedEffect(vm.stops.toList()) {
@@ -703,6 +704,8 @@ fun MapScreen(
         }
         val openSavedPlaces: (Field) -> Unit = { field ->
             cancelLocationRequest()
+            savedPlaceInitialQuery = (if (field == Field.START) startQuery.takeUnless { it == startLabel }
+                else endQuery.takeUnless { it == endLabel }).orEmpty()
             done()
             cancelDictation(); Conversation.clearPlannerFeedback()
             vm.clearSuggestions()
@@ -828,6 +831,25 @@ fun MapScreen(
                             overflow = TextOverflow.Ellipsis, color = if (simulationLabel.startsWith("NEEDS")) RED else ACCENT)
                     }
                     TextButton(onClick = { showItinerary = true }) { Text("My itinerary") }
+                    RecordingsButton()
+                }
+            }
+            if (addition?.pinTarget == null) Surface(
+                Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 62.dp, end = 12.dp),
+                shape = CircleShape, tonalElevation = 3.dp, shadowElevation = 3.dp,
+            ) {
+                IconButton(onClick = {
+                    val current = MockState.status.value
+                    if (current.running && current.lastFixMillis > 0L && current.lat.isFinite() && current.lng.isFinite() &&
+                        current.lat in -90.0..90.0 && current.lng in -180.0..180.0) {
+                        // Move before enabling follow: a follow tick must not cancel a zoom animation.
+                        runCatching { camera.move(CameraUpdateFactory.newLatLngZoom(GLatLng(current.lat, current.lng), camera.position.zoom.coerceAtLeast(16f))) }
+                        follow = true
+                    }
+                }, enabled = status.lastFixMillis > 0L && status.lat.isFinite() && status.lng.isFinite() &&
+                    status.lat in -90.0..90.0 && status.lng in -180.0..180.0,
+                    modifier = Modifier.size(48.dp).testTag("zoomEmulatedLocation")) {
+                    Icon(Icons.Filled.MyLocation, contentDescription = "Zoom to emulated location")
                 }
             }
         }
@@ -856,6 +878,7 @@ fun MapScreen(
                     } else IconButton(onClick = { done(); showSaved = true }, modifier = Modifier.size(48.dp)) {
                         Icon(Icons.Filled.Bookmark, contentDescription = "Saved plans", tint = ACCENT)
                     }
+                    if (!keyboardSearch) RecordingsButton()
                     IconButton(onClick = { done(); showSetup = true }, modifier = Modifier.size(48.dp)) {
                         Icon(Icons.Filled.Settings, contentDescription = "Setup", tint = ACCENT)
                     }
@@ -1071,7 +1094,7 @@ fun MapScreen(
                 vm.planMode == PlanMode.ITINERARY -> "the next stop"
                 vm.planMode == PlanMode.SNAP -> "the place"
                 else -> "the destination"
-            }, onPick = { pickSavedPlace(it, field) }, onDismiss = {
+            }, initialQuery = savedPlaceInitialQuery, onPick = { pickSavedPlace(it, field) }, onDismiss = {
                 AuditTrail.record(AuditAction.SAVED_PICKER, AuditOutcome.CANCELLED, vm.auditState(field),
                     AuditDetails(source = AuditSource.TOUCH, control = AuditControl.CLOSE))
                 savedPlaceTarget = null

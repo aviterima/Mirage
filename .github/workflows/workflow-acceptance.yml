@@ -1,7 +1,7 @@
 name: Mirage workflow acceptance
 on:
   push:
-    branches: ["codex/contextual-voice-input-20261012", "codex/inline-voice-planner-20261012", "codex/place-city-labels-20261012", "codex/interaction-audit-20261011", "codex/planner-saved-places-20261011", "codex/saved-destinations-indoor-arrival-20261006", "codex/acceptance-50-20260925", "codex/acceptance-continuation-0.11.3", "codex/continuation-release-0.11.3", "codex/live-itinerary-voice-0.12.0"]
+    branches: ["codex/acceptance-location-recording-20261114", "codex/contextual-voice-input-20261012", "codex/inline-voice-planner-20261012", "codex/place-city-labels-20261012", "codex/interaction-audit-20261011", "codex/planner-saved-places-20261011", "codex/saved-destinations-indoor-arrival-20261006", "codex/acceptance-50-20260925", "codex/acceptance-continuation-0.11.3", "codex/continuation-release-0.11.3", "codex/live-itinerary-voice-0.12.0"]
   workflow_dispatch:
     inputs:
       experimental_model:

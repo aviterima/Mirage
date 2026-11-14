@@ -30,10 +30,11 @@ internal fun PlannerSavedPlacesSheet(
     target: String,
     onPick: (SavedScenario) -> Unit,
     onDismiss: () -> Unit,
+    initialQuery: String = "",
 ) {
     val context = LocalContext.current
     val fieldKey = "planner.savedPlaces.$target"
-    var query by rememberSaveable(target) { mutableStateOf("") }
+    var query by rememberSaveable(target, initialQuery) { mutableStateOf(initialQuery) }
     val dismiss = { discardVoiceField(context, fieldKey); onDismiss() }
     val matches = savedItemSearch(places, query, "SNAP").filter { it.dest != null }
     ModalBottomSheet(onDismissRequest = dismiss,

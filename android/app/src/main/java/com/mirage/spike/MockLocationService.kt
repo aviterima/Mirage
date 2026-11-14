@@ -136,6 +136,11 @@ class MockLocationService : Service() {
             ACTION_SKIP -> { PlaybackSource.requestSkip(); audit(AuditControl.SKIP, AuditOutcome.REQUESTED, operation = operation); return START_NOT_STICKY }
         }
         audit(AuditControl.START, AuditOutcome.REQUESTED, operation = operation)
+        if (RecordingController.realRecording) {
+            MockState.update { it.copy(starting = false, message = "Stop and save the real journey recording before starting simulation") }
+            stopSelfResult(startId)
+            return START_NOT_STICKY
+        }
         if (!hasLocationPermission()) {
             // A location-type foreground service cannot even be promoted without it (API 34).
             MockState.update {
@@ -448,12 +453,13 @@ class MockLocationService : Service() {
                 }
                 return
             }
-            val anchor = Fix(point.lat, point.lng, 0f, 0f, 4f, altitudeM = last?.altitudeM ?: 12.0)
+            val anchor = Fix(point.lat, point.lng, 0f, 0f, last?.accuracyM ?: 4f,
+                altitudeM = last?.altitudeM ?: 12.0, preserveCoordinates = last?.preserveCoordinates == true)
             LiveSession.holding(PlaybackSource.label, listOf(point))
             val dwell = DwellModel(anchor)
             var next = PlaybackSource.pollQueue()
             while (next == null && gen == generation && currentCoroutineContext().isActive) {
-                emitFix(if (PlaybackSource.paused) anchor else dwell.next(0.2 * PlaybackSource.timeScale))
+                emitFix(if (PlaybackSource.paused || anchor.preserveCoordinates) anchor else dwell.next(0.2 * PlaybackSource.timeScale))
                 delay(INTERVAL_MS)
                 next = PlaybackSource.pollQueue()
             }
@@ -472,7 +478,8 @@ class MockLocationService : Service() {
         // Simulated GPS quality: a dropout delivers nothing at all; otherwise jitter the
         // position and widen the reported accuracy to match the preset.
         val sig = PlaybackSource.signal
-        if (sig.dropped) {
+        if (sig.dropped && !fixIn.preserveCoordinates) {
+            RecordingController.gap()
             MockState.update {
                 if (gen != generation) it else it.copy(
                     running = true, starting = false, health = Health.AMBER, signalDropped = true, signalName = sig.name,
@@ -482,7 +489,7 @@ class MockLocationService : Service() {
             }
             return
         }
-        val fix = if (sig.jitterM > 0.0) {
+        val fix = if (sig.jitterM > 0.0 && !fixIn.preserveCoordinates) {
             val p = com.mirage.spike.engine.Geo.offset(
                 LatLng(fixIn.lat, fixIn.lng), ditherRnd.nextGaussian() * sig.jitterM, ditherRnd.nextGaussian() * sig.jitterM,
             )
@@ -504,6 +511,9 @@ class MockLocationService : Service() {
         if (gen != generation) return
         count++
         val providerAccepted = acceptedProviderCount == providers.size
+        if (providerAccepted) RecordingController.sample(com.mirage.spike.recording.TrackSource.EMULATED,
+            fix, sentAt, SystemClock.elapsedRealtime())
+        else RecordingController.gap()
         val locationOff = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && !runCatching { lm.isLocationEnabled }.getOrDefault(true)
         val fusedIssue = if (MODE_SWITCH.overdue() && fusedMonitor?.recoveryInFlight == true)
             "Google location mode is not responding — output unconfirmed"
@@ -675,6 +685,7 @@ class MockLocationService : Service() {
 
     /** Hand location back to the real GPS: tear down every mock path. Idempotent. */
     private fun revertToReal(message: String, blocked: Boolean) {
+        RecordingController.gap()
         generation++
         val stoppedGeneration = generation
         loop?.cancel()
@@ -725,6 +736,7 @@ class MockLocationService : Service() {
     }
 
     override fun onDestroy() {
+        RecordingController.gap()
         // Belt and braces: whatever path brought us here, leave no mock behind.
         generation++
         stopMonitoring()

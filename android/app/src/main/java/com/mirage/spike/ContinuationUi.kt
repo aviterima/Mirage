@@ -9,7 +9,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -52,9 +51,7 @@ fun ContinuationSheet(planner: ContinuationPlanner, saved: List<SavedScenario>, 
     val context = LocalContext.current
     val keyboard = LocalSoftwareKeyboardController.current
     val queryKey = "live.continuation.${d.epoch}.${d.replaceId ?: "addition"}.query"
-    val filterKey = "live.continuation.${d.epoch}.${d.source}.filter"
-    fun discardInputs() { discardVoiceField(context, queryKey); discardVoiceField(context, filterKey) }
-    var filter by rememberSaveable(d.source) { mutableStateOf("") }
+    fun discardInputs() { discardVoiceField(context, queryKey) }
     var savedMessage by remember(d.stops) { mutableStateOf("") }
     ModalBottomSheet(onDismissRequest = { if (d.stops.isEmpty()) { discardInputs(); planner.cancel() } else planner.edit(false) },
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
@@ -94,6 +91,22 @@ fun ContinuationSheet(planner: ContinuationPlanner, saved: List<SavedScenario>, 
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(onSearch = { keyboard?.hide(); planner.query(d.query, true) }))
                     if (d.searching) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    val matches = planner.savedPlaceMatches
+                    if (matches.isNotEmpty()) {
+                        Text("Saved matches", style = MaterialTheme.typography.labelLarge)
+                        matches.take(5).forEach { item ->
+                            Column(Modifier.fillMaxWidth().testTag("continuationSavedSuggestion-${item.id}")
+                                .clickable { keyboard?.hide(); discardInputs(); planner.saved(item) }.padding(vertical = 8.dp)) {
+                                Text((if (item.favorite) "★ " else "") + item.name, fontWeight = FontWeight.SemiBold)
+                                Text(item.destAddress.ifBlank { item.destName }, style = MaterialTheme.typography.bodySmall)
+                            }
+                            HorizontalDivider()
+                        }
+                        if (matches.size > 5) TextButton(onClick = { keyboard?.hide(); planner.source(DestinationSource.SNAP) }) {
+                            Text("See all ${matches.size} saved matches")
+                        }
+                    }
+                    if (d.hits.isNotEmpty()) Text("Other places", style = MaterialTheme.typography.labelLarge)
                     d.hits.forEach { hit ->
                         Column(Modifier.fillMaxWidth().clickable { keyboard?.hide(); discardInputs(); planner.pick(hit) }.padding(vertical = 8.dp)) {
                             Text(hit.name, fontWeight = FontWeight.SemiBold)
@@ -105,10 +118,10 @@ fun ContinuationSheet(planner: ContinuationPlanner, saved: List<SavedScenario>, 
                         HorizontalDivider()
                     }
                 } else {
-                    VoiceTextField(value = filter, onValueChange = { filter = it }, fieldKey = filterKey, labelText = "Find a saved item",
+                    VoiceTextField(value = d.query, onValueChange = { planner.query(it) }, fieldKey = queryKey, labelText = "Find a saved item",
                         context = "Filter saved ${d.source.label.lowercase()}; do not execute a trip instruction.",
-                        modifier = Modifier.fillMaxWidth(), singleLine = true)
-                    val items = com.mirage.spike.store.savedItemSearch(saved,filter,d.source.name)
+                        modifier = Modifier.fillMaxWidth().testTag("continuationSavedQuery"), singleLine = true)
+                    val items = com.mirage.spike.store.savedItemSearch(saved,d.query,d.source.name)
                     Text("Favorites first, then recently used",style=MaterialTheme.typography.bodySmall)
                     if (items.isEmpty()) Text("No ${d.source.label.lowercase()} match.")
                     items.forEach { item ->

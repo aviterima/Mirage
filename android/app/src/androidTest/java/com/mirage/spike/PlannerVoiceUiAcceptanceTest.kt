@@ -288,6 +288,75 @@ class PlannerVoiceUiAcceptanceTest {
         assertNull(PlaybackSource.current)
     }
 
+    @Test fun savedPickerUsesUnfinishedAddressAndClearingShowsAllPlaces() {
+        launchPlanner()
+        compose.runOnIdle { vm.configureApi(ApiConfig.NONE) }
+        compose.onNodeWithTag("plannerDestinationInput").performScrollTo().performTextReplacement("Off")
+        compose.onNodeWithTag("plannerSavedDestination").performScrollTo().performClick()
+        compose.onNodeWithTag("plannerSavedPlaceSearch").assertTextContains("Off")
+        compose.onNodeWithTag("plannerSavedPlace-inline-office").assertIsDisplayed()
+        compose.onNodeWithTag("plannerSavedPlace-inline-home").assertDoesNotExist()
+        compose.onNodeWithTag("plannerSavedPlaceSearch").performTextReplacement("")
+        compose.onNodeWithTag("plannerSavedPlace-inline-home").assertIsDisplayed()
+        compose.onNodeWithTag("plannerSavedPlace-inline-office").assertIsDisplayed()
+        compose.onNodeWithTag("plannerSavedPlace-inline-home").performClick()
+        compose.runOnIdle { assertEquals(home.dest, vm.dest); assertIdle() }
+        compose.onNodeWithTag("plannerSavedDestination").performScrollTo().performClick()
+        // An already selected label is not an unfinished search: browse all places.
+        compose.onNodeWithTag("plannerSavedPlaceSearch").assertTextContains("")
+        compose.onNodeWithTag("plannerSavedPlace-inline-office").assertIsDisplayed()
+    }
+
+    @Test fun liveStopSearchIncludesSavedPlacesAndSharesFilterWithoutNetwork() {
+        launchPlanner()
+        compose.runOnIdle {
+            vm.configureApi(ApiConfig.NONE); vm.mode = TravelMode.FLY
+            PlaybackSource.paused = true
+            MockState.update { it.copy(running = true, paused = true, lat = home.dest!!.lat, lng = home.dest!!.lng,
+                lastFixMillis = System.currentTimeMillis(), label = "Fixture holding") }
+        }
+        compose.onNodeWithText("Add stop").performClick()
+        compose.onNodeWithTag("continuationQuery").performScrollTo().performTextReplacement("H")
+        compose.onNodeWithTag("continuationSavedSuggestion-inline-home").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("continuationSavedSuggestion-inline-office").assertDoesNotExist()
+        compose.onNodeWithTag("continuationQuery").performScrollTo().performTextReplacement("Off")
+        compose.onNodeWithTag("destinationSource-SNAP").performScrollTo().performClick()
+        compose.onNodeWithTag("continuationSavedQuery").performScrollTo().assertTextContains("Off")
+        compose.onNodeWithTag("continueSaved-inline-office").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("continueSaved-inline-home").assertDoesNotExist()
+        compose.onNodeWithTag("continuationSavedQuery").performScrollTo().performTextReplacement("")
+        compose.onNodeWithTag("continueSaved-inline-home").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("continueSaved-inline-office").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("continuationSavedQuery").performScrollTo().performTextReplacement("Home")
+        compose.onNodeWithTag("destinationSource-SEARCH").performScrollTo().performClick()
+        compose.onNodeWithTag("continuationQuery").performScrollTo().assertTextContains("Home")
+        compose.onNodeWithTag("continuationSavedSuggestion-inline-home").performScrollTo().performClick()
+        compose.runOnIdle {
+            assertEquals(home.dest, vm.continuation.state!!.stops.single().point)
+            assertTrue(PlaybackSource.paused); assertTrue(MockState.status.value.paused)
+            assertNull(PlaybackSource.current); assertNull(LiveSession.plan)
+            assertEquals(0, starts); assertTrue(queries.isEmpty())
+        }
+    }
+
+    @Test fun emulatedLocationZoomIsAvailableWhilePausedAndDoesNotChangePlayback() {
+        launchPlanner()
+        val now = System.currentTimeMillis()
+        compose.runOnIdle {
+            PlaybackSource.paused = true
+            MockState.update { it.copy(running = true, paused = true, lat = 34.1, lng = -111.8,
+                lastFixMillis = now, lastFusedFixMillis = now, health = Health.GREEN, label = "Fixture holding") }
+        }
+        val before = MockState.status.value
+        compose.onNodeWithTag("zoomEmulatedLocation").assertIsDisplayed().assertIsEnabled().performClick()
+        compose.runOnIdle {
+            assertEquals(before, MockState.status.value); assertTrue(PlaybackSource.paused)
+            assertNull(PlaybackSource.current); assertEquals(0, starts)
+        }
+        compose.runOnIdle { MockState.update { it.copy(lastFixMillis = 0L) } }
+        compose.onNodeWithTag("zoomEmulatedLocation").assertIsNotEnabled()
+    }
+
     @Test fun currentLocationActionsStayVisibleAndPermissionHelpPreservesEntries() {
         launchPlanner()
         compose.onNodeWithText("Route").performClick()

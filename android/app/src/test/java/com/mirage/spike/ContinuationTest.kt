@@ -185,6 +185,85 @@ class ContinuationTest {
         assertEquals(saved.dest, restored.dest); assertEquals(saved.id, restored.id)
         assertEquals("", restored.destAddress)
     }
+    @Test fun liveSavedSearchWorksFromOneLetterWithoutKeyAndSharesItsFilter() = runTest {
+        val plan = live(); val job = launch { plan.fixes().collect {} }; advanceTimeBy(1000)
+        var remoteCalls = 0
+        val vm = MirageViewModel { _, _, _ -> remoteCalls++; emptyList() }
+        vm.configureApi(ApiConfig.NONE)
+        val saved = fixture().copy(aliases = listOf("My house"), favorite = true)
+        val other = saved.copy(id = "other", name = "Elsewhere", destName = "Elsewhere", destAddress = "Distant avenue", aliases = emptyList(), favorite = false)
+        vm.attachStore(InMemoryScenarioStore().apply { save(listOf(saved, other)) })
+        val original = plan.view().stops
+        vm.continuation.begin()
+        listOf("M", "my hou", "Test Street").forEach { query ->
+            vm.continuation.query(query)
+            assertEquals(listOf(saved.id), vm.continuation.savedPlaceMatches.map { it.id })
+            assertFalse(vm.continuation.state!!.searching)
+            assertNull(vm.continuation.state!!.error)
+        }
+        vm.continuation.source(DestinationSource.SNAP)
+        assertEquals("Test Street", vm.continuation.state!!.query)
+        assertEquals(listOf(saved.id), vm.continuation.savedPlaceMatches.map { it.id })
+        vm.continuation.query("")
+        assertEquals(listOf(saved.id, other.id), vm.continuation.savedPlaceMatches.map { it.id })
+        vm.continuation.query("my hou")
+        vm.continuation.source(DestinationSource.SEARCH)
+        assertEquals("my hou", vm.continuation.state!!.query)
+        assertNull(vm.continuation.state!!.error)
+        assertEquals(original, plan.view().stops)
+        assertEquals(0, remoteCalls)
+        vm.continuation.cancel(); job.cancelAndJoin()
+    }
+
+    @Test fun savedTypeaheadSelectionPreservesSettingsPauseAndRejectsLateSearch() = runTest {
+        val plan = live(); val job = launch { plan.fixes().collect {} }; advanceTimeBy(1000)
+        PlaybackSource.paused = true
+        val original = plan.view().stops
+        val vm = MirageViewModel { _, query, _ ->
+            withContext(NonCancellable) { delay(1000) }
+            listOf(PlaceHit(c, "Late $query"))
+        }
+        vm.mode = TravelMode.FLY
+        vm.configureApi(ApiConfig(null, "fixture", "test"))
+        val saved = fixture().copy(aliases = listOf("my house"), defaultStayMinutes = 45,
+            arrivalActivity = ArrivalActivity.TABLE, entrance = b, stayUntilLeave = true)
+        vm.attachStore(InMemoryScenarioStore().apply { save(listOf(saved)) })
+        vm.continuation.begin(Placement.NEXT)
+        vm.continuation.query("house", true); runCurrent()
+        vm.continuation.saved(vm.continuation.savedPlaceMatches.single()); runCurrent()
+        val selected = vm.continuation.state!!.stops.single()
+        assertEquals(saved.dest, selected.point); assertEquals(saved.destAddress, selected.address)
+        assertEquals(saved.destPlaceId, selected.placeId); assertEquals(45, selected.dwellMinutes)
+        assertEquals(ArrivalActivity.TABLE, selected.arrivalActivity)
+        assertEquals(b, selected.entrance); assertTrue(selected.stayUntilLeave)
+        advanceTimeBy(1100); runCurrent()
+        assertEquals(selected, vm.continuation.state!!.stops.single())
+        assertTrue(vm.continuation.state!!.hits.isEmpty())
+        assertEquals(original, plan.view().stops); assertTrue(PlaybackSource.paused)
+        assertTrue(vm.continuation.commit { fail("Adding after a stop must not restart playback") })
+        assertEquals(listOf("B", saved.name, "C"), plan.view().stops.map { it.stop.name })
+        assertTrue(PlaybackSource.paused)
+        job.cancelAndJoin()
+    }
+
+    @Test fun failedOnlineSearchKeepsLocalMatchesAndChangingSourceRejectsLateResults() = runTest {
+        val plan = live(); val job = launch { plan.fixes().collect {} }; advanceTimeBy(1000)
+        val vm = MirageViewModel { _, _, _ -> withContext(NonCancellable) { delay(1000) }; error("offline") }
+        vm.configureApi(ApiConfig(null, "fixture", "test"))
+        vm.attachStore(InMemoryScenarioStore().apply { save(listOf(fixture())) })
+        vm.continuation.begin()
+        vm.continuation.query("New", true); advanceTimeBy(1100); runCurrent()
+        assertEquals(listOf("n"), vm.continuation.savedPlaceMatches.map { it.id })
+        assertNull(vm.continuation.state!!.error); assertFalse(vm.continuation.state!!.searching)
+        vm.continuation.query("Test", true); runCurrent()
+        vm.continuation.source(DestinationSource.SNAP)
+        vm.continuation.query("New")
+        advanceTimeBy(1100); runCurrent()
+        assertEquals(DestinationSource.SNAP, vm.continuation.state!!.source)
+        assertEquals("New", vm.continuation.state!!.query)
+        assertNull(vm.continuation.state!!.error); assertTrue(vm.continuation.state!!.hits.isEmpty())
+        vm.continuation.cancel(); job.cancelAndJoin()
+    }
     @Test fun clearingRealStartCannotRestoreAHiddenLocationOnTheNextFix() {
         val vm = vm(); vm.pickRealStart(a)
         vm.editLocationQuery(Field.START, "", null)
