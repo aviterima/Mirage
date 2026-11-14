@@ -16,7 +16,7 @@ internal fun armRecordingReplay(recording: RecordedTrack, speed: Double, startSe
     lateinit var replay: Flow<Fix>
     replay = recording.fixes(onGap = { gap ->
         // A cancelled earlier replay must not rewrite a newer session's status.
-        if (PlaybackSource.current === replay && MockState.status.value.running) {
+        if (PlaybackSource.current === replay && MockState.status.value.let { it.running || it.starting }) {
             MockState.update { it.copy(stepLabel = if (gap) "Recording gap · holding last location" else "Replaying ${recording.summary.name}") }
         }
     })

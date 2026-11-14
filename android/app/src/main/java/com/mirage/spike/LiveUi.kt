@@ -31,6 +31,8 @@ fun LiveControls(status: MockStatus, session: SessionView, onNow: () -> Unit, on
     val estimate by DriveTiming.estimate.collectAsState(context = kotlinx.coroutines.Dispatchers.Main.immediate)
     val title = when {
         status.paused -> "Paused here"
+        status.stepLabel.startsWith("Recording gap") || status.stepLabel.startsWith("Replaying ") ||
+            status.stepLabel.startsWith("Replay complete") -> status.stepLabel
         status.stepLabel.startsWith("Walking to") || status.stepLabel.startsWith("Walking outside") -> status.stepLabel
         session.activity == ActivityKind.ROUTING -> "Finding route"
         status.stepLabel.startsWith("Destination pin too far") -> status.stepLabel
@@ -39,7 +41,8 @@ fun LiveControls(status: MockStatus, session: SessionView, onNow: () -> Unit, on
         else -> "Holding at ${current?.name ?: status.label.ifBlank { "this location" }}"
     }
     Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-    Text(when (session.activity) {
+    Text(if (status.label.startsWith("Replay ·") && status.progress >= 0f)
+        "${(status.speedMps / 0.44704).toInt()} mph · ${fmtDuration(status.remainingSec.coerceAtLeast(0).toDouble())} left" else when (session.activity) {
         ActivityKind.TRAVELING -> "${(status.speedMps / 0.44704).toInt()} mph" + if (status.remainingSec >= 0) " · about ${fmtDuration(status.remainingSec.toDouble())} left" else ""
         ActivityKind.STAYING -> if(current?.stayUntilLeave==true) "Staying until you choose Leave now" else "${fmtDuration(session.remainingStaySeconds.toDouble())} of simulated stay remaining"
         ActivityKind.ROUTING -> "Holding your position while the route is prepared"

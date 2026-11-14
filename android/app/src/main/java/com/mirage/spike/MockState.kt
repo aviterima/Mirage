@@ -76,6 +76,9 @@ fun simulationStatusText(status: MockStatus, activity: com.mirage.spike.engine.A
     if (!status.running) return if (status.blocked) "NOT ACTIVE · setup required" else "SIMULATION OFF · planning only"
     if (locationOutputIssue(status, nowMillis) != null) return "NEEDS ATTENTION · output not confirmed"
     if (status.paused) return "PAUSED · simulated location held"
+    if (status.stepLabel.startsWith("Recording gap")) return "REPLAY GAP · holding last recorded location"
+    if (status.label.startsWith("Replay ·") && status.progress >= 0f && status.progress < 1f)
+        return "ACTIVE · recording replay"
     return when (activity) {
         com.mirage.spike.engine.ActivityKind.WAITING -> "WAITING · scheduled departure"
         com.mirage.spike.engine.ActivityKind.ROUTING -> "HOLDING · preparing next route"

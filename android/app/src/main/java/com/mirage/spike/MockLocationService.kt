@@ -179,6 +179,9 @@ class MockLocationService : Service() {
             // LiveSession. Continuing a trip must not briefly look stopped while
             // the new flow prepares its first point or waits to reach Main.
             if (gen == generation && heldOutput != null) pushFix(heldOutput, gen, operation)
+            // A replacement source may jump to another city. Keep that boundary in
+            // recordings instead of interpolating invented travel between sessions.
+            if (gen == generation) RecordingController.gap()
             if (gen == generation) loop = scope.launch { runPlayback(gen, operation, heldOutput) }
         } else {
             revertToReal("Not the selected mock-location app", blocked = true)
@@ -456,6 +459,9 @@ class MockLocationService : Service() {
             val anchor = Fix(point.lat, point.lng, 0f, 0f, last?.accuracyM ?: 4f,
                 altitudeM = last?.altitudeM ?: 12.0, preserveCoordinates = last?.preserveCoordinates == true)
             LiveSession.holding(PlaybackSource.label, listOf(point))
+            if (anchor.preserveCoordinates) MockState.update {
+                if (gen == generation) it.copy(stepLabel = "Replay complete · holding final location") else it
+            }
             val dwell = DwellModel(anchor)
             var next = PlaybackSource.pollQueue()
             while (next == null && gen == generation && currentCoroutineContext().isActive) {
@@ -542,6 +548,8 @@ class MockLocationService : Service() {
                 message = message, label = PlaybackSource.label,
                 paused = PlaybackSource.paused, signalDropped = false, signalName = sig.name,
                 queued = PlaybackSource.queueSize(),
+                stepLabel = if (fix.preserveCoordinates && fix.progress >= 0f && !it.stepLabel.startsWith("Recording gap"))
+                    "Replaying ${PlaybackSource.label.removePrefix("Replay · ")}" else it.stepLabel,
             )
         }
         if (++notifTick >= NOTIFY_EVERY) { notifTick = 0; if (gen == generation) refreshNotification() }

@@ -24,4 +24,13 @@ class SimulationStatusTest {
         assertTrue(simulationStatusText(healthy, ActivityKind.STAYING, now).startsWith("STAYING"))
         assertEquals("HOLDING · simulation remains on", simulationStatusText(healthy, ActivityKind.HOLDING, now))
     }
+    @Test fun recordedReplayDistinguishesMovementGapsPauseAndUnconfirmedOutput() {
+        val replay = healthy.copy(label = "Replay · Saturday", progress = 0.4f)
+        assertEquals("ACTIVE · recording replay", simulationStatusText(replay, ActivityKind.IDLE, now))
+        assertEquals("REPLAY GAP · holding last recorded location", simulationStatusText(
+            replay.copy(stepLabel = "Recording gap · holding last location"), ActivityKind.IDLE, now))
+        assertTrue(simulationStatusText(replay.copy(paused = true), ActivityKind.IDLE, now).startsWith("PAUSED"))
+        assertTrue(simulationStatusText(replay.copy(lastFixMillis = 0), ActivityKind.IDLE, now).startsWith("NEEDS ATTENTION"))
+        assertEquals("HOLDING · simulation remains on", simulationStatusText(replay.copy(progress = -1f), ActivityKind.HOLDING, now))
+    }
 }

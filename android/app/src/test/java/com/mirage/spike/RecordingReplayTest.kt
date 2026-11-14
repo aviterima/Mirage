@@ -76,6 +76,21 @@ class RecordingReplayTest {
         assertEquals("New session", MockState.status.value.stepLabel)
     }
 
+    @Test fun initialReplayGapIsVisibleBeforeFirstAcceptedOutput() = runTest {
+        val withGap = track.copy(samples = listOf(track.samples.first(), track.samples.last().copy(gapBefore = true)))
+        armRecordingReplay(withGap, 1.0) {
+            MockState.update { it.copy(starting = true, running = false) }
+        }
+        val emitted = requireNotNull(PlaybackSource.current).onEach {
+            assertFalse(MockState.status.value.running)
+            assertTrue(MockState.status.value.starting)
+            assertEquals("Recording gap · holding last location", MockState.status.value.stepLabel)
+            assertEquals(0f, it.speedMps, 0f)
+        }.take(1).toList()
+        assertEquals(a.lat, emitted.single().lat, 0.0)
+        assertTrue(emitted.single().preserveCoordinates)
+    }
+
     @Test fun emptyTrackCannotArmOrLaunchReplay() {
         val old = flowOf(a); PlaybackSource.current = old
         try {
