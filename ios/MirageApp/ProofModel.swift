@@ -263,6 +263,7 @@ final class ProofModel: ObservableObject {
                                 self.recordings.captureOutput(sent, mode: snapshot.capabilities.mode)
                             }
                             if snapshot.state == .recoveryNeeded {
+                                self.recordings.markGap("Output requires recovery")
                                 self.running = false
                                 self.paused = false
                                 self.canPause = false
@@ -273,7 +274,10 @@ final class ProofModel: ObservableObject {
                         }
                         try await Task.sleep(nanoseconds: 200_000_000)
                     } catch {
-                        if !Task.isCancelled { self.status = "Playback interrupted; use Stop to clear output" }
+                        if !Task.isCancelled {
+                            self.recordings.markGap("Output playback interrupted")
+                            self.status = "Playback interrupted; use Stop to clear output"
+                        }
                         return
                     }
                 }

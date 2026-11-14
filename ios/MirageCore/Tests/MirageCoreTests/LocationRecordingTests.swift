@@ -109,7 +109,7 @@ final class LocationRecordingTests: XCTestCase {
         let held = try await store.read(id: stationary.id)
         XCTAssertEqual(held.samples.map(\.offset), [0, 30, 60])
         XCTAssertEqual(held.summary.duration, 60)
-        XCTAssertTrue(held.gaps.isEmpty())
+        XCTAssertTrue(held.gaps.isEmpty)
         XCTAssertFalse(try held.frame(at: 45).isGap)
         XCTAssertEqual(try held.coordinate(at: 45), origin)
     }

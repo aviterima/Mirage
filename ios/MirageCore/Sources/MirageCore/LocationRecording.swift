@@ -217,9 +217,10 @@ public actor JourneyStore {
     private let decoder: JSONDecoder
 
     public init(directory: URL) {
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .millisecondsSince1970
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .millisecondsSince1970
         self.directory = directory
-        encoder = JSONEncoder(); encoder.dateEncodingStrategy = .millisecondsSince1970
-        decoder = JSONDecoder(); decoder.dateDecodingStrategy = .millisecondsSince1970
+        self.encoder = encoder; self.decoder = decoder
     }
 
     @discardableResult public func start(source: JourneySource, at date: Date = Date(), monotonicTime: TimeInterval,

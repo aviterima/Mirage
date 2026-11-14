@@ -58,17 +58,20 @@ final class LocationObserver: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let fix = locations.last, fix.horizontalAccuracy >= 0,
-              abs(fix.timestamp.timeIntervalSinceNow) <= 10 else { return }
-        if let latest, fix.timestamp > latest.timestamp { sampleInterval = fix.timestamp.timeIntervalSince(latest.timestamp) }
-        latest = fix
-        let simulated = fix.sourceInformation?.isSimulatedBySoftware
-        if simulated == false { lastReal = fix }
-        status = simulated == true ? "Observed software-simulated location" :
-            simulated == false ? "Observed real location" : "Observed location; source unknown"
-        onObservation?(LocationObservation(coordinate: Coordinate(lat: fix.coordinate.latitude,
-            lng: fix.coordinate.longitude), timestamp: fix.timestamp, isSimulatedBySoftware: simulated,
-            horizontalAccuracy: fix.horizontalAccuracy))
+        for fix in locations.sorted(by: { $0.timestamp < $1.timestamp }) {
+            guard fix.horizontalAccuracy >= 0, abs(fix.timestamp.timeIntervalSinceNow) <= 10 else { continue }
+            let simulated = fix.sourceInformation?.isSimulatedBySoftware
+            if latest == nil || fix.timestamp >= latest!.timestamp {
+                if let latest, fix.timestamp > latest.timestamp { sampleInterval = fix.timestamp.timeIntervalSince(latest.timestamp) }
+                latest = fix
+                if simulated == false { lastReal = fix }
+                status = simulated == true ? "Observed software-simulated location" :
+                    simulated == false ? "Observed real location" : "Observed location; source unknown"
+            }
+            onObservation?(LocationObservation(coordinate: Coordinate(lat: fix.coordinate.latitude,
+                lng: fix.coordinate.longitude), timestamp: fix.timestamp, isSimulatedBySoftware: simulated,
+                horizontalAccuracy: fix.horizontalAccuracy))
+        }
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {

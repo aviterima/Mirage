@@ -88,8 +88,10 @@ final class JourneyRecordingsModel: ObservableObject {
         source = nil; busy = true
         if wasReal { onRealRecordingEnded?() }
         let date = Date(), uptime = ProcessInfo.processInfo.systemUptime
+        let token = generation
         // This lifecycle command is admitted even if the sample limit has been reached.
         enqueue {
+            guard self.generation == token else { return }
             _ = try await store.finish(at: date, monotonicTime: uptime)
             self.active = nil; self.busy = false
             self.status = "Recording saved. You can rename it or replay it."
@@ -132,11 +134,12 @@ final class JourneyRecordingsModel: ObservableObject {
             catch {
                 self.generation &+= 1
                 let wasReal = self.source == .real
-                self.source = nil; self.active = nil; self.busy = false
+                self.source = nil; self.active = nil; self.busy = true
                 _ = await self.store?.interrupt()
                 if wasReal { self.onRealRecordingEnded?() }
                 self.status = "Recording interrupted. Previously stored locations remain recoverable."
                 await self.reload()
+                self.busy = false
             }
         }
     }
