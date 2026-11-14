@@ -218,6 +218,22 @@ class DeliveryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             delivery.require_anonymous_denied(opener, "https://example.com/a?secret=synthetic")
 
+    def test_private_presigns_must_target_the_same_object(self):
+        upload = "https://storage.example.com/private/new.zip?signature=put"
+        matching = "https://storage.example.com/private/new.zip?signature=get"
+        with mock.patch.dict(os.environ, {"MIRAGE_IOS_PRIVATE_UPLOAD_URL": upload,
+                                          "MIRAGE_IOS_PRIVATE_DOWNLOAD_URL": matching}, clear=True):
+            self.assertEqual(delivery.private_urls(), [upload, matching])
+            for wrong in ("https://other.example.com/private/new.zip?signature=get",
+                          "https://storage.example.com/other.zip?signature=get"):
+                with mock.patch.dict(os.environ, {"MIRAGE_IOS_PRIVATE_DOWNLOAD_URL": wrong}), self.assertRaises(ValueError):
+                    delivery.private_urls()
+        for path in ("", "/", "/a/../new.zip", "/a/./new.zip", "/a//new.zip", "/a%5Cnew.zip", "/a/%2e%2e/new.zip"):
+            wrong = "https://storage.example.com" + path + "?signature=test"
+            with mock.patch.dict(os.environ, {"MIRAGE_IOS_PRIVATE_UPLOAD_URL": wrong,
+                                              "MIRAGE_IOS_PRIVATE_DOWNLOAD_URL": wrong}, clear=True), self.assertRaises(ValueError):
+                delivery.private_urls()
+
     def test_private_transfer_rejects_all_redirects(self):
         with self.assertRaises(ValueError):
             delivery.NoRedirect().redirect_request(None, None, 302, "redirect", {}, "https://other.example.com/a")

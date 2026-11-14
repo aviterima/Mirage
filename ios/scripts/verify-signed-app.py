@@ -154,7 +154,13 @@ def verify_ipa(ipa, team, method, certificate, recipient, source):
         with zipfile.ZipFile(ipa) as archive:
             archive.extractall(folder)
         app = folder / "Payload/Mirage.app"
-        run("codesign", "--verify", "--deep", "--strict", str(app))
+        # A valid self-signed/ad-hoc code signature is insufficient for iPhone
+        # distribution. Require Apple's distribution chain and the exact team.
+        require(bool(re.fullmatch(r"[A-Z0-9]{10}", team)), "Invalid Apple team identifier.")
+        requirement = ('anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.1] exists '
+                       'and certificate leaf[field.1.2.840.113635.100.6.1.4] exists '
+                       f'and certificate leaf[subject.OU] = "{team}" and identifier "{BUNDLE}"')
+        run("codesign", "--verify", "--deep", "--strict", "-R", requirement, str(app))
         profile = plistlib.loads(run("security", "cms", "-D", "-i", str(app / "embedded.mobileprovision")))
         profile_metadata = validate_profile(profile, team, method, certificate, recipient)
         entitlements = plistlib.loads(run("codesign", "--display", "--entitlements", ":-", str(app)))

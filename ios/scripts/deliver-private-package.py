@@ -8,7 +8,7 @@ import hashlib
 import importlib.util
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import sys
 import tempfile
 import urllib.error
@@ -33,6 +33,17 @@ def private_urls():
     for url in urls:
         manifest.validate_url(url)
         require(bool(urllib.parse.urlsplit(url).query), "Private delivery requires pre-signed HTTPS object URLs.")
+    upload, download = [urllib.parse.urlsplit(url) for url in urls]
+    for parsed in (upload, download):
+        decoded = urllib.parse.unquote(parsed.path)
+        require(decoded.startswith("/") and len(decoded) > 1 and not decoded.endswith("/")
+                and "\\" not in decoded and "%" not in decoded and ":" not in decoded
+                and not any(ord(c) <= 32 or ord(c) == 127 for c in decoded)
+                and ".." not in PurePosixPath(decoded).parts and PurePosixPath(decoded).as_posix() == decoded,
+                "Private delivery requires a canonical object path.")
+    require((upload.scheme, upload.hostname.lower(), upload.port or 443, upload.path)
+            == (download.scheme, download.hostname.lower(), download.port or 443, download.path),
+            "Private upload and download must address the same HTTPS object; only signed queries may differ.")
     return urls
 
 

@@ -48,3 +48,39 @@ References checked 14 November 2026:
 - [StikDebug: platform-dependent pairing requirements](https://github.com/StikDebug/StikDebug/blob/main/PAIRING.md)
 
 The remaining owner actions are account access and recipient device identification, followed by signing and physical acceptance. Passwords, private keys, provisioning profiles and pairing records must not be pasted into chat or committed to source. Owner Mac access is not required: the Apple website/iPad can handle account steps and hosted macOS handles the build.
+
+## Build operator instructions
+
+`iPhone signed distribution preparation` defaults to `dry-run`. Push events always use that mode and never load signing credentials. It validates an unsigned Release archive with the real native bridge; this artifact is not installable. Manual `release-testing` and `app-store-connect` modes run the core, Rust and native tests before signing the exact source. App Store Connect export does not upload or invite testers automatically.
+
+Signed runs require these protected CI secrets:
+
+| Secret | Purpose |
+| --- | --- |
+| `MIRAGE_IOS_CERTIFICATE_P12_BASE64` | Base64 Apple Distribution identity including its private key |
+| `MIRAGE_IOS_CERTIFICATE_PASSWORD` | Password protecting that P12 |
+| `MIRAGE_IOS_PROFILE_BASE64` | Base64 matching Apple-issued distribution profile |
+| `MIRAGE_IOS_TEAM_ID` | Owning Apple team |
+| `MIRAGE_IOS_RECIPIENT_UDID` | Registered-device recipient; required for `release-testing` |
+| `MIRAGE_IOS_PRIVATE_UPLOAD_URL` | Presigned HTTPS PUT for a new private object |
+| `MIRAGE_IOS_PRIVATE_DOWNLOAD_URL` | Presigned HTTPS GET for that same object |
+
+The transfer URLs must identify the same HTTPS authority and path, with different signing queries as needed. The destination must be new: an existing object is never overwritten. PUT must allow a harmless probe followed by replacement with the real package. The probe is downloaded with authorization and checked without its signing query before any private package bytes are sent. Single-use or immutable upload URLs do not support this contract. The complete resulting download must match its size and SHA-256. Bearer-link lifetime and intended sharing scope still require operator verification.
+
+The private maintainer ZIP contains the signed IPA and sanitized signing receipt. Public Actions artifacts contain only sanitized receipts and unsigned build evidence. Never publish an ad-hoc IPA or its provisioning profile to the public engineering release.
+
+After obtaining an appropriately scoped direct HTTPS URL for the signed IPA, create the installation manifest locally:
+
+```sh
+python3 ios/scripts/create-install-manifest.py \
+  --receipt signing-validation.json --ipa Mirage.ipa \
+  --ipa-url '<private HTTPS IPA URL>' --output manifest.plist
+```
+
+This downloads and verifies the hosted bytes, checks the local receipt/package match and rejects expired profiles and store-only packages. Treat the manifest as private because it contains the package URL. A later recipient page uses `itms-services://?action=download-manifest&url=` with the encoded HTTPS manifest URL. Verify actual install, device setup and location restoration before calling that page ready for a nontechnical recipient.
+
+## Local verification
+
+18 portable tests pass on Windows Python 3.12.14, covering signing metadata, archive corruption/path aliases, unsigned and preview-only rejection, HTTPS constraints, matching download bytes, private probe order, existing-object rejection and same-object upload/download binding. Git Bash syntax validation passes. The existing Android icon was rendered into an opaque 1024-pixel iPhone asset; PNG CRC/decompression checks pass and the image was visually inspected.
+
+The first local run exposed Windows ZIP fixture path normalization; the fixture was corrected to preserve the malicious input and the rejection assertion remains. Review also identified private-transfer preflight ordering and upload/download object binding; both were corrected and have regression tests. Hosted compilation, actual Apple signing and physical acceptance are separate checks; their results are recorded below when executed.
