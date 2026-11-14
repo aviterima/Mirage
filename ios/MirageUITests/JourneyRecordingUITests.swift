@@ -38,14 +38,18 @@ final class JourneyRecordingUITests: XCTestCase {
         scrollTo(rename, in: app)
         let id = String(rename.identifier.dropFirst("rename-recording-".count))
         rename.tap()
-        let field = app.alerts.textFields["recording-name"]
+        XCTAssertTrue(app.staticTexts["Name recording"].waitForExistence(timeout: 5))
+        // UIKit's SwiftUI alert bridge exposes the placeholder but drops the SwiftUI
+        // identifier, and may report the same modal as Alert or Sheet across runtimes.
+        let field = app.textFields.matching(NSPredicate(format: "placeholderValue == %@", "Recording name")).firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertTrue(field.isHittable)
         field.tap()
         let suffix = " UI" + String(UUID().uuidString.prefix(6))
         field.typeText(suffix)
         let editedName = field.value as? String
         XCTAssertTrue(editedName?.contains(suffix) == true)
-        app.alerts.buttons["Save name"].tap()
+        app.buttons["Save name"].tap()
         if let editedName { XCTAssertTrue(app.staticTexts[editedName].waitForExistence(timeout: 5)) }
         capture(app, "Editable recording name saved")
         let replay = app.buttons["replay-recording-\(id)"]
