@@ -27,7 +27,7 @@ fun RecordingsButton() {
     val state by RecordingController.state.collectAsState()
     var open by rememberSaveable { mutableStateOf(false) }
     TextButton(onClick = { open = true }, modifier = Modifier.testTag("recordingsButton")) {
-        Text(if (state.active != null || state.starting) "● Recording" else "Recordings")
+        Text(if (state.finishing) "Saving…" else if (state.active != null || state.starting) "● Recording" else "Recordings")
     }
     if (open) RecordingsSheet { open = false }
 }
@@ -132,18 +132,9 @@ private fun RecordingsSheet(onDismiss: () -> Unit) {
                     check(!RecordingController.recording) { "Stop and save the active recording first" }
                     check(recording.samples.isNotEmpty()) { "No locations were recorded" }
                     check(ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) { "Allow precise location in Settings before replaying" }
-                    PlaybackSource.clearQueue(); PlaybackSource.consumeSkip(); PlaybackSource.paused = false
-                    PlaybackSource.timeScale = replayScale
-                    PlaybackSource.current = recording.fixes(onGap = { gap ->
-                        MockState.update { it.copy(stepLabel = if (gap) "Recording gap · holding last location" else "Replaying ${track.name}") }
-                    })
-                    // A bounded preview prevents day-long tracks overwhelming the map.
-                    val stride = maxOf(1, recording.samples.size / 1000)
-                    PlaybackSource.routePoints = recording.samples.filterIndexed { index, _ -> index % stride == 0 }
-                        .map { LatLng(it.fix.lat, it.fix.lng) }
-                    PlaybackSource.endPoint = recording.samples.last().fix.let { LatLng(it.lat, it.lng) }
-                    PlaybackSource.label = "Replay · ${track.name}"
-                    ContextCompat.startForegroundService(context, Intent(context, MockLocationService::class.java))
+                    armRecordingReplay(recording, replayScale) {
+                        ContextCompat.startForegroundService(context, Intent(context, MockLocationService::class.java))
+                    }
                 }.onSuccess { replaying = null; onDismiss() }.onFailure { error = it.message ?: "Could not replay recording" }
                 busy = false
             }
@@ -162,13 +153,13 @@ internal fun RecordingsContent(
         Text("Recordings", style = MaterialTheme.typography.titleLarge)
         Text("Saved on this device. Recording continues when you close this list.", style = MaterialTheme.typography.bodySmall)
         (error ?: state.error)?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        if (state.starting) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if (state.starting || state.finishing) LinearProgressIndicator(Modifier.fillMaxWidth())
         val active = state.active
         if (active != null) {
             Text(if (active.source == TrackSource.REAL) "● Recording real journey" else "● Recording emulated day", fontWeight = FontWeight.Bold)
             Text(if (active.sampleCount == 0) "Waiting for locations…" else "${active.sampleCount} locations · ${recordingDuration(active.durationMillis)}")
-            Button(onClick = onFinish, enabled = !busy, modifier = Modifier.testTag("stopRecording")) { Text("Stop and save") }
-        } else if (!state.starting) {
+            Button(onClick = onFinish, enabled = !busy && !state.finishing, modifier = Modifier.testTag("stopRecording")) { Text(if (state.finishing) "Saving…" else "Stop and save") }
+        } else if (!state.starting && !state.finishing) {
             OutlinedButton(onClick = { onRecord(TrackSource.REAL) }, enabled = !simulationRunning && !busy,
                 modifier = Modifier.fillMaxWidth().testTag("recordRealJourney")) { Text("Record real journey") }
             if (simulationRunning) Text("Stop simulation to record real locations.", style = MaterialTheme.typography.bodySmall)
@@ -186,7 +177,7 @@ internal fun RecordingsContent(
                     if (track.state == TrackState.INTERRUPTED) Text("Interrupted recording · captured locations recovered", style = MaterialTheme.typography.bodySmall)
                     if (track.gapCount > 0) Text("${track.gapCount} gaps in recorded locations", style = MaterialTheme.typography.bodySmall)
                     Row {
-                        TextButton(onClick = { onReplay(track) }, enabled = !busy && active == null && !state.starting && track.sampleCount > 0,
+                        TextButton(onClick = { onReplay(track) }, enabled = !busy && active == null && !state.starting && !state.finishing && track.sampleCount > 0,
                             modifier = Modifier.testTag("replayRecording-${track.id}")) { Text("Replay") }
                         TextButton(onClick = { onRename(track) }, enabled = !busy) { Text("Rename") }
                         TextButton(onClick = { onDelete(track) }, enabled = !busy) { Text("Delete") }

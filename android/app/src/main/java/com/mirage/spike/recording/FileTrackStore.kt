@@ -75,6 +75,14 @@ class FileTrackStore(private val directory: File) {
         return result
     }
 
+    /** Stop collecting after an IO failure without attempting another write or deleting evidence. */
+    @Synchronized fun interrupt(): TrackSummary? {
+        val current = session ?: return null
+        session = null
+        return current.summary.copy(state = TrackState.INTERRUPTED,
+            durationMillis = current.lastWritten?.offsetMillis ?: 0L)
+    }
+
     @Synchronized fun list(): List<TrackSummary> {
         if (!directory.exists()) return emptyList()
         return (directory.listFiles { f -> f.extension == "json" } ?: emptyArray()).mapNotNull { file ->
@@ -149,7 +157,10 @@ class FileTrackStore(private val directory: File) {
                                 require(samples.size < RecordingPolicy.MAX_SAMPLES)
                                 samples += TrackSample(offset, objectValue.getLong("wall"), fix, objectValue.optBoolean("gapBefore"))
                             }
-                            "gap" -> gaps += TrackGap(offset, objectValue.optString("reason", "Location unavailable").take(160))
+                            "gap" -> {
+                                require(gaps.isEmpty() || offset >= gaps.last().offsetMillis)
+                                gaps += TrackGap(offset, objectValue.optString("reason", "Location unavailable").take(160))
+                            }
                             else -> error("Unknown recording entry")
                         }
                     }

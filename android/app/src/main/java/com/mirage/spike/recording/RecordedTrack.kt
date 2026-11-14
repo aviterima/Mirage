@@ -10,7 +10,6 @@ import kotlinx.coroutines.flow.flow
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlin.math.abs
 
 enum class TrackSource { REAL, EMULATED }
 enum class TrackState { ACTIVE, SAVED, INTERRUPTED }
@@ -58,6 +57,7 @@ data class RecordedTrack(val summary: TrackSummary, val samples: List<TrackSampl
         require(samples.all { it.offsetMillis >= 0 && RecordingPolicy.valid(it.fix) }) { "Invalid recording sample" }
         require(samples.zipWithNext().all { (a, b) -> b.offsetMillis > a.offsetMillis }) { "Recording times must increase" }
         require(gaps.all { it.offsetMillis >= 0 }) { "Invalid recording gap" }
+        require(gaps.zipWithNext().all { (a, b) -> b.offsetMillis >= a.offsetMillis }) { "Gap times must increase" }
     }
 
     /** A gap holds the last observed point; it never draws invented movement between observations. */
@@ -70,14 +70,17 @@ data class RecordedTrack(val summary: TrackSummary, val samples: List<TrackSampl
         var elapsed = samples.first().offsetMillis.toDouble()
         val end = maxOf(samples.last().offsetMillis, summary.durationMillis).toDouble()
         var index = 0
+        var gapIndex = -1
         var previousGap: Boolean? = null
         try {
             while (true) {
                 while (index < samples.lastIndex && samples[index + 1].offsetMillis <= elapsed) index++
+                while (gapIndex + 1 < gaps.size && gaps[gapIndex + 1].offsetMillis <= elapsed) gapIndex++
                 val a = samples[index]
                 val b = samples.getOrNull(index + 1)
-                val explicitGap = gaps.any { it.offsetMillis >= a.offsetMillis && it.offsetMillis <= elapsed &&
-                    (b == null || it.offsetMillis < b.offsetMillis) }
+                val latestGap = gaps.getOrNull(gapIndex)
+                val explicitGap = latestGap != null && latestGap.offsetMillis >= a.offsetMillis &&
+                    (b == null || latestGap.offsetMillis < b.offsetMillis)
                 val discontinuity = b != null && (b.gapBefore ||
                     (b.offsetMillis - a.offsetMillis > RecordingPolicy.CONTINUITY_MILLIS && !RecordingPolicy.stationary(a.fix, b.fix)))
                 val gap = explicitGap || discontinuity || (b == null && elapsed > a.offsetMillis + RecordingPolicy.CONTINUITY_MILLIS)

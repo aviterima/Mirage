@@ -296,6 +296,7 @@ class PlannerVoiceUiAcceptanceTest {
         compose.onNodeWithTag("plannerSavedPlaceSearch").assertTextContains("Off")
         compose.onNodeWithTag("plannerSavedPlace-inline-office").assertIsDisplayed()
         compose.onNodeWithTag("plannerSavedPlace-inline-home").assertDoesNotExist()
+        screenshot("planner-saved-filter-carried")
         compose.onNodeWithTag("plannerSavedPlaceSearch").performTextReplacement("")
         compose.onNodeWithTag("plannerSavedPlace-inline-home").assertIsDisplayed()
         compose.onNodeWithTag("plannerSavedPlace-inline-office").assertIsDisplayed()
@@ -319,6 +320,7 @@ class PlannerVoiceUiAcceptanceTest {
         compose.onNodeWithTag("continuationQuery").performScrollTo().performTextReplacement("H")
         compose.onNodeWithTag("continuationSavedSuggestion-inline-home").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("continuationSavedSuggestion-inline-office").assertDoesNotExist()
+        screenshot("live-stop-saved-typeahead")
         compose.onNodeWithTag("continuationQuery").performScrollTo().performTextReplacement("Off")
         compose.onNodeWithTag("destinationSource-SNAP").performScrollTo().performClick()
         compose.onNodeWithTag("continuationSavedQuery").performScrollTo().assertTextContains("Off")
@@ -349,6 +351,7 @@ class PlannerVoiceUiAcceptanceTest {
         }
         val before = MockState.status.value
         compose.onNodeWithTag("zoomEmulatedLocation").assertIsDisplayed().assertIsEnabled().performClick()
+        screenshot("live-emulated-location-zoom")
         compose.runOnIdle {
             assertEquals(before, MockState.status.value); assertTrue(PlaybackSource.paused)
             assertNull(PlaybackSource.current); assertEquals(0, starts)

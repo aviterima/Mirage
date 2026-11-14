@@ -1,6 +1,6 @@
 # Location controls and recordings — 14 November 2026
 
-Status: implementation in progress; no new installer or validation pass claimed.
+Status: Android 0.20.0 candidate implemented; checks pending. No new release claimed.
 Scope: Android implementation, matching the reported live Add stop flow. iPhone
 parity remains separate and is not implied by Android work.
 
@@ -56,4 +56,20 @@ quality/gap markers; optional end-of-day reminder to stop and name a recording.
 
 ## Verification
 
-Pending implementation and checks. Historical 0.19.1 passes do not certify these changes.
+Candidate version 0.20.0, code 47. Local Android tooling is unavailable; exact-source
+CI runs on a separate snapshot branch without changing the mapped worktree branch
+or index, and without including existing uncommitted iPhone work. Historical 0.19.1
+passes do not certify these changes.
+
+Recording uses one-second moving samples and compressed stationary samples with
+the final observed point retained. Suggested names include source and date/time;
+the user can rename them. Real recording rejects mock, stale and future-dated
+monotonic fixes. Emulated samples represent accepted GPS-provider writes, not proof
+of a destination app consuming them. Interruption gaps hold the previous point
+during replay, with no invented connecting path. Replay begins at the first known
+location; leading time without a fix is not simulated. Recordings are limited to
+48 hours, 180,000 samples and 64 MiB each; the library permits 200 recordings.
+
+Physical real GPS accuracy, screen-lock survival, all-day battery use and output
+consumption in other apps remain unrun. iPhone changes and any claim of iPhone
+background recording are outside this Android candidate.

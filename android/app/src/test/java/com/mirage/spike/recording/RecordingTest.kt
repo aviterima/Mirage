@@ -152,6 +152,21 @@ class RecordingTest {
         assertEquals(track.id, store.active!!.id)
     }
 
+    @Test fun `interrupt releases the active session and preserves durable locations`() {
+        val store = store()
+        val first = store.start(TrackSource.REAL, 1000, 1000)
+        store.append(fix(), 1000, 1000)
+        store.append(fix(33.01), 2000, 2000)
+        store.append(fix(33.02), 2100, 2100)
+        assertEquals(TrackState.INTERRUPTED, store.interrupt()!!.state)
+        assertNull(store.active)
+        assertEquals(TrackState.INTERRUPTED, store.read(first.id).summary.state)
+        assertEquals(2, store.read(first.id).samples.size)
+        val next = store.start(TrackSource.EMULATED, 3000, 3000)
+        assertNotEquals(first.id, next.id)
+        assertEquals(2, store.list().size)
+    }
+
     private fun recording(samples: List<TrackSample>, gaps: List<TrackGap> = emptyList(), duration: Long = samples.last().offsetMillis) =
         RecordedTrack(TrackSummary("test", "Replay", TrackSource.REAL, 0, duration, duration, samples.size, TrackState.SAVED), samples, gaps)
 
