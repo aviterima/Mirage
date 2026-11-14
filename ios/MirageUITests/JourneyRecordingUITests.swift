@@ -11,7 +11,8 @@ final class JourneyRecordingUITests: XCTestCase {
         let record = app.buttons["record-emulated-day"]
         XCTAssertTrue(record.waitForExistence(timeout: 5))
         XCTAssertEqual(record.label, "Record preview positions")
-        XCTAssertTrue(app.buttons["record-real-journey"].isEnabled)
+        XCTAssertFalse(app.buttons["record-real-journey"].isEnabled, "Connected output must be cleared before real recording")
+        XCTAssertTrue(app.staticTexts["Use Stop / Clear in Device proof and wait for real-location recovery before recording a real journey."].exists)
         XCTAssertFalse(app.buttons["stop-recording"].exists)
         record.tap()
         XCTAssertTrue(app.buttons["stop-recording"].waitForExistence(timeout: 5))
