@@ -1,0 +1,129 @@
+name: iPhone signed distribution preparation
+
+on:
+  push:
+    paths:
+      - ".github/workflows/ios-signed.yml"
+      - "ios/scripts/archive-signed-app.sh"
+      - "ios/scripts/verify-signed-app.py"
+      - "ios/scripts/create-install-manifest.py"
+      - "ios/scripts/deliver-private-package.py"
+      - "ios/scripts/tests/**"
+      - "ios/project.yml"
+      - "ios/MirageApp/Assets.xcassets/**"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Dry-run never signs; signed modes require Apple and private-delivery secrets."
+        type: choice
+        default: dry-run
+        options:
+          - dry-run
+          - release-testing
+          - app-store-connect
+
+permissions:
+  contents: read
+
+jobs:
+  release-archive:
+    runs-on: macos-15
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - name: Determine mode without secrets
+        env:
+          REQUESTED_MODE: ${{ inputs.mode }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          MODE=dry-run
+          if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
+            case "$REQUESTED_MODE" in
+              dry-run|release-testing|app-store-connect) MODE="$REQUESTED_MODE" ;;
+              *) echo 'Invalid distribution mode.' >&2; exit 1 ;;
+            esac
+          fi
+          echo "MIRAGE_DISTRIBUTION_MODE=$MODE" >> "$GITHUB_ENV"
+          mkdir -p ios/build
+          xcodebuild -version > ios/build/distribution-toolchain.txt
+      - name: Check signed delivery prerequisites
+        if: env.MIRAGE_DISTRIBUTION_MODE != 'dry-run'
+        env:
+          MIRAGE_IOS_CERTIFICATE_P12_BASE64: ${{ secrets.MIRAGE_IOS_CERTIFICATE_P12_BASE64 }}
+          MIRAGE_IOS_CERTIFICATE_PASSWORD: ${{ secrets.MIRAGE_IOS_CERTIFICATE_PASSWORD }}
+          MIRAGE_IOS_PROFILE_BASE64: ${{ secrets.MIRAGE_IOS_PROFILE_BASE64 }}
+          MIRAGE_IOS_TEAM_ID: ${{ secrets.MIRAGE_IOS_TEAM_ID }}
+          MIRAGE_IOS_RECIPIENT_UDID: ${{ secrets.MIRAGE_IOS_RECIPIENT_UDID }}
+          MIRAGE_IOS_PRIVATE_UPLOAD_URL: ${{ secrets.MIRAGE_IOS_PRIVATE_UPLOAD_URL }}
+          MIRAGE_IOS_PRIVATE_DOWNLOAD_URL: ${{ secrets.MIRAGE_IOS_PRIVATE_DOWNLOAD_URL }}
+        run: |
+          for name in MIRAGE_IOS_CERTIFICATE_P12_BASE64 MIRAGE_IOS_CERTIFICATE_PASSWORD MIRAGE_IOS_PROFILE_BASE64 MIRAGE_IOS_TEAM_ID; do
+            [[ -n "${!name}" ]] || { echo 'Apple signing prerequisites are missing.' >&2; exit 1; }
+          done
+          if [[ "$MIRAGE_DISTRIBUTION_MODE" == release-testing ]]; then
+            [[ -n "$MIRAGE_IOS_RECIPIENT_UDID" ]] || { echo 'Registered recipient device is missing.' >&2; exit 1; }
+          fi
+          python3 ios/scripts/deliver-private-package.py --check-config
+      - name: Test distribution rejection cases
+        run: python3 -m unittest discover -s ios/scripts/tests -v
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.90.0 --profile minimal
+      # Push dry-runs are accompanied by ios.yml at the same commit, which runs
+      # the core/bridge/native suite. Manual signed runs repeat that full gate.
+      - name: Test exact source before signing
+        if: env.MIRAGE_DISTRIBUTION_MODE != 'dry-run'
+        run: |
+          set -o pipefail
+          swift test --package-path ios/MirageCore --parallel --xunit-output "$PWD/ios/build/signed-core-tests.xml"
+          cargo +1.90.0 test --locked --manifest-path ios/DeviceBridge/Cargo.toml 2>&1 | tee ios/build/signed-bridge-tests.log
+      - name: Generate native project
+        run: bash ios/scripts/generate-project.sh
+      - name: Run exact-source native tests before signing
+        if: env.MIRAGE_DISTRIBUTION_MODE != 'dry-run'
+        run: |
+          xcrun simctl list devices available -j > ios/build/distribution-simulators.json
+          DEVICE_ID=$(python3 ios/scripts/select-simulator.py ios/build/distribution-simulators.json ios/build/distribution-simulator.json)
+          xcodebuild -project ios/Mirage.xcodeproj -scheme Mirage \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath ios/build/DistributionTests \
+            -resultBundlePath ios/build/DistributionTests.xcresult CODE_SIGNING_ALLOWED=NO test
+      - name: Build native bridge for this source
+        run: |
+          rustup target add --toolchain 1.90.0 aarch64-apple-ios
+          bash ios/scripts/build-device-bridge.sh aarch64-apple-ios
+      - name: Validate unsigned Release archive
+        if: env.MIRAGE_DISTRIBUTION_MODE == 'dry-run'
+        run: bash ios/scripts/archive-signed-app.sh --dry-run
+      - name: Archive and verify signed Release package
+        if: env.MIRAGE_DISTRIBUTION_MODE != 'dry-run'
+        env:
+          MIRAGE_IOS_CERTIFICATE_P12_BASE64: ${{ secrets.MIRAGE_IOS_CERTIFICATE_P12_BASE64 }}
+          MIRAGE_IOS_CERTIFICATE_PASSWORD: ${{ secrets.MIRAGE_IOS_CERTIFICATE_PASSWORD }}
+          MIRAGE_IOS_PROFILE_BASE64: ${{ secrets.MIRAGE_IOS_PROFILE_BASE64 }}
+          MIRAGE_IOS_TEAM_ID: ${{ secrets.MIRAGE_IOS_TEAM_ID }}
+          MIRAGE_IOS_RECIPIENT_UDID: ${{ secrets.MIRAGE_IOS_RECIPIENT_UDID }}
+        run: bash ios/scripts/archive-signed-app.sh --method "$MIRAGE_DISTRIBUTION_MODE"
+      - name: Transfer signed package only to configured private storage
+        if: env.MIRAGE_DISTRIBUTION_MODE != 'dry-run'
+        env:
+          MIRAGE_IOS_PRIVATE_UPLOAD_URL: ${{ secrets.MIRAGE_IOS_PRIVATE_UPLOAD_URL }}
+          MIRAGE_IOS_PRIVATE_DOWNLOAD_URL: ${{ secrets.MIRAGE_IOS_PRIVATE_DOWNLOAD_URL }}
+        run: >-
+          python3 ios/scripts/deliver-private-package.py
+          --ipa ios/build/Distribution/Export/Mirage.ipa
+          --receipt ios/build/Distribution/signing-validation.json
+          --output ios/build/Distribution/private-delivery-validation.json
+      - name: Upload privacy-safe verification only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iphone-distribution-verification
+          path: |
+            ios/build/distribution-toolchain.txt
+            ios/build/Distribution/dry-run-validation.json
+            ios/build/Distribution/dry-run-archive.log
+            ios/build/Distribution/signing-validation.json
+            ios/build/Distribution/private-delivery-validation.json
+          if-no-files-found: warn
+          retention-days: 14
+      # Never upload the signed IPA, xcarchive, profile, export logs or keychain
+      # to Actions artifacts; the source repository may be public.
