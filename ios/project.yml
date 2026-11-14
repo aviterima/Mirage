@@ -27,6 +27,8 @@ targets:
       path: build/Info.plist
       properties:
         CFBundleDisplayName: Mirage
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSLocationWhenInUseUsageDescription: Mirage records journeys you start and compares location output with real-location recovery after Stop.
         NSLocalNetworkUsageDescription: Mirage connects to this iPhone's paired developer service through your configured local tunnel.
         UIBackgroundModes: [location]
@@ -37,6 +39,9 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.mirage.iphone
+        TARGETED_DEVICE_FAMILY: "1"
+        MARKETING_VERSION: "0.2.0"
+        CURRENT_PROJECT_VERSION: "2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_KEY_CFBundleDisplayName: Mirage

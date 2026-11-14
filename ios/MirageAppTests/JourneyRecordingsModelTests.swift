@@ -2,6 +2,15 @@ import XCTest
 import MirageCore
 @testable import Mirage
 
+private actor RecordingAdmissionOutput: LocationOutput {
+    nonisolated let capabilities = LocationOutputCapabilities(name: "Recording admission fixture", mode: .device)
+    private var events: [String] = []
+    func connect() async throws { events.append("connect") }
+    func send(_ coordinate: Coordinate) async throws { events.append("send") }
+    func clear() async throws { events.append("clear") }
+    func log() -> [String] { events }
+}
+
 @MainActor
 final class JourneyRecordingsModelTests: XCTestCase {
     private let point = Coordinate(lat: 33.5, lng: -112.0)
@@ -121,5 +130,48 @@ final class JourneyRecordingsModelTests: XCTestCase {
         XCTAssertEqual(proof.status, "Preview stopped. No device output was changed.")
         XCTAssertFalse(defaults.bool(forKey: "deviceOutputMayNeedRecovery"))
         XCTAssertEqual(deviceCalls, 0)
+    }
+
+    func testRealRecordingRequiresOutputClearAndRemainsActiveWhenBackgrounded() async throws {
+        let url = try directory()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let suite = "Mirage.recording.admission.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recordings = JourneyRecordingsModel(store: JourneyStore(directory: url.appendingPathComponent("journeys")))
+        let output = RecordingAdmissionOutput()
+        let proof = ProofModel(defaults: defaults, deviceOutputFactory: { output },
+            scenarioStore: ScenarioStore(fileURL: url.appendingPathComponent("scenarios.json")), recordingsModel: recordings)
+        await proof.connect()
+        XCTAssertTrue(proof.connected); XCTAssertFalse(proof.running)
+        XCTAssertFalse(proof.canStartRealRecording)
+        XCTAssertFalse(proof.startRealRecording(), "Idle connected output must not admit a real recording")
+        XCTAssertNil(recordings.source); XCTAssertNil(recordings.active)
+        XCTAssertTrue(recordings.status.contains("Stop / Clear"))
+
+        await proof.stop()
+        XCTAssertFalse(proof.connected); XCTAssertTrue(proof.recoveryNeeded)
+        XCTAssertFalse(proof.startRealRecording(), "Clear must be followed by fresh real-location evidence")
+        await proof.observe(LocationObservation(coordinate: point, timestamp: Date(),
+            isSimulatedBySoftware: false, horizontalAccuracy: 4))
+        XCTAssertFalse(proof.recoveryNeeded); XCTAssertTrue(proof.canStartRealRecording)
+        XCTAssertTrue(proof.startRealRecording())
+        await waitFor("Real recording starts after recovery") { recordings.active != nil && !recordings.busy }
+        await proof.backgrounded()
+        XCTAssertFalse(proof.recoveryNeeded, "Backgrounding a cleared output must not invalidate a real recording")
+        XCTAssertTrue(recordings.realActive)
+        await proof.observe(LocationObservation(coordinate: other, timestamp: Date(),
+            isSimulatedBySoftware: false, horizontalAccuracy: 4))
+        recordings.finish()
+        await waitFor("Background real observation is saved") {
+            !recordings.recording && recordings.active == nil && recordings.library.count == 1 &&
+                recordings.library.allSatisfy { $0.state == .saved }
+        }
+        let summary = try XCTUnwrap(recordings.library.first)
+        let saved = try await recordings.read(summary.id)
+        XCTAssertEqual(saved.summary.source, .real)
+        XCTAssertEqual(saved.samples.map(\.coordinate), [other])
+        let events = await output.log()
+        XCTAssertEqual(events, ["connect", "clear"], "Real recording must not send device output")
     }
 }

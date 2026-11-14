@@ -1,6 +1,7 @@
 # Location controls and recordings — 14 November 2026
 
-Status: Android 0.20.0 candidate implemented; checks pending. No new release claimed.
+Status: Android 0.20.0 (47) and iPhone 0.2.0 (2) candidates implemented;
+final checks pending. No new release claimed.
 Scope: both Android and iPhone, confirmed by the owner during implementation.
 Android extends the existing full planner; iPhone extends its existing native
 engineering app. iPhone signing/install/device-output limitations remain explicit.
@@ -45,9 +46,10 @@ unit/UI checks, retain explicit failed/unrun checks. Existing release gates appl
 
 ## Additional ideas, proposed only
 
-Replay scrubber and speed selection; Fit whole journey; trim start/end or remove
+Replay timeline scrubber; Fit whole journey; trim start/end or remove
 private sections; duplicate a recording into an editable itinerary; recording
 quality/gap markers; optional end-of-day reminder to stop and name a recording.
+Replay speed selection at 1×, 2×, 5× and 10× is already implemented.
 
 ## Platform references
 

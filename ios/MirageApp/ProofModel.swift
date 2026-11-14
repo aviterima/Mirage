@@ -88,9 +88,20 @@ final class ProofModel: ObservableObject {
     }
     var canRun: Bool { connected && !busy && !stopping && !running && coordinate != nil && !recoveryNeeded && !recordings.realActive }
     var canReplayRecording: Bool { connected && !busy && !stopping && !running && !recoveryNeeded && !recordings.recording }
+    var canStartRealRecording: Bool { !connected && !busy && !stopping && !running && !recoveryNeeded && !recordings.recording }
     var canChangeSetup: Bool { !busy && !stopping && !connected && !running && !recoveryNeeded && !recordings.recording }
     var canEditDeviceSetup: Bool { !busy && !stopping && !connected && !running }
     var canStop: Bool { session != nil && !stopping }
+
+    @discardableResult
+    func startRealRecording() -> Bool {
+        guard canStartRealRecording else {
+            recordings.status = "Use Stop / Clear for the output connection and wait for real-location recovery before recording a real journey. Finish any current recording first."
+            return false
+        }
+        recordings.start(.real)
+        return recordings.realActive
+    }
 
     func connect() async {
         guard !recordings.realActive else { status = "Stop and save the real recording before connecting output"; return }

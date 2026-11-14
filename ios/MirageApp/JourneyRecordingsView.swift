@@ -36,10 +36,13 @@ struct JourneyRecordingsView: View {
             } else if !recordings.busy {
                 Section("Start recording") {
                     Button("Record real journey") {
-                        recordings.start(.real)
-                        if recordings.realActive { observer.startRealRecording() }
-                    }.disabled(model.running || model.busy || model.stopping || model.recoveryNeeded || recordings.recording)
+                        if model.startRealRecording() { observer.startRealRecording() }
+                    }.disabled(!model.canStartRealRecording)
                         .accessibilityIdentifier("record-real-journey")
+                    if model.connected || model.running || model.busy || model.stopping || model.recoveryNeeded {
+                        Text("Use Stop / Clear in Device proof and wait for real-location recovery before recording a real journey.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     Text("Start while this app is open. Real recording continues with the location indicator when you switch apps or lock the screen.")
                         .font(.caption).foregroundStyle(.secondary)
                     Button(model.mode == .preview ? "Record preview positions" : "Record emulated day") {
