@@ -81,7 +81,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: unit-test-report
-          path: android/app/build/reports/tests/testDebugUnitTest
+          path: |
+            android/app/build/reports/tests/testDebugUnitTest
+            android/app/build/test-results/testDebugUnitTest
           if-no-files-found: ignore
 
       - name: Lint (blocking)

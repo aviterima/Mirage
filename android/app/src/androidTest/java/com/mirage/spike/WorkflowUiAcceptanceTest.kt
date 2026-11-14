@@ -107,11 +107,15 @@ class WorkflowUiAcceptanceTest {
         screenshot("saved-snaps-route-endpoints")
     }
 
-    private fun pickPlannerPlace(buttonTag: String, id: String, query: String? = null) {
+    private fun pickPlannerPlace(buttonTag: String, id: String, query: String? = null, expectedFilter: String? = null) {
         compose.onNodeWithTag(buttonTag).performScrollTo().performClick()
         compose.onNodeWithTag("plannerSavedPlaces").assertIsDisplayed()
         compose.onNodeWithTag("plannerSavedPlace-fixture-route").assertDoesNotExist()
-        if (query != null) compose.onNodeWithTag("plannerSavedPlaceSearch").performTextInput(query)
+        if (expectedFilter != null) {
+            compose.onNodeWithTag("plannerSavedPlaceSearch").assertTextContains(expectedFilter)
+            compose.onNodeWithTag("plannerSavedPlace-$id").assertDoesNotExist()
+        }
+        if (query != null) compose.onNodeWithTag("plannerSavedPlaceSearch").performTextReplacement(query)
         compose.onNodeWithTag("plannerSavedPlace-$id").assertIsDisplayed().performClick()
         compose.onNodeWithTag("plannerSavedPlaces").assertDoesNotExist()
         assertFalse(MockState.status.value.running)
@@ -262,9 +266,12 @@ class WorkflowUiAcceptanceTest {
             assertTrue("Keyboard must not let the footer cover the input",input.fetchSemanticsNode().boundsInRoot.bottom<=compose.onNodeWithTag("plannerFooter").fetchSemanticsNode().boundsInRoot.top)
             screenshot("large-text-keyboard-planner")
             device.pressBack()
-            pickPlannerPlace("plannerSavedStop", "fixture-home")
+            // Saved deliberately carries the unfinished address filter. Change that
+            // filter explicitly before choosing Home; keep the same layout assertions.
+            pickPlannerPlace("plannerSavedStop", "fixture-home", query = "Home", expectedFilter = "Library")
             compose.onNodeWithContentDescription("Reorder stop 25: Fixture Home").performScrollTo().assertIsDisplayed()
             compose.onNodeWithText("Start itinerary").assertIsDisplayed()
+            screenshot("large-text-saved-stop-after-filter")
             assertFalse(MockState.status.value.running)
         } finally {device.executeShellCommand("settings put system font_scale 1.0")}
     }

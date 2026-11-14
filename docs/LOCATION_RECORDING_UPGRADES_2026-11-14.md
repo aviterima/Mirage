@@ -1,8 +1,10 @@
 # Location controls and recordings — 14 November 2026
 
-Status: Android 0.20.0 candidate implemented; checks pending. No new release claimed.
-Scope: Android implementation, matching the reported live Add stop flow. iPhone
-parity remains separate and is not implied by Android work.
+Status: Android 0.20.0 (47) and iPhone 0.2.0 (2) candidates implemented;
+final checks pending. No new release claimed.
+Scope: both Android and iPhone, confirmed by the owner during implementation.
+Android extends the existing full planner; iPhone extends its existing native
+engineering app. iPhone signing/install/device-output limitations remain explicit.
 
 ## Requested behavior
 
@@ -44,9 +46,10 @@ unit/UI checks, retain explicit failed/unrun checks. Existing release gates appl
 
 ## Additional ideas, proposed only
 
-Replay scrubber and speed selection; Fit whole journey; trim start/end or remove
+Replay timeline scrubber; Fit whole journey; trim start/end or remove
 private sections; duplicate a recording into an editable itinerary; recording
 quality/gap markers; optional end-of-day reminder to stop and name a recording.
+Replay speed selection at 1×, 2×, 5× and 10× is already implemented.
 
 ## Platform references
 
@@ -71,5 +74,11 @@ location; leading time without a fix is not simulated. Recordings are limited to
 48 hours, 180,000 samples and 64 MiB each; the library permits 200 recordings.
 
 Physical real GPS accuracy, screen-lock survival, all-day battery use and output
-consumption in other apps remain unrun. iPhone changes and any claim of iPhone
-background recording are outside this Android candidate.
+consumption in other apps remain unrun. iPhone adds explicit real-location recording
+with background-location capability, separate emulated/preview recordings, stored
+sample replay, map centering and searchable saved-stop selection. Its existing
+device-output background interruption policy stays enforced: emulated recordings
+mark the interruption as a gap and can span subsequent foreground sessions. This
+does not claim continuous all-day iPhone emulation, full Android planning parity,
+or a signed/installable iPhone distribution. The owner uses Windows/iPad; validation
+uses hosted macOS, not owner-run Xcode.

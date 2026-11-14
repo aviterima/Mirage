@@ -61,6 +61,24 @@ class RecordingTest {
         assertEquals(60_000, saved.summary.durationMillis)
     }
 
+    @Test fun `departure after compressed stay retains timing without a false replay gap`() = runTest {
+        val store = store()
+        val track = store.start(TrackSource.REAL, 1000, 1000)
+        for (second in 0..19) store.append(fix(speed = 0f), 1000 + second * 1000L, 1000 + second * 1000L)
+        assertEquals(1, store.active!!.sampleCount)
+        assertTrue(store.append(fix(33.0001, speed = 2f), 21_000, 21_000))
+        store.finish(21_000, 21_000)
+        val saved = store.read(track.id)
+        assertEquals(listOf(0L, 19_000L, 20_000L), saved.samples.map { it.offsetMillis })
+        assertTrue(saved.gaps.isEmpty())
+        val gaps = mutableListOf<Boolean>()
+        val replayed = saved.fixes(timeScale = { 1.0 }, paused = { false }, onGap = gaps::add).toList()
+        assertEquals(listOf(false), gaps)
+        assertTrue(replayed.take(96).all { it.lat == 33.0 })
+        assertEquals(33.00002, replayed[96].lat, 0.000001)
+        assertEquals(33.0001, replayed.last().lat, 0.0)
+    }
+
     @Test fun `session changes and missing observations persist gaps without losing latest fix`() {
         val store = store()
         val track = store.start(TrackSource.EMULATED, 1000, 1000)

@@ -41,6 +41,14 @@ class FileTrackStore(private val directory: File) {
         val previous = current.lastObserved
         if (previous != null && offset <= previous.offsetMillis) return false
         if (previous != null && offset - previous.offsetMillis > RecordingPolicy.CONTINUITY_MILLIS) gap("Location updates interrupted")
+        val beforeMovement = current.lastWritten
+        if (!current.pendingGap && previous != null && beforeMovement != null &&
+            previous.offsetMillis > beforeMovement.offsetMillis &&
+            RecordingPolicy.stationary(beforeMovement.fix, previous.fix) && !RecordingPolicy.stationary(beforeMovement.fix, fix)) {
+            // Preserve the end of a known stay before replacing its suppressed observation.
+            // Otherwise replay can mistake that quiet interval for missing movement.
+            flushLatest(current)
+        }
         val sample = TrackSample(offset, wallTimeMillis, fix, current.pendingGap)
         current.lastObserved = sample
         current.summary = current.summary.copy(durationMillis = offset)
