@@ -255,6 +255,13 @@ public actor JourneyStore {
                 try markGap(reason: "Location updates interrupted")
             }
         }
+        if !current.pendingGap, let previous = current.lastObserved, let written = current.lastWritten,
+           previous.offset > written.offset, JourneyRecordingPolicy.stationary(written, previous),
+           !JourneyRecordingPolicy.stationary(written, candidate) {
+            // Preserve the last known stationary observation before movement replaces it.
+            // This prevents a compressed stay from becoming an apparent recording gap.
+            try flushLatest(current)
+        }
         let sample = JourneySample(offset: offset, timestamp: timestamp, coordinate: coordinate,
             horizontalAccuracy: horizontalAccuracy, speed: speed, gapBefore: current.pendingGap)
         current.lastObserved = sample

@@ -114,6 +114,30 @@ final class LocationRecordingTests: XCTestCase {
         XCTAssertEqual(try held.coordinate(at: 45), origin)
     }
 
+    func testDepartureAfterCompressedStayRetainsTimingWithoutFalseReplayGap() async throws {
+        let (url, store) = try fixture()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let summary = try await store.start(source: .real, at: date(1000), monotonicTime: 10)
+        for second in 0...19 {
+            _ = try await store.append(coordinate: origin, timestamp: date(1000 + Double(second)),
+                                       monotonicTime: 10 + Double(second), speed: 0)
+        }
+        let stationary = await store.active
+        XCTAssertEqual(stationary?.sampleCount, 1)
+        let moved = try await store.append(coordinate: Coordinate(lat: 33.0001, lng: -112), timestamp: date(1020), monotonicTime: 30, speed: 2)
+        XCTAssertTrue(moved)
+        _ = try await store.finish(at: date(1020), monotonicTime: 30)
+        let track = try await store.read(id: summary.id)
+        XCTAssertEqual(track.samples.map(\.offset), [0, 19, 20])
+        XCTAssertTrue(track.gaps.isEmpty)
+        XCTAssertEqual(try track.coordinate(at: 18), origin)
+        XCTAssertEqual(try track.coordinate(at: 19), origin)
+        XCTAssertFalse(try track.frame(at: 18).isGap)
+        XCTAssertFalse(try track.frame(at: 19.5).isGap)
+        XCTAssertEqual(try track.coordinate(at: 19.5).lat, 33.00005, accuracy: 0.000001)
+        XCTAssertEqual(try track.coordinate(at: 20).lat, 33.0001, accuracy: 0.0)
+    }
+
     func testSessionAndReceptionGapsFlushPendingSamplesAndNeverInterpolateJumps() async throws {
         let (url, store) = try fixture()
         defer { try? FileManager.default.removeItem(at: url) }
