@@ -41,7 +41,9 @@ final class JourneyRecordingsModel: ObservableObject {
         enqueue {
             guard self.generation == token else { return }
             self.active = try await store.start(source: kind, at: date, monotonicTime: uptime, name: nil)
-            self.busy = false
+            // An immediate Stop may already be queued behind this start write.
+            // Keep admission blocked until its finish command has completed.
+            if self.source != nil { self.busy = false }
             self.status = kind == .real ? "Waiting for fresh verified real locations" :
                 kind == .preview ? "Recording preview positions; iPhone location is unchanged" : "Recording acknowledged iPhone output"
             await self.reload()

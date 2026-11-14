@@ -96,3 +96,4 @@ jobs:
             ios/DeviceBridge/Cargo.lock
             ios/build/device-build.log
             ios/build/bridge-tests.log
+            ios/build/DeviceDerivedData/Build/Products/Debug-iphoneos/Mirage.app

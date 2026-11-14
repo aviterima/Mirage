@@ -199,14 +199,16 @@ final class ProofModel: ObservableObject {
         routeName = journey.summary.name; hasLoadedGeometry = false
         running = true; paused = false; canPause = true
         loop = Task { [weak self] in
+            var firstFrame = true
             while !Task.isCancelled {
                 guard let self, let session = self.session, let journey = self.recordedPlayback else { return }
                 do {
                     let now = ProcessInfo.processInfo.systemUptime
-                    if !self.paused && !self.recordedHold {
+                    if !firstFrame && !self.paused && !self.recordedHold {
                         self.recordedElapsed = min(journey.replayDuration,
                             self.recordedElapsed + max(0, now - self.recordedLastTime) * speed)
                     }
+                    firstFrame = false
                     self.recordedLastTime = now
                     let frame = try journey.frame(at: self.recordedElapsed)
                     self.playbackProgress = journey.replayDuration > 0 ? self.recordedElapsed / journey.replayDuration : 1
