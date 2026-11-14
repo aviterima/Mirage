@@ -9,6 +9,8 @@ final class LocationObserver: NSObject, ObservableObject, CLLocationManagerDeleg
     @Published var lastReal: CLLocation?
     @Published var sampleInterval: TimeInterval?
     var onObservation: ((LocationObservation) -> Void)?
+    var onRecordingUnavailable: (() -> Void)?
+    private var recordingReal = false
     private let manager = CLLocationManager()
 
     override init() {
@@ -23,14 +25,35 @@ final class LocationObserver: NSObject, ObservableObject, CLLocationManagerDeleg
         case .authorizedAlways, .authorizedWhenInUse:
             status = "Waiting for a fresh location"
             manager.startUpdatingLocation()
-        case .denied, .restricted: status = "Allow location access in iPhone Settings to verify output"
+        case .denied, .restricted:
+            status = "Allow location access in iPhone Settings to record or verify locations"
+            if recordingReal { endRealRecording(); onRecordingUnavailable?() }
         @unknown default: status = "Location permission unavailable"
         }
+    }
+
+    func startRealRecording() {
+        recordingReal = true
+        manager.allowsBackgroundLocationUpdates = true
+        manager.showsBackgroundLocationIndicator = true
+        manager.pausesLocationUpdatesAutomatically = false
+        request()
+    }
+
+    func endRealRecording() {
+        guard recordingReal else { return }
+        recordingReal = false
+        manager.allowsBackgroundLocationUpdates = false
+        manager.pausesLocationUpdatesAutomatically = true
+        manager.stopUpdatingLocation()
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         if manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways {
             request()
+        } else if recordingReal && (manager.authorizationStatus == .denied || manager.authorizationStatus == .restricted) {
+            status = "Location permission was denied or removed; recording stopped"
+            endRealRecording(); onRecordingUnavailable?()
         }
     }
 
@@ -50,5 +73,8 @@ final class LocationObserver: NSObject, ObservableObject, CLLocationManagerDeleg
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         status = "Location observation unavailable. Check permission and GPS reception."
+        if (error as? CLError)?.code == .denied && recordingReal {
+            endRealRecording(); onRecordingUnavailable?()
+        }
     }
 }

@@ -31,6 +31,12 @@ final class ProofModel: ObservableObject {
     @Published var pairingImported = false
     @Published var routeName = "Synthetic test route"
     @Published private(set) var hasLoadedGeometry = false
+    let recordings: JourneyRecordingsModel
+    private var recordingObservation: AnyCancellable?
+    private var recordedPlayback: RecordedJourney?
+    private var recordedElapsed = 0.0
+    private var recordedLastTime = 0.0
+    private var recordedHold = false
     private var session: LocationOutputSession?
     private var lastSnapshotRevision: UInt64 = 0
     private var playback: RoutePlayback?
@@ -46,10 +52,12 @@ final class ProofModel: ObservableObject {
     init(defaults: UserDefaults = .standard,
          deviceOutputFactory: (() throws -> any LocationOutput)? = nil,
          scenarioStore: ScenarioStore? = nil,
+         recordingsModel: JourneyRecordingsModel? = nil,
          observationClock: @escaping @Sendable () -> Date = { Date() }) {
         self.defaults = defaults
         self.deviceOutputFactory = deviceOutputFactory
         self.observationClock = observationClock
+        self.recordings = recordingsModel ?? JourneyRecordingsModel()
         recoveryNeeded = defaults.bool(forKey: Self.recoveryKey)
         host = defaults.string(forKey: "remotePairingHost") ?? "10.7.0.1"
         port = defaults.string(forKey: "remotePairingPort") ?? "49152"
@@ -69,6 +77,7 @@ final class ProofModel: ObservableObject {
             }
             catch { status = "Local storage is unavailable" }
         }
+        recordingObservation = recordings.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         Task { await reloadSaved() }
     }
 
@@ -77,12 +86,14 @@ final class ProofModel: ObservableObject {
         let point = Coordinate(lat: lat, lng: lng)
         return point.isValid ? point : nil
     }
-    var canRun: Bool { connected && !busy && !stopping && !running && coordinate != nil && !recoveryNeeded }
-    var canChangeSetup: Bool { !busy && !stopping && !connected && !running && !recoveryNeeded }
+    var canRun: Bool { connected && !busy && !stopping && !running && coordinate != nil && !recoveryNeeded && !recordings.realActive }
+    var canReplayRecording: Bool { connected && !busy && !stopping && !running && !recoveryNeeded && !recordings.recording }
+    var canChangeSetup: Bool { !busy && !stopping && !connected && !running && !recoveryNeeded && !recordings.recording }
     var canEditDeviceSetup: Bool { !busy && !stopping && !connected && !running }
     var canStop: Bool { session != nil && !stopping }
 
     func connect() async {
+        guard !recordings.realActive else { status = "Stop and save the real recording before connecting output"; return }
         guard !busy, !stopping, !running else { return }
         busy = true
         defer { busy = false }
@@ -158,12 +169,80 @@ final class ProofModel: ObservableObject {
         beginPlayback(points: route, seconds: seconds)
     }
 
+    func playStopSequence(_ points: [Coordinate], name: String) async {
+        guard canRun, points.count >= 2, points.allSatisfy({ $0.isValid }),
+              let seconds = Double(duration), seconds.isFinite, (1...3600).contains(seconds) else {
+            status = "Connect output, add at least two stops and set a duration from 1 to 3,600 seconds"
+            return
+        }
+        route = points; routeName = name; hasLoadedGeometry = true
+        use(points[0])
+        beginPlayback(points: points, seconds: seconds)
+    }
+
+    func replayRecording(_ id: String, speed: Double = 1) async {
+        guard canReplayRecording, speed.isFinite, (1...10).contains(speed) else {
+            status = "Stop recording, connect the selected output and stop current playback before replaying"
+            return
+        }
+        busy = true
+        let journey: RecordedJourney
+        do { journey = try await recordings.read(id) }
+        catch { busy = false; status = "This recording could not be read"; return }
+        busy = false
+        guard canReplayRecording, !journey.samples.isEmpty else {
+            status = "No recorded locations are ready to replay"; return
+        }
+        recordedPlayback = journey; playback = nil
+        recordedElapsed = 0; recordedLastTime = ProcessInfo.processInfo.systemUptime; recordedHold = false
+        route = [] // Do not connect missing sections with a misleading map line.
+        routeName = journey.summary.name; hasLoadedGeometry = false
+        running = true; paused = false; canPause = true
+        loop = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, let session = self.session, let journey = self.recordedPlayback else { return }
+                do {
+                    let now = ProcessInfo.processInfo.systemUptime
+                    if !self.paused && !self.recordedHold {
+                        self.recordedElapsed = min(journey.replayDuration,
+                            self.recordedElapsed + max(0, now - self.recordedLastTime) * speed)
+                    }
+                    self.recordedLastTime = now
+                    let frame = try journey.frame(at: self.recordedElapsed)
+                    self.playbackProgress = journey.replayDuration > 0 ? self.recordedElapsed / journey.replayDuration : 1
+                    self.canPause = !self.recordedHold && self.recordedElapsed < journey.replayDuration
+                    self.playbackStatus = self.paused ? "Recording replay paused" : self.recordedHold ? "Holding recorded location" :
+                        self.recordedElapsed >= journey.replayDuration ? "Replay complete · holding final location" :
+                        frame.isGap ? "Recording gap · holding last location" : "Replaying \(journey.summary.name)"
+                    self.persistPossibleWrite()
+                    let snapshot = await session.send(frame.coordinate)
+                    self.update(snapshot, from: session)
+                    if !Task.isCancelled && snapshot.state == .active, let sent = snapshot.sentCoordinate {
+                        self.recordings.captureOutput(sent, mode: snapshot.capabilities.mode)
+                    }
+                    if snapshot.state == .recoveryNeeded {
+                        self.recordings.markGap("Output requires recovery")
+                        self.running = false; self.paused = false; self.canPause = false
+                        self.recordedPlayback = nil; self.playbackStatus = "Interrupted; recovery required"
+                        return
+                    }
+                    try await Task.sleep(nanoseconds: 200_000_000)
+                } catch {
+                    if !Task.isCancelled { self.status = "Recording replay interrupted; use Stop to clear output" }
+                    return
+                }
+            }
+        }
+    }
+
     private func beginPlayback(points: [Coordinate], seconds: Double) {
         guard canRun else { return }
         do {
             var candidate = try RoutePlayback(points: points, duration: seconds)
             try candidate.start(at: ProcessInfo.processInfo.systemUptime)
             playback = candidate
+            recordedPlayback = nil
+            recordings.markGap("New output sequence")
             updatePlaybackStatus()
             running = true
             paused = false
@@ -180,6 +259,9 @@ final class ProofModel: ObservableObject {
                             self.persistPossibleWrite()
                             let snapshot = await session.send(point)
                             self.update(snapshot, from: session)
+                            if !Task.isCancelled && snapshot.state == .active, let sent = snapshot.sentCoordinate {
+                                self.recordings.captureOutput(sent, mode: snapshot.capabilities.mode)
+                            }
                             if snapshot.state == .recoveryNeeded {
                                 self.running = false
                                 self.paused = false
@@ -201,6 +283,11 @@ final class ProofModel: ObservableObject {
 
     func pauseOrResume() {
         guard running, canPause, !busy, !stopping else { return }
+        if recordedPlayback != nil {
+            paused.toggle(); recordedLastTime = ProcessInfo.processInfo.systemUptime
+            playbackStatus = paused ? "Recording replay paused" : "Replaying recording"
+            return
+        }
         do {
             if paused { try playback?.resume(at: ProcessInfo.processInfo.systemUptime) }
             else { try playback?.pause(at: ProcessInfo.processInfo.systemUptime) }
@@ -212,6 +299,10 @@ final class ProofModel: ObservableObject {
 
     func hold() {
         guard running, !busy, !stopping else { return }
+        if recordedPlayback != nil {
+            recordedHold = true; paused = false; canPause = false; playbackStatus = "Holding recorded location"
+            return
+        }
         do { try playback?.hold(at: ProcessInfo.processInfo.systemUptime); paused = false; canPause = false; updatePlaybackStatus() }
         catch { status = "Unable to hold this route; use Stop" }
     }
@@ -219,6 +310,7 @@ final class ProofModel: ObservableObject {
     func stop() async {
         guard !stopping else { return }
         stopping = true
+        recordings.markGap("Output stopped")
         defer { stopping = false }
         let stoppingSession = session
         let clearing = Task { await stoppingSession?.stop() }
@@ -227,6 +319,7 @@ final class ProofModel: ObservableObject {
         loop = nil
         playback?.stop()
         playback = nil
+        recordedPlayback = nil
         running = false
         paused = false
         canPause = false
@@ -237,6 +330,7 @@ final class ProofModel: ObservableObject {
     }
 
     func backgrounded() async {
+        recordings.markGap("Output interrupted in background")
         // A retained sent coordinate is history, not an outstanding device effect.
         // Once Stop and fresh real-location evidence finish recovery, backgrounding
         // must preserve the stopped state instead of announcing a new interruption.
@@ -253,10 +347,12 @@ final class ProofModel: ObservableObject {
         canPause = false
         playbackStatus = "Interrupted; recovery required"
         playback = nil
+        recordedPlayback = nil
         connected = false
     }
 
     func observe(_ observation: LocationObservation) async {
+        recordings.captureReal(observation, simulationActive: running || recoveryNeeded || busy)
         guard let session else { return }
         await session.observe(observation)
         update(await session.snapshot(), from: session)

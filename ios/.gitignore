@@ -1,8 +1,11 @@
 .build/
+__pycache__/
+*.py[cod]
 **/.build/
 .swiftpm/
 **/.swiftpm/
 DerivedData/
+DistributionTests/
 build/
 vendor/
 *.xcodeproj/

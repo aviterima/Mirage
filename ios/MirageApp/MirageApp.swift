@@ -30,6 +30,7 @@ struct MirageRootView: View {
     @State private var confirmImport = false
     @State private var pendingBackup: URL?
     @State private var showingMap = true
+    @State private var mapPosition: MapCameraPosition = .automatic
 
     var body: some View {
         TabView {
@@ -43,8 +44,12 @@ struct MirageRootView: View {
                         }
                     }
             }.tabItem { Label("Device proof", systemImage: "location.circle") }
+            NavigationStack { SavedStopPlannerView(model: model).navigationTitle("Plan stops") }
+                .tabItem { Label("Plan stops", systemImage: "point.topleft.down.to.point.bottomright.curvepath") }
             NavigationStack { library.navigationTitle("Saved") }
                 .tabItem { Label("Saved", systemImage: "bookmark") }
+            NavigationStack { JourneyRecordingsView(model: model, observer: observer).navigationTitle("Recordings") }
+                .tabItem { Label("Recordings", systemImage: "record.circle") }
             NavigationStack { setup.navigationTitle("Setup") }
                 .tabItem { Label("Setup", systemImage: "gearshape") }
         }
@@ -150,6 +155,13 @@ struct MirageRootView: View {
 
                 DisclosureGroup("Map and output observations", isExpanded: $showingMap) {
                     map.frame(height: 250).clipShape(RoundedRectangle(cornerRadius: 12))
+                    Button(model.mode == .preview ? "Zoom to preview position" : "Zoom to emulated location") {
+                        guard model.running, let point = model.sent, point.isValid else { return }
+                        mapPosition = .region(MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: point.lat, longitude: point.lng),
+                                                               span: MKCoordinateSpan(latitudeDelta: 0.005, longitudeDelta: 0.005)))
+                    }.buttonStyle(.bordered).disabled(!model.running || model.sent == nil)
+                        .accessibilityIdentifier("zoom-emulated-location")
+                    Button("Fit planned route") { mapPosition = .automatic }.buttonStyle(.bordered)
                     coordinateRow("Planned", point: model.planned)
                     coordinateRow(model.mode == .preview ? "Preview position" : "Transport sent", point: model.sent)
                     coordinateRow("Core Location", point: observer.latest.map { Coordinate(lat: $0.coordinate.latitude, lng: $0.coordinate.longitude) })
@@ -180,13 +192,17 @@ struct MirageRootView: View {
     }
 
     private var map: some View {
-        Map {
+        Map(position: $mapPosition) {
             if model.route.count >= 2 {
                 MapPolyline(coordinates: model.route.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lng) })
                     .stroke(.teal, lineWidth: 4)
             }
             if let point = model.planned ?? model.coordinate {
                 Marker("Planned", coordinate: CLLocationCoordinate2D(latitude: point.lat, longitude: point.lng)).tint(.teal)
+            }
+            if let point = model.sent, model.running {
+                Marker(model.mode == .preview ? "Preview position" : "Emulated location sent",
+                       coordinate: CLLocationCoordinate2D(latitude: point.lat, longitude: point.lng)).tint(.blue)
             }
             if let location = observer.latest {
                 Marker("Observed", coordinate: location.coordinate).tint(.orange)
@@ -197,10 +213,15 @@ struct MirageRootView: View {
     private var library: some View {
         List {
             Section("Save a place") {
-                TextField("Place name", text: $model.savedName)
+                HStack {
+                    TextField("Place name", text: $model.savedName).accessibilityIdentifier("saved-place-name")
+                    Button { model.savedName = "" } label: { Image(systemName: "xmark.circle.fill").frame(minWidth: 44, minHeight: 44) }
+                        .accessibilityLabel("Clear place name")
+                }
                 Text("Uses the test point coordinates. Saving does not send location.").font(.caption)
                 Button("Save current test point") { Task { await model.savePoint() } }
                     .disabled(model.libraryBusy || model.coordinate == nil || model.savedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityIdentifier("save-current-place")
             }
             Section("Places and plans") {
                 if model.saved.isEmpty { Text("No saved places or plans").foregroundStyle(.secondary) }
@@ -211,6 +232,7 @@ struct MirageRootView: View {
                             Text("\(item.kind.rawValue) · \(item.stops.count) stops").font(.caption).foregroundStyle(.secondary)
                         }
                     }.disabled(model.running || model.busy || model.recoveryNeeded)
+                        .accessibilityIdentifier("library-item-\(item.name)")
                 }
             }
             Section("Android backup interchange") {
@@ -223,6 +245,11 @@ struct MirageRootView: View {
                 Text("Version 1 Mirage backups preserve places, routes and itinerary metadata. Device pairing and credentials are never exported.").font(.caption)
             }
             Section { Text(model.status).font(.callout) }
+        }.toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
+            }
         }
     }
 
@@ -250,7 +277,7 @@ struct MirageRootView: View {
             }
             Section("Build status") {
                 Text("iPhone 0.1 engineering candidate")
-                Text("Full planning, provider routes, hiking, offline dictation and Android feature parity are not yet available in this proof.").font(.caption)
+                Text("Saved-stop geometry planning and recordings are available. Provider routes, hiking, offline dictation and full Android feature parity remain unfinished.").font(.caption)
             }
         }
     }

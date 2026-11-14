@@ -11,8 +11,8 @@ settings:
     SWIFT_VERSION: "5.0"
     IPHONEOS_DEPLOYMENT_TARGET: "17.0"
     TARGETED_DEVICE_FAMILY: "1"
-    MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "1"
+    MARKETING_VERSION: "0.2.0"
+    CURRENT_PROJECT_VERSION: "2"
 targets:
   Mirage:
     type: application
@@ -23,10 +23,22 @@ targets:
         buildPhase: resources
     dependencies:
       - package: MirageCore
+    info:
+      path: build/Info.plist
+      properties:
+        CFBundleDisplayName: Mirage
+        NSLocationWhenInUseUsageDescription: Mirage records journeys you start and compares location output with real-location recovery after Stop.
+        NSLocalNetworkUsageDescription: Mirage connects to this iPhone's paired developer service through your configured local tunnel.
+        UIBackgroundModes: [location]
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.mirage.iphone
-        GENERATE_INFOPLIST_FILE: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_KEY_CFBundleDisplayName: Mirage
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: Mirage reads location to compare device output and verify real-location recovery after Stop.
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: Mirage connects to this iPhone's paired developer service through your configured local tunnel.
